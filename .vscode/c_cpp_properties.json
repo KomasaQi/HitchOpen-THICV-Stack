@@ -45,6 +45,7 @@
         "/home/komasa/catkin_ws/src/wpb_home/wpb_home_tutorials/include/**",
         "/home/komasa/catkin_ws/src/wpb_home/wpbh_local_planner/include/**",
         "/home/komasa/catkin_ws/src/wpr_simulation/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/devel/include/**",
         "/usr/include/**"
       ],
       "name": "ROS",
