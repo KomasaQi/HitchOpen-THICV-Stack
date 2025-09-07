@@ -1,0 +1,22 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/komasa/plan_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/seyond_ros_driver/install/lib/python3/dist-packages",
+        "/home/komasa/lio_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/carla-ros-bridge/catkin_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/komasa/carla/PythonAPI/carla/dist/carla-0.9.13-py3.8-linux-x86_64.egg",
+        "/home/komasa/carla/PythonAPI/carla"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/komasa/plan_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/seyond_ros_driver/install/lib/python3/dist-packages",
+        "/home/komasa/lio_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/carla-ros-bridge/catkin_ws/devel/lib/python3/dist-packages",
+        "/home/komasa/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/komasa/carla/PythonAPI/carla/dist/carla-0.9.13-py3.8-linux-x86_64.egg",
+        "/home/komasa/carla/PythonAPI/carla"
+    ]
+}
