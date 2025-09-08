@@ -1,7 +1,8 @@
 # 车辆状态消息
 std_msgs/Header header # 时间戳和所处坐标系
-std_msgs/String child_frame_id # 车辆自车坐标系名称
+string child_frame_id # 车辆自车坐标系名称
 geometry_msgs/Pose pose # 车辆位置和姿态 包含position(xyz)和orientation(xyzw)
+race_msgs/Euler euler # 车辆姿态 包含俯仰角、横滚角、偏航角
 geometry_msgs/Twist vel # 平移旋转速度 包含速度、角速度
 geometry_msgs/Twist acc # 平移旋转加速度 包含加速度、角加速度
 race_msgs/Lateral lateral # 转向情况：包含前轮转角、角速度 后轮转角、角速度
