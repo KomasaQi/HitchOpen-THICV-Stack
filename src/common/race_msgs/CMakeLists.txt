@@ -58,6 +58,8 @@ add_message_files(
   PathPoint.msg
   Lateral.msg
   Longitudinal.msg
+  VehicleStatus.msg
+  WheelSpeed.msg
 )
 
 ## Generate services in the 'srv' folder

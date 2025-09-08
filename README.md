@@ -19,12 +19,14 @@ HitchOpen-THICV-Stack/
 ├── tutorial/  # 相关笔记
 ├── src/       # 代码目录
 |   ├── common/          # 通用代码
+|   |   ├── race_msgs/       # 赛车相关自定义话题
+|   |   ├── race_steering/   # 赛车命令行手动控制
 |   ├── perception/      # 感知算法
 |   ├── localization/    # 定位算法
-|   ├── decision/    # 决策算法
-|   ├── planning/    # 规划算法
-|   ├── control/     # 控制算法
-|   ├── simulation/  # 仿真相关
+|   ├── decision/        # 决策算法
+|   ├── planning/        # 规划算法
+|   ├── control/         # 控制算法
+|   ├── simulation/      # 仿真相关
 ├── config/    # 配置文件目录
 ├── launch/    # 启动文件目录
 ├── scripts/   # 一些脚本
