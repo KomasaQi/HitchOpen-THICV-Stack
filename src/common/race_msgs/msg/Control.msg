@@ -21,9 +21,21 @@ int8 GEAR_4 = 4
 int8 GEAR_5 = 5
 int8 GEAR_6 = 6
 
+# 控制模式
+uint8 control_mode
+uint8 THROTTLE_BRAKE_ONLY = 0
+uint8 DES_SPEED_ONLY = 1
+uint8 DES_ACCEL_ONLY = 2
+
 
 # 紧急制动标志
 bool emergency
+
+# 手刹标志
+bool hand_brake
+
+# 离合标志
+bool clutch
 
 # 自定义的内容：是否双轴转向
 uint8 steering_mode

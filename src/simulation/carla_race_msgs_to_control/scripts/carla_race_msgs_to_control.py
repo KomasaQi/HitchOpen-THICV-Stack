@@ -13,12 +13,11 @@ import sys
 import rospy
 from rospy.exceptions import ROSException
 from carla_msgs.msg import CarlaEgoVehicleControl, CarlaEgoVehicleInfo
-from geometry_msgs.msg import Twist
 from race_msgs.msg import Control  # 确保race_msgs在ROS1中存在
 
-class TwistToVehicleControl:  # 移除了错误的rospy.Node继承
+class ControlToVehicleControl: 
     """
-    接收Twist消息并转换为Carla车辆控制指令
+    接收Control消息并转换为Carla车辆控制指令
     使用最大车轮转向角
     """
 
@@ -27,7 +26,7 @@ class TwistToVehicleControl:  # 移除了错误的rospy.Node继承
     def __init__(self):
         """初始化节点和回调函数"""
         # ROS1中不需要继承Node类，直接初始化节点名称
-        rospy.init_node("twist_to_control")
+        rospy.init_node("race_msgs_to_control")
 
         # 获取参数
         self.role_name = rospy.get_param("role_name", "ego_vehicle")
@@ -41,11 +40,11 @@ class TwistToVehicleControl:  # 移除了错误的rospy.Node继承
             queue_size=1
         )
 
-        # 订阅Twist消息
-        self.twist_sub = rospy.Subscriber(
-            f"/carla/{self.role_name}/twist",
-            Twist,
-            self.twist_received,
+        # 订阅Control消息
+        self.race_control_sub = rospy.Subscriber(
+            f"/race/control",
+            Control,
+            self.race_control_received,
             queue_size=10
         )
 
@@ -68,34 +67,32 @@ class TwistToVehicleControl:  # 移除了错误的rospy.Node继承
             sys.exit(1)
         rospy.loginfo(f"车辆信息已接收，最大转向角: {self.max_steering_angle}")
 
-    def twist_received(self, twist):
-        """将Twist消息转换为车辆控制指令并发布"""
+    def race_control_received(self, race_control):
+        """将race_msgs::Control消息转换为车辆控制指令并发布"""
         if self.max_steering_angle is None:
             rospy.logwarn("尚未接收车辆信息，暂不处理控制指令")
             return
 
         control = CarlaEgoVehicleControl()
 
-        # 处理停止状态（ Twist为零表示停止 ）
-        if twist == Twist():
+        # 处理油门和倒车
+        control.throttle = race_control.throttle
+        control.brake = race_control.brake
+        if race_control.gear == Control.GEAR_REVERSE:
+            control.reverse = True
+        else:
+            control.reverse = False
+            
+        control.steer = -race_control.lateral.steering_angle
+        
+        if race_control.emergency:
             control.throttle = 0.0
             control.brake = 1.0
             control.steer = 0.0
-        else:
-            # 处理油门和倒车
-            if twist.linear.x > 0:
-                control.throttle = min(self.MAX_LON_ACCELERATION, twist.linear.x) / self.MAX_LON_ACCELERATION
-                control.reverse = False
-            else:
-                control.reverse = True
-                control.throttle = max(-self.MAX_LON_ACCELERATION, twist.linear.x) / -self.MAX_LON_ACCELERATION
 
-            # 处理转向（根据角速度计算转向比例）
-            if twist.angular.z > 0:
-                control.steer = -min(self.max_steering_angle, twist.angular.z) / self.max_steering_angle
-            else:
-                control.steer = -max(-self.max_steering_angle, twist.angular.z) / self.max_steering_angle
-
+        control.hand_brake = race_control.hand_brake
+        
+        
         # 发布控制指令
         try:
             self.control_pub.publish(control)
@@ -108,7 +105,7 @@ def main(args=None):
     """主函数"""
     try:
         # 直接创建类实例（类内部已初始化节点）
-        twist_to_control = TwistToVehicleControl()
+        control_to_control = ControlToVehicleControl()
         rospy.spin()  # 保持节点运行
     except KeyboardInterrupt:
         rospy.loginfo("用户中断程序")
