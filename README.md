@@ -4,12 +4,11 @@
 Hello，我是Komasa Qi，这个仓库主要是整理了关于液罐车小车平台和HitchOpen世界AI竞速锦标赛中相关代码的一个集成仓库，包含了感知决策规划控制相关代码的完整部署。里面也有很多我的相关笔记来备忘，方便在新机器上快速部署相关算法。
 
 **系统推荐配置：**
-- 操作系统：Ubuntu 20.04 64位 x86架构
+- 操作系统：Ubuntu 20.04 64位 x86架构 
 - ROS版本：Noetic
-- 处理器：Intel i7-11800H 及以上
 - 内存：16GB 及以上
 - 显卡：RTX 3080 及以上
-- 存储：512GB SSD 及以上
+- 存储：256 GB SSD 及以上
 
 相关仿真是跑在CARLA 0.9.13版本上的，仿真桥相关代码在`src/simulation/carla_race_bridge`目录下。[Ubuntu 20.04 ROS Noetic安装Carla 0.9.13 Linux编译版笔记](/tutorial/install_carla/Linux安装Carla编译版教程-小晶.docx)
 
@@ -17,7 +16,7 @@ Hello，我是Komasa Qi，这个仓库主要是整理了关于液罐车小车平
 
 ## 2. 项目结构
 本项目如上所述包含了感知决策规划控制相关代码，同时也包含了一些相关的笔记。项目结构如下：
-``` cmake
+``` bash
 HitchOpen-THICV-Stack/
 ├── README.md
 ├── tutorial/  # 相关笔记
@@ -44,8 +43,25 @@ HitchOpen-THICV-Stack/
 ├── scripts/   # 一些脚本
 └── ...
 ```
+## 3. 算法说明
+本仓库涉及的算法下面将一一说明
 
-## 3. 安装运行
+### 3.1 建图与定位算法
+
+
+### 3.2 环境感知算法
+
+
+### 3.3 行为决策算法
+
+
+### 3.4 轨迹规划算法
+
+
+### 3.5 运动控制算法
+
+
+## 4. 安装运行
 
 首先下载本项目
 ``` bash

@@ -46,6 +46,9 @@
         "/home/komasa/catkin_ws/src/wpb_home/wpbh_local_planner/include/**",
         "/home/komasa/catkin_ws/src/wpr_simulation/include/**",
         "/home/komasa/HitchOpen-THICV-Stack/devel/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/src/planning/race_global_static_planner/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/src/planning/race_global_static_planner/utils/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/devel/race_msgs/include/**",
         "/usr/include/**"
       ],
       "name": "ROS",
