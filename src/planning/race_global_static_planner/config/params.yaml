@@ -11,10 +11,10 @@ enable_closed_loop: true # 是否处理为闭环路径
 
 # -------------------------- 发布频率配置 --------------------------
 # 全局路径发布频率（Hz），默认1Hz（全局路径静态，无需高频发布）
-global_path_publish_rate: 10.0
+global_path_publish_rate: 1.0
 
 # 局部路径发布频率（Hz），默认10Hz（与车辆状态更新频率同步）
-local_path_publish_rate: 15.0
+local_path_publish_rate: 10.0
 
 # -------------------------- 可视化配置 --------------------------
 # 是否发布全局路径可视化话题（/race/global_path_vis，nav_msgs/Path）
