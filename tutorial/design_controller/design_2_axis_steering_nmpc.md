@@ -11,6 +11,7 @@ F_{y1} &= k_1 \alpha_1 = k_1 \left(\arctan\left(\frac{v_y}{v_x}+\frac{\omega_r a
 F_{y2} &= k_2 \alpha_2 = k_2 \left(\arctan\left(\frac{v_y}{v_x}-\frac{\omega_r b}{v_x}\right)-\delta_2\right)\\
 \end{aligned}
 $$
+
 其中$\alpha_1$和$\alpha_2$分别为前后轴的轮胎侧偏角，$\delta_1$和$\delta_2$分别为前后轴的转向角，$\omega_r$为车辆的横摆角速度，$v_y$为车辆质心的侧向速度，$v_x$为车辆质心的纵向速度，$a$和$b$分别为质心到前后轴的距离。
 
 对于车辆质心进行受力分析，假设车辆质量为$m$，则有：
@@ -54,4 +55,8 @@ $$
 $$
 
 ## 3. 代码描述
-我们可以定义一个ODM
+我们可以定义一个非线性的ODE来描述这个考虑执行器迟滞的车辆动力学模型。
+
+``` matlab
+
+```

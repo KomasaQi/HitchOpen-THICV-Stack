@@ -1,0 +1,19 @@
+<library path="lib/libpure_pursuit_controller">
+    <class name="race_tracker::PurePursuitController"
+           type="race_tracker::PurePursuitController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            A Pure Pursuit controller for lateral control.
+        </description>
+    </class>
+</library>
+
+<library path="lib/libpid_controller">
+    <class name="race_tracker::PIDController"
+           type="race_tracker::PIDController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            A simple PID controller for longitudinal control.
+        </description>
+    </class>
+</library>

@@ -61,6 +61,7 @@ add_message_files(
   VehicleStatus.msg
   WheelSpeed.msg
   Euler.msg
+  Flag.msg
 )
 
 ## Generate services in the 'srv' folder

@@ -1,0 +1,48 @@
+<launch>
+    <!-- 控制器管理器节点 -->
+    <node pkg="race_tracker" 
+          type="controller_manager" 
+          name="controller_manager" 
+          output="screen"
+          respawn="false"> <!-- 崩溃后不自动重启 -->
+
+        <!-- 1. 核心参数配置 -->
+        <param name="control_freq" type="double" value="50.0" /> <!-- 控制频率：10Hz -->
+        <param name="topic/local_path" type="string" value="/race/local_path" />
+        <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
+        <param name="topic/control" type="string" value="/race/control" />
+
+        <!-- 2. 插件列表（顺序：横向控制器 -> 纵向控制器，后执行的可覆盖前执行的） -->
+        <rosparam param="plugins">
+            - race_tracker::PurePursuitController  <!-- 横向控制：纯追踪 -->
+            - race_tracker::PIDController          <!-- 纵向控制：PID -->
+        </rosparam>
+
+        <!-- 3. 纯追踪控制器参数（根据实车调整） -->
+        <rosparam ns="pure_pursuit">
+            lookahead_distance: 4.0       <!-- 预瞄距离（m）：速度快则调大 -->
+            wheelbase: 2.7                <!-- 车辆轴距（m）：必须与实车一致 -->
+            max_steering_angle: 0.785     <!-- 最大转向角（rad）：0.785≈45度 -->
+            min_path_points: 3            <!-- 最小有效路径点数 -->
+            <!-- 新增：动态预瞄参数 -->
+            min_lookahead_distance: 5.0   <!-- 最小预瞄距离（m）：速度为0时的预瞄距离 -->
+            lookahead_speed_coeff: 0.8    <!-- 速度系数（s）：速度每增加1m/s，预瞄距离增加0.6m -->
+        </rosparam>
+
+        <!-- 4. PID控制器参数（根据实车调整） -->
+        <rosparam ns="pid">
+            kp: 0.7                       <!-- 比例增益：越大响应越快（易超调） -->
+            ki: 0.03                      <!-- 积分增益：越小越稳定（易滞后） -->
+            kd: 0.15                      <!-- 微分增益：抑制超调（易受噪声影响） -->
+            max_throttle: 1.0             <!-- 最大油门（0~1）：避免急加速 -->
+            max_brake: 1.0                <!-- 最大刹车（0~1）：避免急刹车 -->
+            integral_limit: 1.5           <!-- 积分限幅：防止积分饱和 -->
+            speed_tolerance: 0.3          <!-- 速度误差容忍度（m/s）：避免低速抖动 -->
+            min_target_speed: 0.5         <!-- 最小目标速度（m/s）：避免停车后无法启动 -->
+        </rosparam>
+
+    </node>
+
+    <!-- 可选：启动rqt_graph查看节点关系 -->
+    <!-- <node pkg="rqt_graph" type="rqt_graph" name="rqt_graph" output="screen" /> -->
+</launch>

@@ -5,7 +5,7 @@
 
 # -------------------------- CSV路径配置 --------------------------
 # 全局路径CSV文件路径（为空时使用默认路径：包内config/corsa.csv）
-csv_file_path: "config/corsa_complex.csv"
+csv_file_path: "config/Carla_Town10.csv"
 
 enable_closed_loop: true # 是否处理为闭环路径
 
@@ -25,7 +25,7 @@ local_visualization_enable: true
 
 # -------------------------- 局部路径范围配置 --------------------------
 # 局部路径向前覆盖距离（车辆前方的路径长度，单位：米）
-local_path_forward_distance: 30.0
+local_path_forward_distance: 35.0
 
 # 局部路径向后覆盖距离（车辆后方的路径长度，单位：米）
 local_path_backward_distance: 5.0

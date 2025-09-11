@@ -49,6 +49,7 @@
         "/home/komasa/HitchOpen-THICV-Stack/src/planning/race_global_static_planner/include/**",
         "/home/komasa/HitchOpen-THICV-Stack/src/planning/race_global_static_planner/utils/include/**",
         "/home/komasa/HitchOpen-THICV-Stack/devel/race_msgs/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/**",
         "/usr/include/**"
       ],
       "name": "ROS",
