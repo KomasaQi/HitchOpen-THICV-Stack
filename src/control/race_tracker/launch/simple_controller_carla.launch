@@ -7,7 +7,7 @@
           respawn="false"> <!-- 崩溃后不自动重启 -->
 
         <!-- 1. 核心参数配置 -->
-        <param name="control_freq" type="double" value="50.0" /> <!-- 控制频率：10Hz -->
+        <param name="control_freq" type="double" value="25.0" /> <!-- 控制频率：10Hz -->
         <param name="topic/local_path" type="string" value="/race/local_path" />
         <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
         <param name="topic/control" type="string" value="/race/control" />
@@ -34,8 +34,8 @@
             kp: 0.7                       <!-- 比例增益：越大响应越快（易超调） -->
             ki: 0.03                      <!-- 积分增益：越小越稳定（易滞后） -->
             kd: 0.15                      <!-- 微分增益：抑制超调（易受噪声影响） -->
-            max_throttle: 1.0             <!-- 最大油门（0~1）：避免急加速 -->
-            max_brake: 1.0                <!-- 最大刹车（0~1）：避免急刹车 -->
+            max_throttle: 0.98             <!-- 最大油门（0~1）：避免急加速 -->
+            max_brake: 0.97                <!-- 最大刹车（0~1）：避免急刹车 -->
             integral_limit: 1.5           <!-- 积分限幅：防止积分饱和 -->
             speed_tolerance: 0.3          <!-- 速度误差容忍度（m/s）：避免低速抖动 -->
             min_target_speed: 0.5         <!-- 最小目标速度（m/s）：避免停车后无法启动 -->

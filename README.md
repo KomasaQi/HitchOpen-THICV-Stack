@@ -1,4 +1,11 @@
-# HitchOpen-THICV-Stack 清华大学智能网联汽车课题组Komasa的自动驾驶软件栈
+# HitchOpen-THICV-Stack 清华大学智能网联汽车课题组自动驾驶软件栈
+### Author: 
+- Komasa Qi 
+### Coauthors: 
+- Zou Hengduo
+- Fu Shangyu
+- Qiu Yifan
+- Leng Jiatong
 
 ## 1. 项目介绍
 Hello，我是Komasa Qi，这个仓库主要是整理了关于液罐车小车平台和HitchOpen世界AI竞速锦标赛中相关代码的一个集成仓库，包含了感知决策规划控制相关代码的完整部署。里面也有很多我的相关笔记来备忘，方便在新机器上快速部署相关算法。
