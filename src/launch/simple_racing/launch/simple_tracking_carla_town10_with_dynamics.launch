@@ -1,0 +1,19 @@
+<launch>
+    <!-- 启动Carla ROS Bridge -->
+    <include file="$(find carla_ros_bridge)/launch/carla_ros_bridge_with_example_ego_vehicle.launch" >
+        <arg name="timeout" value="20.0" />
+        <arg name="town" value="Town10HD_Opt" />
+        <arg name='fixed_delta_seconds' value='0.04'/>
+    </include>
+    <!-- 启动Carla Race Bridge-->
+    <include file="$(find carla_race_bridge)/launch/carla_race_bridge_with_dynamics.launch" />
+
+    <!-- 启动全局规划器 -->
+    <include file="$(find race_global_static_planner)/launch/race_global_carla_town10.launch" />
+
+    <!-- 启动跟踪控制器 -->
+    <include file="$(find race_tracker)/launch/simple_controller_carla.launch" />
+
+
+
+</launch>

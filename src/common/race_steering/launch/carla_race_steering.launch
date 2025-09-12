@@ -5,6 +5,7 @@
   <!-- 启动race_steering_tool节点 -->
   <node name="race_steering_tool" pkg="race_steering" type="race_steering_tool.py" output="screen">
     <!-- 可以在这里覆盖配置文件中的参数 -->
-    <!-- <param name="publish_rate" value="20.0" /> -->
+    <param name="steering_control_rate" value="3.5" />
+
   </node>
 </launch>
