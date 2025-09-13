@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(race_tracker)
 
 # 新增：启用C++17编译（关键，解决std::clamp问题）
-add_compile_options(-std=c++17)
+# add_compile_options(-std=c++17)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -16,6 +16,18 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES race_tracker
   CATKIN_DEPENDS roscpp std_msgs race_msgs geometry_msgs pluginlib
+)
+find_package(CasADi REQUIRED)
+if(NOT CasADi_FOUND)
+  message(FATAL_ERROR "Casadi not found! Please install Casadi first.")
+endif()
+
+catkin_package(
+ INCLUDE_DIRS include
+ LIBRARIES go2_control
+ CATKIN_DEPENDS roscpp std_msgs
+ DEPENDS CasADi
+#  DEPENDS system_lib
 )
 
 include_directories(

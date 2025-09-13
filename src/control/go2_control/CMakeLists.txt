@@ -143,6 +143,55 @@ install(TARGETS test_tracking_simple_dist
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+# 测试QP相关求解器是否安装成功
+add_executable(test_qp src/test_qp.cpp)
+target_link_libraries(test_qp
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_qp PRIVATE /usr/local/include/casadi)
+install(TARGETS test_qp
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# 测试暖启动
+add_executable(test_tracking_warmstart src/test_tracking_warmstart.cpp)
+target_link_libraries(test_tracking_warmstart
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_warmstart PRIVATE /usr/local/include)
+install(TARGETS test_tracking_warmstart
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# 进一步对简化计算距离方案进行优化
+add_executable(test_tracking_simple_dist_opt src/test_tracking_simple_dist_opt.cpp)
+target_link_libraries(test_tracking_simple_dist_opt
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_simple_dist_opt PRIVATE /usr/local/include)
+install(TARGETS test_tracking_simple_dist_opt
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+
+# 保证不收敛的时候也不会报错，而是返回次优解
+add_executable(test_tracking_suboptimal src/test_tracking_suboptimal.cpp)
+target_link_libraries(test_tracking_suboptimal
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_suboptimal PRIVATE /usr/local/include)
+install(TARGETS test_tracking_suboptimal
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 #############
 ## Install ##
 #############
