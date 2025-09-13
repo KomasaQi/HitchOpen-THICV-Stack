@@ -21,81 +21,8 @@ endif()
 # find_package(Boost REQUIRED COMPONENTS system)
 
 
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
 
-################################################
-## Declare ROS messages, services and actions ##
-################################################
 
-## To declare and build messages, services or actions from within this
-## package, follow these steps:
-## * Let MSG_DEP_SET be the set of packages whose message types you use in
-##   your messages/services/actions (e.g. std_msgs, actionlib_msgs, ...).
-## * In the file package.xml:
-##   * add a build_depend tag for "message_generation"
-##   * add a build_depend and a exec_depend tag for each package in MSG_DEP_SET
-##   * If MSG_DEP_SET isn't empty the following dependency has been pulled in
-##     but can be declared for certainty nonetheless:
-##     * add a exec_depend tag for "message_runtime"
-## * In this file (CMakeLists.txt):
-##   * add "message_generation" and every package in MSG_DEP_SET to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * add "message_runtime" and every package in MSG_DEP_SET to
-##     catkin_package(CATKIN_DEPENDS ...)
-##   * uncomment the add_*_files sections below as needed
-##     and list every .msg/.srv/.action file to be processed
-##   * uncomment the generate_messages entry below
-##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
-
-## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
-
-## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
-
-## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
-
-## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-# )
-
-################################################
-## Declare ROS dynamic reconfigure parameters ##
-################################################
-
-## To declare and build dynamic reconfigure parameters within this
-## package, follow these steps:
-## * In the file package.xml:
-##   * add a build_depend and a exec_depend tag for "dynamic_reconfigure"
-## * In this file (CMakeLists.txt):
-##   * add "dynamic_reconfigure" to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * uncomment the "generate_dynamic_reconfigure_options" section below
-##     and list every .cfg file to be processed
-
-## Generate dynamic reconfigure parameters in the 'cfg' folder
-# generate_dynamic_reconfigure_options(
-#   cfg/DynReconf1.cfg
-#   cfg/DynReconf2.cfg
-# )
 
 ###################################
 ## catkin specific configuration ##
@@ -138,7 +65,7 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(test_casadi src/test_casadi.cpp)
+
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -151,13 +78,70 @@ add_executable(test_casadi src/test_casadi.cpp)
 # add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
+
+
+# 通过倒立摆的控制描述了一个简单的NMPC的框架
+add_executable(test_casadi src/test_casadi.cpp)
 target_link_libraries(test_casadi
   ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so
 )
 target_include_directories(test_casadi PRIVATE /usr/local/include)
+install(TARGETS test_casadi
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
+
+# 针对4自由度运动学进行轨迹跟踪控制的案例
+add_executable(test_tracking src/test_tracking.cpp)
+target_link_libraries(test_tracking
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking PRIVATE /usr/local/include)
+install(TARGETS test_tracking
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+
+# 采用Moving Block方法减少待优化变量的数量
+add_executable(test_tracking_MB src/test_tracking_MB.cpp)
+target_link_libraries(test_tracking_MB
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_MB PRIVATE /usr/local/include)
+install(TARGETS test_tracking_MB
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# 采用点到参考轨迹的插值距离和速度作为参考，而非每个时刻都固定点
+add_executable(test_tracking_dist src/test_tracking_dist.cpp)
+target_link_libraries(test_tracking_dist
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_dist PRIVATE /usr/local/include)
+install(TARGETS test_tracking_dist
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+
+# 为提速计算，简化参考点计算，直接采用最近点计算每个点的位置和参考速度
+add_executable(test_tracking_simple_dist src/test_tracking_simple_dist.cpp)
+target_link_libraries(test_tracking_simple_dist
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_tracking_simple_dist PRIVATE /usr/local/include)
+install(TARGETS test_tracking_simple_dist
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 #############
 ## Install ##
@@ -175,9 +159,7 @@ target_include_directories(test_casadi PRIVATE /usr/local/include)
 
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
-install(TARGETS test_casadi
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+
 
 ## Mark libraries for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html

@@ -97,6 +97,7 @@
         "valarray": "cpp",
         "variant": "cpp",
         "filesystem": "cpp",
-        "numbers": "cpp"
+        "numbers": "cpp",
+        "netfwd": "cpp"
     }
 }
