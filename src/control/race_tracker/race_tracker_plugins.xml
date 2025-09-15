@@ -18,3 +18,12 @@
     </class>
 </library>
 
+<library path="lib/libkinematic_controller">
+    <class name="race_tracker::KinematicController"
+           type="race_tracker::KinematicController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            A simple kinematic mpc controller for longitudinal and lateral control.
+        </description>
+    </class>
+</library>

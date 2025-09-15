@@ -180,6 +180,33 @@ install(TARGETS test_tracking_simple_dist_opt
 )
 
 
+# 对车辆模型进行仿真验证
+add_executable(sim_vehicle_model src/sim_vehicle_model.cpp)
+target_link_libraries(sim_vehicle_model
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(sim_vehicle_model PRIVATE /usr/local/include)
+install(TARGETS sim_vehicle_model
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+
+
+
+# 双轴转向轨迹跟踪
+add_executable(dual_axis_tracker src/dual_axis_tracker.cpp)
+target_link_libraries(dual_axis_tracker
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(dual_axis_tracker PRIVATE /usr/local/include)
+install(TARGETS dual_axis_tracker
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 # 保证不收敛的时候也不会报错，而是返回次优解
 add_executable(test_tracking_suboptimal src/test_tracking_suboptimal.cpp)
 target_link_libraries(test_tracking_suboptimal

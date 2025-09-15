@@ -98,6 +98,8 @@
         "variant": "cpp",
         "filesystem": "cpp",
         "numbers": "cpp",
-        "netfwd": "cpp"
+        "netfwd": "cpp",
+        "*.inc": "cpp",
+        "rope": "cpp"
     }
 }
