@@ -6,6 +6,7 @@
 #include <race_msgs/Control.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/VehicleStatus.h>
+#include <race_msgs/Flag.h>
 #include <memory>
 #include <vector>
 
@@ -49,6 +50,8 @@ private:
         nh_.param("topic/local_path", local_path_topic_, std::string("/race/local_path"));
         nh_.param("topic/vehicle_state", vehicle_state_topic_, std::string("/race/vehicle_state"));
         nh_.param("topic/control", control_topic_, std::string("/race/control"));
+        nh_.param("topic/flag", flag_topic_, std::string("/race/flag"));
+        nh_.param("ego_frame_id", ego_frame_id_, std::string("ego_vehicle"));
         // 插件列表（必须在launch中配置）
         if (!nh_.getParam("plugins", plugin_names_)) {
             ROS_FATAL("[ControllerManager] 未配置插件列表（参数名: plugins），请检查launch文件！");
@@ -61,6 +64,7 @@ private:
         ROS_INFO("  - 局部路径话题: %s", local_path_topic_.c_str());
         ROS_INFO("  - 车辆状态话题: %s", vehicle_state_topic_.c_str());
         ROS_INFO("  - 控制指令话题: %s", control_topic_.c_str());
+        ROS_INFO("  - 标志话题: %s", flag_topic_.c_str());
         ROS_INFO("  - 插件列表: ");
         for (const auto& plugin : plugin_names_) {
             ROS_INFO("    - %s", plugin.c_str());
@@ -126,13 +130,16 @@ private:
         // 发布控制指令（队列大小1）
         control_pub_ = nh_.advertise<race_msgs::Control>(
             control_topic_, 1);
+        // 订阅标志话题（队列大小1）
+        flag_sub_ = nh_.subscribe(
+            flag_topic_, 1, &ControllerManager::flagCallback, this);
     }
 
     /**
      * @brief 初始化默认控制指令（避免未初始化字段）
      */
     void initDefaultControlMsg() {
-        control_msg_.header.frame_id = "base_link"; // 自车坐标系
+        control_msg_.header.frame_id = ego_frame_id_; // 自车坐标系
         control_msg_.gear = race_msgs::Control::GEAR_1; // 默认1档
         control_msg_.emergency = false; // 非紧急状态
         control_msg_.hand_brake = false; // 手刹关闭
@@ -182,6 +189,15 @@ private:
     }
 
     /**
+     * @brief 标志话题回调：保存最新标志数据
+     */
+    void flagCallback(const race_msgs::Flag::ConstPtr& flag_msg) {
+        std::lock_guard<std::mutex> lock(flag_mutex_); // 线程安全
+        last_flag_ = flag_msg;
+        // ROS_DEBUG("[ControllerManager] 接收新标志（状态: %d）", flag_msg->flag);
+    }
+
+    /**
      * @brief 周期控制回调（核心：调用插件计算控制指令）
      */
     void controlCycleCallback(const ros::TimerEvent& event) {
@@ -210,7 +226,7 @@ private:
 
         // 4. 调用所有插件计算控制指令（按插件列表顺序执行，后执行的覆盖前执行的）
         for (const auto& plugin : plugins_) {
-            plugin->computeControl(status, path, &control_msg_, dt);
+            plugin->computeControl(status, path, &control_msg_, dt, last_flag_);
         }
 
         // 5. 设置控制指令时间戳并发布
@@ -243,6 +259,7 @@ private:
     ros::Subscriber path_sub_;
     ros::Subscriber status_sub_;
     ros::Publisher control_pub_;
+    ros::Subscriber flag_sub_; // 标志话题订阅者
     // 周期控制定时器
     ros::Timer control_timer_;
     // 插件管理
@@ -252,16 +269,20 @@ private:
     // 数据缓存（最新路径和车辆状态）
     race_msgs::PathConstPtr last_path_;
     race_msgs::VehicleStatusConstPtr last_status_;
+    race_msgs::Flag::ConstPtr last_flag_; // 标志话题数据
     // 控制指令（持续修改并发布）
     race_msgs::Control control_msg_;
     // 线程安全锁（避免回调与控制周期并发访问数据）
     std::mutex path_mutex_;
     std::mutex status_mutex_;
+    std::mutex flag_mutex_; // 标志话题数据锁
     // 核心参数
     double control_freq_; // 控制频率（Hz）
+    std::string ego_frame_id_; // ego车辆坐标系
     std::string local_path_topic_; // 局部路径话题
     std::string vehicle_state_topic_; // 车辆状态话题
     std::string control_topic_; // 控制指令话题
+    std::string flag_topic_; // 标志话题
     // 时间戳（计算dt）
     ros::Time last_control_time_;
 };

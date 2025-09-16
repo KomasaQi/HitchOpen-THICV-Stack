@@ -11,6 +11,8 @@
         <param name="topic/local_path" type="string" value="/race/local_path" />
         <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
         <param name="topic/control" type="string" value="/race/control" />
+        <param name="topic/flag" type="string" value="/race/flag" />
+        <param name="ego_frame_id" type="string" value="ego_vehicle" />
 
         <!-- 2. 插件列表（顺序：横向控制器 -> 纵向控制器，后执行的可覆盖前执行的） -->
         <rosparam param="plugins">

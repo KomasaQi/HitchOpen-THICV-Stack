@@ -52,7 +52,8 @@ void PIDController::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
     const race_msgs::PathConstPtr& path,
     race_msgs::Control* control_msg,
-    const double dt) {
+    const double dt,
+    const race_msgs::Flag::ConstPtr& flag) {
 
     // 1. 检查输入数据有效性
     if (!vehicle_status || !path || !control_msg) {

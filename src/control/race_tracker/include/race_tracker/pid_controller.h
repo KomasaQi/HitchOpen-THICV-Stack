@@ -22,7 +22,8 @@ public:
         const race_msgs::VehicleStatusConstPtr& vehicle_status,
         const race_msgs::PathConstPtr& path,
         race_msgs::Control* control_msg,
-        const double dt) override;
+        const double dt,
+        const race_msgs::Flag::ConstPtr& flag) override;
     std::string getName() const override { return "PIDController"; }
 
 private:

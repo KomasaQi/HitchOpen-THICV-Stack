@@ -222,7 +222,8 @@ void NMPCController::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
     const race_msgs::PathConstPtr& path,
     race_msgs::Control* control_msg,
-    const double dt) {
+    const double dt,
+    const race_msgs::Flag::ConstPtr& flag) {
     
     if (!vehicle_status || !path || !control_msg) {
         ROS_ERROR("[%s] 输入参数为空指针", getName().c_str());

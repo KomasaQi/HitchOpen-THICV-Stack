@@ -6,6 +6,7 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <string>
+#include <race_msgs/Flag.h>
 
 namespace race_tracker {
 
@@ -33,7 +34,8 @@ public:
         const race_msgs::VehicleStatusConstPtr& vehicle_status,
         const race_msgs::PathConstPtr& path,
         race_msgs::Control* control_msg,
-        const double dt) = 0;
+        const double dt,
+        const race_msgs::Flag::ConstPtr& flag) = 0;
 
     /**
      * @brief 获取插件名称（用于日志和调试）
