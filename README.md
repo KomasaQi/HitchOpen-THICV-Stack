@@ -1,11 +1,5 @@
 # HitchOpen-THICV-Stack 清华大学智能网联汽车课题组自动驾驶软件栈
-### Author: 
-- Komasa Qi 
-### Coauthors: 
-- Zou Hengduo
-- Fu Shangyu
-- Qiu Yifan
-- Leng Jiatong
+
 
 ## 1. 项目介绍
 Hello，我是Komasa Qi，这个仓库主要是整理了关于液罐车小车平台和HitchOpen世界AI竞速锦标赛中相关代码的一个集成仓库，包含了感知决策规划控制相关代码的完整部署。里面也有很多我的相关笔记来备忘，方便在新机器上快速部署相关算法。
@@ -42,6 +36,12 @@ HitchOpen-THICV-Stack/
 |   |   ├── race_global_static_planner/   # 全局静态规划器
 |   |   └── race_tracker/                 # 路径跟踪控制器
 |   ├── control/         # 控制算法
+|   |   ├── go2_control/                  # casadi构建控制器示例
+|   |   └── race_tracker/                 # 轨迹跟踪控制器
+|   |       └── plugins/                  # 轨迹跟踪控制器插件
+|   |           ├── nmpc_controller.cpp   # 双轴转向横纵向耦合NMPC插件
+|   |           ├── pure_pursuit.cpp      # 纯跟踪横向控制
+|   |           └── pid_controller.cpp    # PID纵向控制器插件
 |   ├── simulation/      # 仿真相关
 |   |   ├── carla_race_state_converter/   # 状态转换代码
 |   |   └── carla_race_msgs_to_control/   # 控制指令转换代码
@@ -77,3 +77,24 @@ HitchOpen-THICV-Stack/
 cd ~
 git clone https://github.com/KomasaQi/HitchOpen-THICV-Stack.git
 ```
+
+### 4.1 比赛计时器 Competition Timer
+`competition_timer`是控制代码运行的必要前提，为车辆运行提供安全保障，在运行前务必进行相关设置。
+
+手动更改比赛计时器的旗帜状态为GREEN：
+``` bash
+rosparam set /competition_timer/flag GREEN
+```
+
+## Contributors:
+- 戚笑景 Komasa Qi （清华大学）
+- 何瑞坤 He Ruikun （辽宁工业大学）
+- 邹恒多 Zou Hengduo （清华大学）
+- 扶尚宇 Fu Shangyu （清华大学）
+- 邱逸凡 Qiu Yifan （中国农业大学）
+- 黄梓谦 Huang Ziqian （华南理工大学）
+- 冷佳桐 Leng Jiatong （清华大学）
+- 李珂 Li Ke （重庆大学） 
+- 蒋涛 Jiang Tao （重庆大学）
+
+感谢以上所有参与项目的贡献者，我们的项目是一个开源项目，欢迎所有的贡献者参与进来。

@@ -248,10 +248,11 @@ void NMPCController::computeControl(
     }
 
     // 将求解结果转换为控制消息
-    if (vehicle_status->vel.linear.x > max_speed_) {
+    if (vehicle_status->vel.linear.x > max_speed_ && control_output[0] > 0.0) {
         control_output[0] = 0.0; // 进行限速
     }
-    control_msg->throttle = control_output[0];
+    control_msg->throttle = control_output[0]*(control_output[0] > 0);
+    control_msg->brake = -control_output[0]*(control_output[0] <= 0);
     control_msg->lateral.steering_angle = control_output[1];
     control_msg->lateral.rear_wheel_angle = control_output[2];
     
