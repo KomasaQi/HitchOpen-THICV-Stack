@@ -34,12 +34,12 @@ class ControlToVehicleControlWithDynamics:
 
         # 获取参数
         self.role_name = rospy.get_param("role_name", "ego_vehicle")
-        self.steer_Lag = rospy.get_param("steer_Lag", 0.1)
-        self.acc_Lag = rospy.get_param("acc_Lag", 0.1)
-        self.brake_Lag = rospy.get_param("brake_Lag", 0.1)
-        self.steer_tau = rospy.get_param("steer_tau", 0.5)
-        self.acc_tau = rospy.get_param("acc_tau", 0.2)
-        self.brake_tau = rospy.get_param("brake_tau", 0.2)
+        self.steer_Lag = rospy.get_param("steer_Lag", 0.05)
+        self.acc_Lag = rospy.get_param("acc_Lag", 0.05)
+        self.brake_Lag = rospy.get_param("brake_Lag", 0.05)
+        self.steer_tau = rospy.get_param("steer_tau", 0.2)
+        self.acc_tau = rospy.get_param("acc_tau", 0.05)
+        self.brake_tau = rospy.get_param("brake_tau", 0.05)
         self.steer_max_vel = rospy.get_param("steer_max_vel", 0.7854) # 45度/s
         
         self.store_periods = rospy.get_param("store_periods", 5) # 存储的指令周期数量

@@ -1,23 +1,24 @@
 #ifndef RACE_TRACKER_NMPC_CONTROLLER_H
 #define RACE_TRACKER_NMPC_CONTROLLER_H
 
-#include "race_tracker/controller_plugin_base.h"
-#include <cmath>
-#include <limits>
-#include <algorithm>
 #include <casadi/casadi.hpp>
+#include <ros/ros.h>
+#include <vector>
+#include <tf/transform_datatypes.h>
+#include "race_tracker/controller_plugin_base.h"
+#include <race_msgs/Control.h>
+#include <race_msgs/VehicleStatus.h>
+#include <race_msgs/Path.h>
+#include <memory>
+
 
 namespace race_tracker {
 
-/**
- * @brief NMPC横纵向耦合控制器（控制油门/刹车，跟踪目标速度）
- */
 class NMPCController : public ControllerPluginBase {
 public:
-    NMPCController();
+    NMPCController() = default;
     ~NMPCController() override = default;
 
-    // 实现基类接口
     bool initialize(ros::NodeHandle& nh) override;
     void computeControl(
         const race_msgs::VehicleStatusConstPtr& vehicle_status,
@@ -27,37 +28,74 @@ public:
     std::string getName() const override { return "NMPCController"; }
 
 private:
-    /**
-     * @brief 查找目标速度（车辆前方最近路径点的速度）
-     * @param vehicle_status 车辆状态（位置）
-     * @param path 局部路径
-     * @return 目标速度（m/s），若路径无效则返回0
-     */
-    double findTargetVelocity(
-        const race_msgs::VehicleStatusConstPtr& vehicle_status,
-        const race_msgs::PathConstPtr& path);
+    // 辅助函数
+    double quaternion_to_yaw(const geometry_msgs::Quaternion& q);
+    int find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path);
+    std::vector<double> calculate_cumulative_distance(const race_msgs::Path& path, int start_idx);
+    std::vector<double> linear_interpolate(const std::vector<double>& s_original, 
+                                         const std::vector<double>& val_original, 
+                                         const std::vector<double>& s_target);
+    casadi::DM interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
+                                      int start_idx, int end_idx, int n_waypoints);
+    casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state);
 
-private:
-    // PID核心参数（从参数服务器加载）
-    double kp_;                // 比例增益，默认0.6
-    double ki_;                // 积分增益，默认0.05
-    double kd_;                // 微分增益，默认0.1
-    double max_throttle_;      // 最大油门输出（0~1），默认0.8
-    double max_brake_;         // 最大刹车输出（0~1），默认0.8
-    double integral_limit_;    // 积分限幅（防止积分饱和），默认2.0
-    double speed_tolerance_;   // 速度误差容忍度（m/s），默认0.2（误差小于此值时不输出）
-    double min_target_speed_;  // 最小目标速度（m/s），默认0.5（避免低速抖动）
+    // NMPC求解函数
+    bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
+                  std::vector<double>& control_output);
 
-    // PID状态变量（需持续更新）
-    double last_error_;        // 上一次速度误差
-    double integral_error_;    // 积分误差累积
+    // 车辆状态转换
+    std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
+    // 控制器参数
+    int nx_;                // 状态维度 [x, y, theta, vx, delta1, delta2]
+    int nu_;                // 控制量维度 [ax_des, delta1_des, delta2_des]
+    int N_;                 // NMPC预测步长
+    int Nc_;                // 稀疏控制量步数
+    double T_d1_;           // 前轴转向动态时间常数
+    double T_d2_;           // 后轴转向动态时间常数
+    double dt_;             // 采样时间 (s)
+    double L_;              // 车辆轴距 (m)
+    double g_;              // 重力加速度 (m/s²)
+    double a_max_;          // 预设最大加速度 (m/s²)
+    int n_waypoints_;       // 目标参考路点数量
 
-    // 新增：resetPID函数声明
-    void resetPID();  // 关键：补充函数声明，与源文件定义对应
+    // 控制量边界
+    double ax_min_;         // 最小加速度
+    double ax_max_;         // 最大加速度
+    double delta1_min_;     // 前轴最小转向角
+    double delta1_max_;     // 前轴最大转向角
+    double delta2_min_;     // 后轴最小转向角
+    double delta2_max_;     // 后轴最大转向角
 
+    // 代价函数权重
+    double w_pos_;          // 位置跟踪权重
+    double w_theta_;        // 航向跟踪权重
+    double w_v_;            // 速度跟踪权重
+    double w_ax_;           // 加速度平滑权重
+    double w_delta1_;       // 前轴转向角平滑权重
+    double w_delta2_;       // 后轴转向角平滑权重
+    double w_term_pos_;     // 终端位置权重
+    double w_term_theta_;   // 终端航向权重
+    double w_term_v_;       // 终端速度权重
+    double w_delta_cmd1_;   // 前轴转向角指令权重
+    double w_delta_cmd2_;   // 后轴转向角指令权重
+    double max_speed_;      // 最大速度限制
+
+    // NMPC求解器相关
+    std::unique_ptr<casadi::OptiSol> sol_prev_;  // 原：casadi::OptiSol sol_prev_;
+    casadi::MX X_;          // 状态序列
+    casadi::MX U_sparse_;   // 稀疏控制量
+    casadi::MX x0_;         // 初始状态参数
+    casadi::MX waypoints_;  // 参考路点参数
+    casadi::Function f_func_; // 动力学模型函数
+    casadi::Opti opti_;     // NMPC优化器
+    bool has_prev_sol_;     // 是否有前一次求解结果
+
+    // 稀疏控制量分布
+    std::vector<int> steps_per_control_;
 };
 
 } // namespace race_tracker
 
-#endif // RACE_TRACKER_PID_CONTROLLER_H
+#endif // RACE_TRACKER_NMPC_CONTROLLER_H
+    

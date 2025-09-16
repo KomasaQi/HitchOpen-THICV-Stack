@@ -10,6 +10,9 @@ project(go2_control)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
+  race_msgs
+  tf
+  geometry_msgs
 )
 ## 2. 关键：查找Casadi（自动处理头文件和库路径）
 # 若find_package失败，需手动指定CasADi_DIR（见下文说明）
@@ -218,6 +221,20 @@ target_include_directories(test_tracking_suboptimal PRIVATE /usr/local/include)
 install(TARGETS test_tracking_suboptimal
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+
+# 轨迹自动插值的双轴转向跟踪测试
+add_executable(atc_dual_axis_tracker src/atc_dual_axis_tracker.cpp)
+target_link_libraries(atc_dual_axis_tracker
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(atc_dual_axis_tracker PRIVATE /usr/local/include)
+install(TARGETS atc_dual_axis_tracker
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 
 #############
 ## Install ##

@@ -5,8 +5,6 @@
 
 using namespace casadi;
 
-
-
 // 线性插值函数 (Casadi符号版本，不变)
 MX interp1(const std::vector<double>& x, const std::vector<double>& y, const MX& xi) {
     MX yi = 0;
@@ -55,7 +53,7 @@ int main(int argc, char * argv[]) {
     std::vector<double> drive_vel; // 速度节点
 
 
-    int n_waypoints = 40; // 参考轨迹的路点数量
+    int n_waypoints = 30; // 参考轨迹的路点数量
 
     // 控制量步数分布
     std::vector<int> steps_per_control(Nc);
@@ -88,7 +86,7 @@ int main(int argc, char * argv[]) {
         X_sym(3) * cos(X_sym(2)) - v_y * sin(X_sym(2)),
         X_sym(3) * sin(X_sym(2)) + v_y * cos(X_sym(2)),
         X_sym(3) * (tan(X_sym(4)) - tan(X_sym(5))) / L,
-        U_sym(0),
+        if_else(U_sym(0)>0, (22/(X_sym(3)+12)-0.8)*U_sym(0),U_sym(0)*0.8*g),
         ((U_sym(1) - X_sym(4)) / T_d1),
         ((U_sym(2) - X_sym(5)) / T_d2)
     });
@@ -130,10 +128,9 @@ int main(int argc, char * argv[]) {
     opti.subject_to(X(Slice(), 0) == x0);
 
     // 控制约束
-    opti.subject_to(opti.bounded(-8.0, U_sparse(0, Slice()), 6.0));    // 加速度约束
+    opti.subject_to(opti.bounded(-1.0, U_sparse(0, Slice()), 1.0));    // 加速度约束
     opti.subject_to(opti.bounded(-0.4, U_sparse(1, Slice()), 0.4)); // 转向角约束（≈30°）
-    // opti.subject_to(opti.bounded(-0.4, U_sparse(2, Slice()), 0.4)); // 转向角约束（≈30°）
-    opti.subject_to(opti.bounded(-0.001, U_sparse(2, Slice()), 0.001)); // 转向角约束（≈30°）
+    opti.subject_to(opti.bounded(-0.4, U_sparse(2, Slice()), 0.4)); // 转向角约束（≈30°）
     
     // ====== 5. 优化后的代价函数（修复 argmin 问题） ======
     MX cost = 0;
@@ -192,9 +189,10 @@ int main(int argc, char * argv[]) {
     opts["ipopt.max_iter"] = 500;           // 最大迭代次数
     opts["ipopt.tol"] = 1e-2;              // 主精度 tolerance
     opts["ipopt.acceptable_tol"] = 5e-2;   // 可接受精度 tolerance
+    // === 新增: 在迭代次数达到 acceptable_iter 后，即便未收敛也返回 ===
+    opts["ipopt.acceptable_iter"] = 10;    // 例如，在10次迭代后就允许返回次优解
     opts["ipopt.hessian_approximation"] = "limited-memory"; // 有限内存Hessian
     opts["ipopt.linear_solver"] = "ma27";  // 线性求解器
-
 
     opti.solver("ipopt", opts);
 
@@ -217,68 +215,80 @@ int main(int argc, char * argv[]) {
     }
     // 计算初始最近路点索引
     DM waypoints_dm = DM::reshape(DM(waypoints_data), 4, n_waypoints);
+
+
+    // 设置参数值
+    opti.set_value(x0, x0_val);
+    opti.set_value(waypoints, waypoints_dm);
+
+    // 首次求解
+    OptiSol sol_prev = opti.solve();
+    bool has_prev_sol = false;
+
     // ====== 8. 求解与结果打印 ======
-    try {
+    opts["ipopt.max_iter"] = 50;           // 最大迭代次数
+    opti.solver("ipopt", opts);
 
+    double start_time = ros::Time::now().toSec();
+    int test_num = 50;  // 测试50次
+    for (int i = 0; i < test_num; i++) {
+        // 给初始状态添加随机扰动
+        auto x0_val_rand = x0_val;
+        x0_val_rand[0] += (rand() % 100 - 50) * 0.05;
+        x0_val_rand[1] += (rand() % 100 - 50) * 0.01;
+        x0_val_rand[2] += (rand() % 100 - 50) * 0.01;
+        x0_val_rand[3] += (rand() % 100 - 50) * 0.01;
 
-        // 设置参数值
-        opti.set_value(x0, x0_val);
+        // 设置参数
+        opti.set_value(x0, x0_val_rand);
         opti.set_value(waypoints, waypoints_dm);
 
-        // 首次求解
-        OptiSol sol = opti.solve();
-
-        double start_time = ros::Time::now().toSec();
-        int test_num = 50;  // 测试50次
-        for (int i = 0; i < test_num; i++) {
-            // 给初始状态添加随机扰动
-            auto x0_val_rand = x0_val;
-            x0_val_rand[0] += (rand() % 100 - 50) * 0.05;
-            x0_val_rand[1] += (rand() % 100 - 50) * 0.01;
-            x0_val_rand[2] += (rand() % 100 - 50) * 0.01;
-            x0_val_rand[3] += (rand() % 100 - 50) * 0.01;
-
-
-            // 设置参数
-            opti.set_value(x0, x0_val_rand);
-            opti.set_value(waypoints, waypoints_dm);
-
-            // 热启动：使用前次解
-            opti.set_initial(X, sol.value(X));
-            opti.set_initial(U_sparse, sol.value(U_sparse));
-
-            sol = opti.solve();
+        // 热启动：使用前次解
+        opti.set_initial(X, sol_prev.value(X));
+        opti.set_initial(U_sparse, sol_prev.value(U_sparse));
+        try {
+            OptiSol sol = opti.solve();
+            sol_prev = sol; // 求解成功，更新prev
+            has_prev_sol = true;
+        }catch(std::exception &e){
+            // ROS_ERROR("求解失败: " << e.what());
+            std::cout << "求解失败: " << e.what() << std::endl;
+            continue;
         }
-        double avg_solve_time = (ros::Time::now().toSec() - start_time) * 1000 / test_num;
-        
-        ROS_INFO_STREAM("求解成功！平均耗时: " << avg_solve_time << " ms");
-        ROS_INFO_STREAM("优化控制变量数量: " << Nc << " (原始需要: " << N << ")");
-        ROS_INFO_STREAM("第一个控制输入: 加速度 = " << sol.value(U_sparse(0,0)) 
-                      << " m/s², 前轴转角指令 = " << sol.value(U_sparse(1,0)) 
-                      << " rad, 后轴转角指令 = " << sol.value(U_sparse(2,0)) << " rad");
-
-        // 打印稀疏控制量分布
-        ROS_INFO("稀疏控制量分布:");
-        time_step = 0;
-        for(int i = 0; i < Nc; ++i) {
-            int end_step = time_step + steps_per_control[i];
-            if(end_step > N) end_step = N;
-            DM u = sol.value(U_sparse(Slice(), i));
-            ROS_INFO("u%d: 加速度=%.3f, 前轴转角指令=%.3f, 后轴转角指令=%.3f, 作用于步 %d-%d",
-                     i, (double)u(0), (double)u(1), (double)u(2), time_step, end_step-1);
-            time_step = end_step;
-        }
-
-        // 打印前5个预测步的状态与控制
-        for(int k = 0; k < N; ++k) {
-            DM xk = sol.value(X(Slice(), k));
-            DM uk = sol.value(U_full(Slice(), k));
-            ROS_INFO("预测步%d: x = %.3f, y = %.3f, theta = %.3f, vx = %.3f, delta1 = %.3f, delta2 = %.3f",
-                            k, (double)xk(0), (double)xk(1), (double)xk(2), (double)xk(3), (double)xk(4), (double)xk(5));
-        }
-    } catch (std::exception &e) {
-        ROS_ERROR_STREAM("求解失败: " << e.what());
     }
+    double avg_solve_time = (ros::Time::now().toSec() - start_time) * 1000 / test_num;
+    
+    ROS_INFO_STREAM("求解成功！平均耗时: " << avg_solve_time << " ms");
+
+
+    
+    // 如果求解成功，打印结果
+    OptiSol final_sol = opti.solve();
+    ROS_INFO_STREAM("优化控制变量数量: " << Nc << " (原始需要: " << N << ")");
+    ROS_INFO_STREAM("第一个控制输入: 加速度 = " << final_sol.value(U_sparse(0,0)) 
+                    << " m/s², 前轴转角指令 = " << final_sol.value(U_sparse(1,0)) 
+                    << " rad, 后轴转角指令 = " << final_sol.value(U_sparse(2,0)) << " rad");
+
+    // 打印稀疏控制量分布
+    ROS_INFO("稀疏控制量分布:");
+    time_step = 0;
+    for(int i = 0; i < Nc; ++i) {
+        int end_step = time_step + steps_per_control[i];
+        if(end_step > N) end_step = N;
+        DM u = final_sol.value(U_sparse(Slice(), i));
+        ROS_INFO("u%d: 加速度=%.3f, 前轴转角指令=%.3f, 后轴转角指令=%.3f, 作用于步 %d-%d",
+                 i, (double)u(0), (double)u(1), (double)u(2), time_step, end_step-1);
+        time_step = end_step;
+    }
+
+    // 打印前5个预测步的状态与控制
+    for(int k = 0; k < N; ++k) {
+        DM xk = final_sol.value(X(Slice(), k));
+        DM uk = final_sol.value(U_full(Slice(), k));
+        ROS_INFO("预测步%d: x = %.3f, y = %.3f, theta = %.3f, vx = %.3f, delta1 = %.3f, delta2 = %.3f",
+                        k, (double)xk(0), (double)xk(1), (double)xk(2), (double)xk(3), (double)xk(4), (double)xk(5));
+    }
+
 
     ros::shutdown();
     return 0;

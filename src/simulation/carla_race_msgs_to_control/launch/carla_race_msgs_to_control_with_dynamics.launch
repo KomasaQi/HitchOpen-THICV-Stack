@@ -4,12 +4,12 @@
 
   <node pkg="carla_race_msgs_to_control" type="carla_race_msgs_to_control_with_dynamics.py" name="carla_race_msgs_to_control_$(arg role_name)_with_dynamics" output="screen">
     <param name="role_name" value="$(arg role_name)"/>
-    <param name="steer_Lag" value="0.1"/>
-    <param name="acc_Lag" value="0.1"/>
-    <param name="brake_Lag" value="0.1"/>
-    <param name="steer_tau" value="0.2"/>
-    <param name="acc_tau" value="0.2"/>
-    <param name="brake_tau" value="0.1"/>
+    <param name="steer_Lag" value="0.05"/>
+    <param name="acc_Lag" value="0.05"/>
+    <param name="brake_Lag" value="0.05"/>
+    <param name="steer_tau" value="0.3"/>
+    <param name="acc_tau" value="0.05"/>
+    <param name="brake_tau" value="0.05"/>
     <param name="steer_max_vel" value="0.7854"/>
     <param name="store_periods" value="10.0"/>
   </node>

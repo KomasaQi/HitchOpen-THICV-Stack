@@ -18,12 +18,12 @@
     </class>
 </library>
 
-<library path="lib/libkinematic_controller">
-    <class name="race_tracker::KinematicController"
-           type="race_tracker::KinematicController"
+<library path="lib/libnmpc_controller">
+    <class name="race_tracker::NMPCController"
+           type="race_tracker::NMPCController"
            base_class_type="race_tracker::ControllerPluginBase">
         <description>
-            A simple kinematic mpc controller for longitudinal and lateral control.
+            A simple NMPC controller for longitudinal and lateral control for dual axis steering electric vehicle.
         </description>
     </class>
 </library>
