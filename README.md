@@ -23,30 +23,34 @@ HitchOpen-THICV-Stack/
 ├── tutorial/  # 相关笔记
 ├── src/       # 代码目录
 |   ├── common/          # 通用代码
-|   |   ├── race_msgs/                    # 赛车相关自定义话题
-|   |   └── race_steering/                # 赛车命令行手动控制
+|   |   ├── race_msgs/                            # 赛车相关自定义话题
+|   |   └── race_steering/                        # 赛车命令行手动控制
 |   ├── perception/      # 感知算法
+|   |   └── patchworkpp/                          # 路面与非路面点云分割
 |   ├── localization/    # 定位算法
-|   |   └── liorf_localization/           # 基于liorf的定位算法
+|   |   └── liorf_localization/                   # 基于liorf的定位算法
 |   ├── mapping/         # 地图构建
-|   |   ├── liorf/                        # LIO-SAM改进版
-|   |   └── lio-sam/                      # LIO激光惯性里程计建图
+|   |   ├── liorf/                                # LIO-SAM改进版
+|   |   └── lio-sam/                              # LIO激光惯性里程计建图
 |   ├── decision/        # 决策算法
 |   ├── planning/        # 规划算法
-|   |   ├── race_global_static_planner/   # 全局静态规划器
-|   |   └── race_tracker/                 # 路径跟踪控制器
+|   |   ├── race_global_static_planner/           # 全局静态规划器
+|   |   └── race_tracker/                         # 路径跟踪控制器
 |   ├── control/         # 控制算法
-|   |   ├── go2_control/                  # casadi构建控制器示例
-|   |   └── race_tracker/                 # 轨迹跟踪控制器
-|   |       └── plugins/                  # 轨迹跟踪控制器插件
-|   |           ├── nmpc_controller.cpp   # 双轴转向横纵向耦合NMPC插件
-|   |           ├── pure_pursuit.cpp      # 纯跟踪横向控制
-|   |           └── pid_controller.cpp    # PID纵向控制器插件
+|   |   ├── go2_control/                          # casadi构建控制器示例
+|   |   └── race_tracker/                         # 轨迹跟踪控制器
+|   |       └── plugins/                          # 轨迹跟踪控制器插件
+|   |           ├── nmpc_controller.cpp           # 双轴转向横纵向耦合NMPC插件
+|   |           ├── nmpc_lateral_controller.cpp   # 双轴转向横向NMPC插件
+|   |           ├── pure_pursuit.cpp              # 纯跟踪横向控制
+|   |           └── pid_controller.cpp            # PID纵向控制器插件
 |   ├── simulation/      # 仿真相关
-|   |   ├── carla_race_state_converter/   # 状态转换代码
-|   |   └── carla_race_msgs_to_control/   # 控制指令转换代码
-|   ├── launch/          # 启动文件目录
-|   |   └── carla_race_bridge/   # 仿真桥启动文件
+|   |   ├── carla_race_state_converter/           # 状态转换代码
+|   |   └── carla_race_msgs_to_control/           # 控制指令转换代码
+|   ├── implementation/  # 仿真相关
+|   |   └── race_connector/                       # 远程电脑连接
+|   └── launch/          # 启动文件目录
+|       └── carla_race_bridge/                    # 仿真桥启动文件
 ├── config/    # 配置文件目录
 ├── launch/    # 启动文件目录
 ├── scripts/   # 一些脚本
