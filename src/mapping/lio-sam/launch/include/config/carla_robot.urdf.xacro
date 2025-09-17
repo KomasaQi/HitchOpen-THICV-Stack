@@ -1,0 +1,103 @@
+<?xml version="1.0"?>
+<robot name="lio" xmlns:xacro="http://KomasaQi.github.io/">
+  <xacro:property name="PI" value="3.1415926535897931" />
+
+  <!-- Root link for the ego vehicle -->
+  <link name="ego_vehicle"></link>
+
+  <!-- Sensor: rgb_front -->
+  <link name="ego_vehicle/rgb_front"></link>
+  <joint name="rgb_front_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/rgb_front" />
+    <origin xyz="2.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: rgb_view -->
+  <link name="ego_vehicle/rgb_view"></link>
+  <joint name="rgb_view_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/rgb_view" />
+    <origin xyz="-4.5 0.0 2.8" rpy="0.0 0.34906585 0.0" /> <!-- pitch: 20 deg to rad -->
+  </joint>
+
+  <!-- Sensor: lidar -->
+  <link name="ego_vehicle/lidar"></link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/lidar" />
+    <origin xyz="0.0 0.0 2.4" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: semantic_lidar -->
+  <link name="ego_vehicle/semantic_lidar"></link>
+  <joint name="semantic_lidar_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/semantic_lidar" />
+    <origin xyz="0.0 0.0 2.4" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: radar_front -->
+  <link name="ego_vehicle/radar_front"></link>
+  <joint name="radar_front_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/radar_front" />
+    <origin xyz="2.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+  <!-- Sensor: depth_front -->
+  <link name="ego_vehicle/depth_front"></link>
+  <joint name="depth_front_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/depth_front" />
+    <origin xyz="2.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: dvs_front -->
+  <link name="ego_vehicle/dvs_front"></link>
+  <joint name="dvs_front_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/dvs_front" />
+    <origin xyz="2.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: gnss -->
+  <link name="ego_vehicle/gnss"></link>
+  <joint name="gnss_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/gnss" />
+    <origin xyz="1.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: imu -->
+  <link name="ego_vehicle/imu"></link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/imu" />
+    <origin xyz="2.0 0.0 2.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+
+
+
+  <!-- Sensor: objects -->
+  <link name="ego_vehicle/objects"></link>
+  <joint name="objects_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/objects" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: odometry -->
+  <link name="ego_vehicle/odometry"></link>
+  <joint name="odometry_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="ego_vehicle/odometry" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+
+</robot>

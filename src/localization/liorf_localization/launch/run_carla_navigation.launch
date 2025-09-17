@@ -1,0 +1,14 @@
+<launch>
+
+    <arg name="project" default="liorf_localization"/>
+    <node pkg="lio_sam" name="nan_filter" type="filter_nan.py"/>
+    <!-- Parameters -->
+    <rosparam file="$(find liorf_localization)/config/localization_carla.yaml" command="load" />
+
+    <!--- LOAM -->
+    <include file="$(find liorf_localization)/launch/include/module_loam.launch" />
+
+    <!--- Run Rviz-->
+    <include file="$(find liorf_localization)/launch/include/module_carla_nav_rviz.launch" />
+
+</launch>

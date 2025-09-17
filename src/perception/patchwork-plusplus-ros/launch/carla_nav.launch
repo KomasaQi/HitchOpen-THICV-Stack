@@ -1,0 +1,11 @@
+<launch>
+
+<arg name="cloud_topic" default="/carla/ego_vehicle/lidar"/>
+
+  <node name="ground_segmentation" pkg="patchworkpp" type="demo" output="screen">
+    <rosparam command="load" file="$(find patchworkpp)/config/my_params.yaml" />
+    <param name="cloud_topic" value="$(arg cloud_topic)"/>
+  </node>
+
+
+</launch>
