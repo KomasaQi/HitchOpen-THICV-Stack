@@ -1,0 +1,6 @@
+慕尼黑工大方案安装避坑：
+1.准备Python环境：3.7或3.8，建议Conda
+2.先安装trajectory_planning_helper: 解压文件夹，在此打开terminal，激活环境（如果是conda），pip install .
+3.再安装gloabl....文件夹里面requirements.txt中要求的numpy, scipy和matplotlib，不要再安装trajectory_planning_helper的0.76版本
+4.安装好环境后在global..目录下打开main_globaltraj.py文件，然后找到pkg_resources.require(dependencies)
+语句并注释，就可以运行这个脚本了

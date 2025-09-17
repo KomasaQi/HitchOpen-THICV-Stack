@@ -1,0 +1,37 @@
+1.安装依赖
+Windows:
+	pip install serial
+	pip install pyserial
+Linux:
+	pip3 install serial
+	pip3 install pyserial
+
+2.查看运行所需参数
+Windows:
+	python  .\IMUtest.py  -h 
+Linux:
+	python3 IMUtest.py  -h 
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --port PORT        the models serial port receive data; example: Windows: COM3 Linux: /dev/ttyUSB0
+  //IMU模块串口号  默认 COM3  示例 ： Windows ：COM3   Linux : /dev/ttyUSB0
+  --bps BPS          the models baud rate set; default: 921600        //串口波特率 默认921600
+  --timeout TIMEOUT  set the serial port timeout; default: 20        // 串口时延  默认：20
+
+
+3.在命令行输入  
+Windows：
+	python  .\IMUtest.py  --port=惯导串口  --bps=惯导设置波特率    
+示例：python  .\IMUtest.py  --port=COM3  --bps=921600
+
+Linux：
+	python3 IMUtest.py  --port=惯导串口  --bps=惯导设置波特率
+在Linux中可能需要提前给设备的串口号提高权限：   sudo chmod  777 /dev/ttyUSB0
+示例：python3 IMUtest.py  --port=/dev/ttyUSB0  --bps=921600
+
+来运行程序
+4. 常见错误：
+	error:  unable to find this port : com4    	没有找到设备端口
+
+	error:  unable to open port .		找到端口，但是不能打开
