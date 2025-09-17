@@ -27,3 +27,14 @@
         </description>
     </class>
 </library>
+
+
+<library path="lib/libnmpc_lateral_controller">
+    <class name="race_tracker::NMPCLateralController"
+           type="race_tracker::NMPCLateralController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            A simple NMPC controller for lateral control for dual axis steering electric vehicle.
+        </description>
+    </class>
+</library>

@@ -123,6 +123,8 @@
         "numericaldiff": "cpp",
         "polynomials": "cpp",
         "*.txx": "cpp",
-        "*.def": "cpp"
+        "*.def": "cpp",
+        "ranges": "cpp",
+        "span": "cpp"
     }
 }

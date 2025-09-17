@@ -1,4 +1,4 @@
-#include "race_tracker/nmpc_controller.h"
+#include "race_tracker/nmpc_lateral_controller.h"
 #include <numeric>
 #include <limits>
 #include <ros/console.h>
@@ -7,16 +7,16 @@ using namespace std;
 
 namespace race_tracker {
 
-bool NMPCController::initialize(ros::NodeHandle& nh) {
+bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
     // 1. 打印原命名空间（确认基础路径）
-    ROS_INFO("[NMPCController] 父NodeHandle命名空间: %s", nh.getNamespace().c_str());
-    // 2. 创建插件专属的子NodeHandle（匹配Launch中的ns="nmpc_controller"）
-    ros::NodeHandle nh_nmpc(nh, "nmpc_controller");  // 子命名空间：父ns + "/nmpc_controller"
-    ROS_INFO("[NMPCController] 插件专属NodeHandle命名空间: %s", nh_nmpc.getNamespace().c_str());
+    ROS_INFO("[NMPCLateralController] 父NodeHandle命名空间: %s", nh.getNamespace().c_str());
+    // 2. 创建插件专属的子NodeHandle（匹配Launch中的ns="nmpc_lateral_controller"）
+    ros::NodeHandle nh_nmpc(nh, "nmpc_lateral_controller");  // 子命名空间：父ns + "/nmpc_lateral_controller"
+    ROS_INFO("[NMPCLateralController] 插件专属NodeHandle命名空间: %s", nh_nmpc.getNamespace().c_str());
 
     // 加载核心参数
     nh_nmpc.param("nx", nx_, 6);
-    nh_nmpc.param("nu", nu_, 3);
+    nh_nmpc.param("nu", nu_, 2);
     nh_nmpc.param("prediction_step", N_, 15);
     nh_nmpc.param("sparse_control_step", Nc_, 4);
     nh_nmpc.param("front_steer_time_constant", T_d1_, 0.2);
@@ -28,13 +28,11 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("num_waypoints", n_waypoints_, 30);
 
     // 加载控制量边界
-    nh_nmpc.param("min_acceleration", ax_min_, -1.0);
-    nh_nmpc.param("max_acceleration", ax_max_, 1.0);
     nh_nmpc.param("min_front_steer", delta1_min_, -0.4);
     nh_nmpc.param("max_front_steer", delta1_max_, 0.4);
     nh_nmpc.param("min_rear_steer", delta2_min_, -0.4);
     nh_nmpc.param("max_rear_steer", delta2_max_, 0.4);
-    nh_nmpc.param("max_speed", max_speed_, 20.0);
+
 
     // 加载代价函数权重
     nh_nmpc.param("weight_position", w_pos_, 5.0);
@@ -54,7 +52,7 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     // 打印加载的参数
     printf("==========加载核心参数==========\n");
     logParamLoad("nx", nx_, 6);
-    logParamLoad("nu", nu_, 3);
+    logParamLoad("nu", nu_, 2);
     logParamLoad("prediction_step", N_, 15);
     logParamLoad("sparse_control_step", Nc_, 4);
     logParamLoad("front_steer_time_constant", T_d1_, 0.2);
@@ -65,17 +63,13 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     logParamLoad("max_acceleration", a_max_, 3.0);
     logParamLoad("num_waypoints", n_waypoints_, 30);
     printf("==========加载控制量边界参数==========\n");
-    logParamLoad("min_acceleration", ax_min_, -1.0);
-    logParamLoad("max_acceleration", ax_max_, 1.0);
     logParamLoad("min_front_steer", delta1_min_, -0.4);
     logParamLoad("max_front_steer", delta1_max_, 0.4);
     logParamLoad("min_rear_steer", delta2_min_, -0.4);
     logParamLoad("max_rear_steer", delta2_max_, 0.4);
-    logParamLoad("max_speed", max_speed_, 20.0);
     printf("==========加载权重参数==========\n");
     logParamLoad("weight_position", w_pos_, 5.0);
     logParamLoad("weight_heading", w_theta_, 3.0);
-    logParamLoad("weight_velocity", w_v_, 5.0);
     logParamLoad("weight_acceleration", w_ax_, 5.0);
     logParamLoad("weight_front_steer", w_delta1_, 500.0);
     logParamLoad("weight_front_steer_control", w_delta_cmd1_, 1.0);
@@ -83,7 +77,6 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     logParamLoad("weight_rear_steer_control", w_delta_cmd2_, 1.0);
     logParamLoad("weight_terminal_position", w_term_pos_, 10.0);
     logParamLoad("weight_terminal_heading", w_term_theta_, 5.0);
-    logParamLoad("weight_terminal_velocity", w_term_v_, 5.0);
 
 
 
@@ -109,7 +102,7 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
 
     // 定义符号变量与动力学模型
     casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,vx,delta1,delta2]
-    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [ax_des, delta1_des, delta2_des]
+    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta1_des, delta2_des]
     
     // 计算侧向速度vy（双轴转向车辆简化模型）
     casadi::MX vy = X_sym(3) * (casadi::MX::tan(X_sym(4)) + casadi::MX::tan(X_sym(5))) / 2;
@@ -120,9 +113,9 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
         X_sym(3) * casadi::MX::sin(X_sym(2)) + vy * casadi::MX::cos(X_sym(2)),  // y_dot
         X_sym(3) * (casadi::MX::tan(X_sym(4)) - casadi::MX::tan(X_sym(5))) / L_,  // theta_dot
         // 纵向加速度模型（驱动/制动效率差异）
-        casadi::MX::if_else(U_sym(0) > 0, (22/(X_sym(3)+12)-0.8)*U_sym(0), U_sym(0)*0.8*g_),
-        (U_sym(1) - X_sym(4)) / T_d1_,  // delta1_dot
-        (U_sym(2) - X_sym(5)) / T_d2_   // delta2_dot
+        0,
+        (U_sym(0) - X_sym(4)) / T_d1_,  // delta1_dot
+        (U_sym(1) - X_sym(5)) / T_d2_   // delta2_dot
     });
     f_func_ = casadi::Function("f_dynamics", {X_sym, U_sym}, {f_expr});
 
@@ -171,9 +164,8 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     opti_.subject_to(X_(casadi::Slice(), 0) == x0_);
 
     // 控制量边界约束
-    opti_.subject_to(opti_.bounded(ax_min_, U_sparse_(0, casadi::Slice()), ax_max_));
-    opti_.subject_to(opti_.bounded(delta1_min_, U_sparse_(1, casadi::Slice()), delta1_max_));
-    opti_.subject_to(opti_.bounded(delta2_min_, U_sparse_(2, casadi::Slice()), delta2_max_));
+    opti_.subject_to(opti_.bounded(delta1_min_, U_sparse_(0, casadi::Slice()), delta1_max_));
+    opti_.subject_to(opti_.bounded(delta2_min_, U_sparse_(1, casadi::Slice()), delta2_max_));
 
     // 代价函数（状态跟踪+控制平滑）
     casadi::MX cost = 0;
@@ -193,18 +185,18 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
 
         // 提取最近路点的参考信息
         casadi::MX ref_theta = waypoints_(2, min_idx);  // 参考航向角
-        casadi::MX ref_v = waypoints_(3, min_idx);      // 参考速度
+
 
         // 状态跟踪代价
         cost += w_pos_ * dist_sq(min_idx);
         cost += w_theta_ * casadi::MX::sumsqr(X_(2, k) - ref_theta);
-        cost += w_v_ * casadi::MX::sumsqr(X_(3, k) - ref_v);
+
 
         // 控制量平滑代价
         cost += w_ax_ * casadi::MX::sumsqr(U_full(0, k));
         // 前轴转向角指令代价
-        cost += w_delta_cmd1_ * casadi::MX::sumsqr(U_full(1, k));
-        cost += w_delta_cmd2_ * casadi::MX::sumsqr(U_full(2, k));
+        cost += w_delta_cmd1_ * casadi::MX::sumsqr(U_full(0, k));
+        cost += w_delta_cmd2_ * casadi::MX::sumsqr(U_full(1, k));
         cost += w_delta1_ * casadi::MX::sumsqr(X_(4, k));
         cost += w_delta2_ * casadi::MX::sumsqr(X_(5, k));
     }
@@ -218,11 +210,11 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
         final_min_idx = casadi:: MX::if_else(final_dist_sq(i) < final_dist_sq(final_min_idx), i, final_min_idx);
     }
     casadi::MX final_ref_theta = waypoints_(2, final_min_idx);
-    casadi::MX final_ref_v = waypoints_(3, final_min_idx);
+
 
     cost += w_term_pos_ * final_dist_sq(final_min_idx);
     cost += w_term_theta_ * casadi::MX::sumsqr(X_(2, N_) - final_ref_theta);
-    cost += w_term_v_ * casadi::MX::sumsqr(X_(3, N_) - final_ref_v);
+
 
     // 最小化总代价
     opti_.minimize(cost);
@@ -250,7 +242,7 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
     return true;
 }
 
-void NMPCController::computeControl(
+void NMPCLateralController::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
     const race_msgs::PathConstPtr& path,
     race_msgs::Control* control_msg,
@@ -274,9 +266,9 @@ void NMPCController::computeControl(
     casadi::DM waypoints_dm = process_race_path(*path, current_state);
 
     // 求解NMPC
-    std::vector<double> control_output(3); // [ax_des, delta1_des, delta2_des]
+    std::vector<double> control_output(2); // [delta1_des, delta2_des]
     if (!solveNMPC(current_state, waypoints_dm, control_output)) {
-        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: control_output = [%f, %f, %f]", getName().c_str(), last_control_output_[0], last_control_output_[1], last_control_output_[2]);
+        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: control_output = [%f, %f]", getName().c_str(), last_control_output_[0], last_control_output_[1]);
 
         // 如果求解失败，使用上一次的控制量
         if (!last_control_output_.empty()) {
@@ -284,7 +276,7 @@ void NMPCController::computeControl(
         }
         else {
             // 如果没有上一次的控制量，使用默认值
-            control_output = {0.0, 0.0, 0.0};
+            control_output = {0.0, 0.0};
         }
 
     } else {
@@ -293,13 +285,8 @@ void NMPCController::computeControl(
     }
 
     // 将求解结果转换为控制消息
-    if (vehicle_status->vel.linear.x > max_speed_ && control_output[0] > 0.0) {
-        control_output[0] = 0.0; // 进行限速
-    }
-    control_msg->throttle = control_output[0]*(control_output[0] > 0);
-    control_msg->brake = -control_output[0]*(control_output[0] <= 0);
-    control_msg->lateral.steering_angle = control_output[1];
-    control_msg->lateral.rear_wheel_angle = control_output[2];
+    control_msg->lateral.steering_angle = control_output[0];
+    control_msg->lateral.rear_wheel_angle = control_output[1];
     
     // 设置双轴转向模式
     control_msg->steering_mode = race_msgs::Control::DUAL_STEERING_MODE;
@@ -308,7 +295,7 @@ void NMPCController::computeControl(
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
 }
 
-double NMPCController::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
+double NMPCLateralController::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     tf::Quaternion tf_quat(q.x, q.y, q.z, q.w);
     tf::Matrix3x3 rot_matrix(tf_quat);
     double roll, pitch, yaw;
@@ -316,7 +303,7 @@ double NMPCController::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     return yaw;
 }
 
-int NMPCController::find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path) {
+int NMPCLateralController::find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path) {
     if (path.points.empty()) {
         ROS_ERROR("[%s] 路径为空", getName().c_str());
         return -1;
@@ -338,7 +325,7 @@ int NMPCController::find_nearest_path_point(const double x0, const double y0, co
     return nearest_idx;
 }
 
-std::vector<double> NMPCController::calculate_cumulative_distance(const race_msgs::Path& path, int start_idx) {
+std::vector<double> NMPCLateralController::calculate_cumulative_distance(const race_msgs::Path& path, int start_idx) {
     std::vector<double> cum_dist;
     if (start_idx < 0 || start_idx >= static_cast<int>(path.points.size())) {
         ROS_ERROR("[%s] 无效的起始索引: %d", getName().c_str(), start_idx);
@@ -360,7 +347,7 @@ std::vector<double> NMPCController::calculate_cumulative_distance(const race_msg
     return cum_dist;
 }
 
-std::vector<double> NMPCController::linear_interpolate(const std::vector<double>& s_original, 
+std::vector<double> NMPCLateralController::linear_interpolate(const std::vector<double>& s_original, 
                                                      const std::vector<double>& val_original, 
                                                      const std::vector<double>& s_target) {
     std::vector<double> val_target;
@@ -406,7 +393,7 @@ std::vector<double> NMPCController::linear_interpolate(const std::vector<double>
     return val_target;
 }
 
-casadi::DM NMPCController::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
+casadi::DM NMPCLateralController::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
                                                   int start_idx, int end_idx, int n_waypoints) {
     std::vector<double> s_original, x_original, y_original, theta_original, v_original;
     for (int i = start_idx; i <= end_idx; ++i) {
@@ -446,7 +433,7 @@ casadi::DM NMPCController::interpolate_path_segment(const race_msgs::Path& path,
     return waypoints;
 }
 
-casadi::DM NMPCController::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
+casadi::DM NMPCLateralController::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
     double x0 = current_state[0];
     double y0 = current_state[1];
     double vx0 = current_state[3];
@@ -487,7 +474,7 @@ casadi::DM NMPCController::process_race_path(const race_msgs::Path& input_path, 
     return interpolate_path_segment(input_path, cum_dist, nearest_idx, end_idx, n_waypoints_);
 }
 
-bool NMPCController::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
+bool NMPCLateralController::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                               std::vector<double>& control_output) {
     if (current_state.size() != nx_) {
         ROS_ERROR("[%s] 状态向量维度不匹配: 期望%d, 实际%d", 
@@ -513,9 +500,8 @@ bool NMPCController::solveNMPC(const std::vector<double>& current_state, const c
 
         // 提取第一个控制量
         casadi::DM u0 = sol_curr.value(U_sparse_(casadi::Slice(), 0));
-        control_output[0] = static_cast<double>(u0(0));  // 油门制动开度
-        control_output[1] = static_cast<double>(u0(1));  // 前轴转向角
-        control_output[2] = static_cast<double>(u0(2));  // 后轴转向角
+        control_output[0] = static_cast<double>(u0(0));  // 前轴转向角
+        control_output[1] = static_cast<double>(u0(1));  // 后轴转向角
 
         return true;
     } catch (std::exception& e) {
@@ -524,7 +510,7 @@ bool NMPCController::solveNMPC(const std::vector<double>& current_state, const c
     }
 }
 
-std::vector<double> NMPCController::vehicleStatusToStateVector(const race_msgs::VehicleStatus& status) {
+std::vector<double> NMPCLateralController::vehicleStatusToStateVector(const race_msgs::VehicleStatus& status) {
     // 状态向量: [x, y, theta, vx, delta1, delta2]
     std::vector<double> state(nx_, 0.0);
     
@@ -542,5 +528,5 @@ std::vector<double> NMPCController::vehicleStatusToStateVector(const race_msgs::
 
 // 插件注册
 #include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(race_tracker::NMPCController, race_tracker::ControllerPluginBase)
+PLUGINLIB_EXPORT_CLASS(race_tracker::NMPCLateralController, race_tracker::ControllerPluginBase)
     

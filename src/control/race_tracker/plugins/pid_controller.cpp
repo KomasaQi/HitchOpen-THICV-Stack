@@ -17,23 +17,31 @@ PIDController::PIDController()
       integral_error_(0.0) {}
 
 bool PIDController::initialize(ros::NodeHandle& nh) {
+    // 1. 打印原命名空间（确认基础路径）
+    ROS_INFO("[PIDController] 父NodeHandle命名空间: %s", nh.getNamespace().c_str());
+    // 2. 创建插件专属的子NodeHandle（匹配Launch中的ns="pid_controller"）
+    ros::NodeHandle nh_pid(nh, "pid_controller");  // 子命名空间：父ns + "/pid_controller"
+    ROS_INFO("[PIDController] 插件专属NodeHandle命名空间: %s", nh_pid.getNamespace().c_str());
+
     // 从参数服务器加载参数（未设置则用默认值）
-    nh.param("pid/kp", kp_, 0.6);
-    nh.param("pid/ki", ki_, 0.05);
-    nh.param("pid/kd", kd_, 0.1);
-    nh.param("pid/max_throttle", max_throttle_, 0.8);
-    nh.param("pid/max_brake", max_brake_, 0.8);
-    nh.param("pid/integral_limit", integral_limit_, 2.0);
-    nh.param("pid/speed_tolerance", speed_tolerance_, 0.2);
-    nh.param("pid/min_target_speed", min_target_speed_, 0.5);
+    nh_pid.param("kp", kp_, 0.6);
+    nh_pid.param("ki", ki_, 0.05);
+    nh_pid.param("kd", kd_, 0.1);
+    nh_pid.param("max_throttle", max_throttle_, 0.8);
+    nh_pid.param("max_brake", max_brake_, 0.8);
+    nh_pid.param("integral_limit", integral_limit_, 2.0);
+    nh_pid.param("speed_tolerance", speed_tolerance_, 0.2);
+    nh_pid.param("min_target_speed", min_target_speed_, 0.5);
 
     // 打印参数加载日志
-    logParamLoad("pid/kp", kp_, 0.6);
-    logParamLoad("pid/ki", ki_, 0.05);
-    logParamLoad("pid/kd", kd_, 0.1);
-    logParamLoad("pid/max_throttle", max_throttle_, 0.8);
-    logParamLoad("pid/max_brake", max_brake_, 0.8);
-    logParamLoad("pid/integral_limit", integral_limit_, 2.0);
+    logParamLoad("kp", kp_, 0.6);
+    logParamLoad("ki", ki_, 0.05);
+    logParamLoad("kd", kd_, 0.1);
+    logParamLoad("max_throttle", max_throttle_, 0.8);
+    logParamLoad("max_brake", max_brake_, 0.8);
+    logParamLoad("integral_limit", integral_limit_, 2.0);
+    logParamLoad("speed_tolerance", speed_tolerance_, 0.2);
+    logParamLoad("min_target_speed", min_target_speed_, 0.5);
 
     // 检查参数有效性
     if (max_throttle_ < 0.1 || max_throttle_ > 1.0) {

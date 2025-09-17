@@ -16,11 +16,12 @@
 
         <!-- 2. 仅使用NMPC插件 -->
         <rosparam param="plugins">
-            - race_tracker::NMPCController  <!-- NMPC控制器（同时处理横向和纵向控制） -->
+            - race_tracker::NMPCLateralController  <!-- NMPC双轴横向控制器 -->
+            - race_tracker::PIDController  <!-- PID控制器 -->
         </rosparam>
 
         <!-- 3. 加载NMPC控制器参数 -->
-        <rosparam command="load" file="$(find race_tracker)/config/nmpc_params_carla.yaml" />
+        <rosparam command="load" file="$(find race_tracker)/config/excel_controller.yaml" />
 
         <!-- <rosparam ns="nmpc_controller">
             <param name="front_steer_time_constant" value="0.01" /> 

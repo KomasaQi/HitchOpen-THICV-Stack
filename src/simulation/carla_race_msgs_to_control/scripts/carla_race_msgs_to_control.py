@@ -29,7 +29,7 @@ class ControlToVehicleControl:
         rospy.init_node("race_msgs_to_control")
 
         # 获取参数
-        self.role_name = rospy.get_param("role_name", "ego_vehicle")
+        self.role_name = rospy.get_param("~role_name", "ego_vehicle")
         self.max_steering_angle = None
 
         # 订阅车辆信息

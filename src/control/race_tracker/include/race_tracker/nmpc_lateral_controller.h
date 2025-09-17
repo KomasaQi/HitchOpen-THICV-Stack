@@ -1,5 +1,5 @@
-#ifndef RACE_TRACKER_NMPC_CONTROLLER_H
-#define RACE_TRACKER_NMPC_CONTROLLER_H
+#ifndef RACE_TRACKER_NMPC_LATERAL_CONTROLLER_H
+#define RACE_TRACKER_NMPC_LATERAL_CONTROLLER_H
 
 #include <casadi/casadi.hpp>
 #include <ros/ros.h>
@@ -14,10 +14,10 @@
 
 namespace race_tracker {
 
-class NMPCController : public ControllerPluginBase {
+class NMPCLateralController : public ControllerPluginBase {
 public:
-    NMPCController() = default;
-    ~NMPCController() override = default;
+    NMPCLateralController() = default;
+    ~NMPCLateralController() override = default;
 
     bool initialize(ros::NodeHandle& nh) override;
     void computeControl(
@@ -26,7 +26,7 @@ public:
         race_msgs::Control* control_msg,
         const double dt,
         const race_msgs::Flag::ConstPtr& flag) override;
-    std::string getName() const override { return "NMPCController"; }
+    std::string getName() const override { return "NMPCLateralController"; }
 
 private:
     // 辅助函数
@@ -48,8 +48,8 @@ private:
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
     // 控制器参数
-    int nx_;                // 状态维度 [x, y, theta, vx, delta1, delta2]
-    int nu_;                // 控制量维度 [ax_des, delta1_des, delta2_des]
+    int nx_;                // 状态维度 [x, y, vx, theta, delta1, delta2]
+    int nu_;                // 控制量维度 [delta1_des, delta2_des]
     int N_;                 // NMPC预测步长
     int Nc_;                // 稀疏控制量步数
     double T_d1_;           // 前轴转向动态时间常数
@@ -61,8 +61,6 @@ private:
     int n_waypoints_;       // 目标参考路点数量
 
     // 控制量边界
-    double ax_min_;         // 最小加速度
-    double ax_max_;         // 最大加速度
     double delta1_min_;     // 前轴最小转向角
     double delta1_max_;     // 前轴最大转向角
     double delta2_min_;     // 后轴最小转向角
@@ -80,7 +78,7 @@ private:
     double w_term_v_;       // 终端速度权重
     double w_delta_cmd1_;   // 前轴转向角指令权重
     double w_delta_cmd2_;   // 后轴转向角指令权重
-    double max_speed_;      // 最大速度限制
+
 
     // NMPC求解器相关
     std::unique_ptr<casadi::OptiSol> sol_prev_;  // 原：casadi::OptiSol sol_prev_;
@@ -99,5 +97,5 @@ private:
 
 } // namespace race_tracker
 
-#endif // RACE_TRACKER_NMPC_CONTROLLER_H
+#endif // RACE_TRACKER_NMPC_LATERAL_CONTROLLER_H
     

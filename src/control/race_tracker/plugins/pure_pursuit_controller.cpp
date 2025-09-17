@@ -5,37 +5,38 @@
 namespace race_tracker {
 
 PurePursuitController::PurePursuitController() 
-    : lookahead_distance_(5.0),
-      wheelbase_(2.8),
+    : wheelbase_(2.8),
       max_steering_angle_(0.87),
-      min_path_points_(3) {}
+      min_path_points_(3),
+      min_lookahead_distance_(3.0),
+      lookahead_speed_coeff_(0.5) {}
 
 bool PurePursuitController::initialize(ros::NodeHandle& nh) {
+    // 1. 打印原命名空间（确认基础路径）
+    ROS_INFO("[PurePursuitController] 父NodeHandle命名空间: %s", nh.getNamespace().c_str());
+    // 2. 创建插件专属的子NodeHandle（匹配Launch中的ns="pure_pursuit"）
+    ros::NodeHandle nh_pursuit(nh, "pure_pursuit");  // 子命名空间：父ns + "/pure_pursuit"
+    ROS_INFO("[PurePursuitController] 插件专属NodeHandle命名空间: %s", nh_pursuit.getNamespace().c_str());
+
     // 从参数服务器加载参数（未设置则用默认值）
-    nh.param("pure_pursuit/lookahead_distance", lookahead_distance_, 5.0);
-    nh.param("pure_pursuit/wheelbase", wheelbase_, 2.8);
-    nh.param("pure_pursuit/max_steering_angle", max_steering_angle_, 0.87);
-    nh.param("pure_pursuit/min_path_points", min_path_points_, 3.0);
+    nh_pursuit.param("wheelbase", wheelbase_, 2.8);
+    nh_pursuit.param("max_steering_angle", max_steering_angle_, 0.87);
+    nh_pursuit.param("min_path_points", min_path_points_, 3.0);
     // 新增：加载动态预瞄参数（默认最小3m，系数0.5s）
-    nh.param("pure_pursuit/min_lookahead_distance", min_lookahead_distance_, 3.0);
-    nh.param("pure_pursuit/lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
+    nh_pursuit.param("min_lookahead_distance", min_lookahead_distance_, 3.0);
+    nh_pursuit.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
 
 
 
     // 打印参数加载日志
-    logParamLoad("pure_pursuit/lookahead_distance", lookahead_distance_, 5.0);
-    logParamLoad("pure_pursuit/wheelbase", wheelbase_, 2.8);
-    logParamLoad("pure_pursuit/max_steering_angle", max_steering_angle_, 0.87);
-    logParamLoad("pure_pursuit/min_path_points", min_path_points_, 3);
+    logParamLoad("wheelbase", wheelbase_, 2.8);
+    logParamLoad("max_steering_angle", max_steering_angle_, 0.87);
+    logParamLoad("min_path_points", min_path_points_, 3);
     // 打印新增参数日志
-    logParamLoad("pure_pursuit/min_lookahead_distance", min_lookahead_distance_, 3.0);
-    logParamLoad("pure_pursuit/lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
+    logParamLoad("min_lookahead_distance", min_lookahead_distance_, 3.0);
+    logParamLoad("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
 
     // 检查参数有效性
-    if (lookahead_distance_ < 1.0) {
-        ROS_WARN("[%s] 预瞄距离过小（<1m），重置为1.0m", getName().c_str());
-        lookahead_distance_ = 1.0;
-    }
     if (wheelbase_ < 1.0) {
         ROS_WARN("[%s] 轴距过小（<1m），重置为2.8m", getName().c_str());
         wheelbase_ = 2.8;
@@ -49,6 +50,7 @@ bool PurePursuitController::initialize(ros::NodeHandle& nh) {
         ROS_WARN("[%s] 速度系数过小（<0.1），重置为0.1", getName().c_str());
         lookahead_speed_coeff_ = 0.1;
     }
+    lookahead_distance_ = min_lookahead_distance_;
     return true;
 }
 
@@ -76,6 +78,7 @@ void PurePursuitController::computeControl(
         control_msg->lateral.steering_angle = 0.0;
         return;
     }
+
 
     // 2. 查找预瞄点
     geometry_msgs::Point lookahead_point = findLookaheadPoint(vehicle_status, path);
@@ -116,9 +119,9 @@ geometry_msgs::Point PurePursuitController::findLookaheadPoint(
 
     // 新增：获取当前速度并计算动态预瞄距离
     double current_speed = vehicle_status->vel.linear.x;
-    double dynamic_lookahead = calculateDynamicLookahead(current_speed);
-    ROS_DEBUG("[%s] 动态预瞄距离: %.2f m（速度: %.2f m/s）",
-             getName().c_str(), dynamic_lookahead, current_speed);
+    lookahead_distance_ = calculateDynamicLookahead(current_speed);
+    ROS_INFO("[%s] 动态预瞄距离: %.2f m（速度: %.2f m/s）",
+             getName().c_str(), lookahead_distance_, current_speed);
 
     const auto& vehicle_pos = vehicle_status->pose.position;
     double min_dist_to_veh = std::numeric_limits<double>::max();

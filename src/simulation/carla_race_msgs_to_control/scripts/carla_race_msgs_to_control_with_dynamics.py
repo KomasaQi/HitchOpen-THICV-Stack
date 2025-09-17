@@ -31,18 +31,22 @@ class ControlToVehicleControlWithDynamics:
         """初始化节点和回调函数"""
         # ROS1中不需要继承Node类，直接初始化节点名称
         rospy.init_node("race_msgs_to_control_with_dynamics")
+        # 打印节点命名空间
+        rospy.logwarn("race_msgs_to_control_with_dynamics 节点命名空间为: %s", rospy.get_namespace())
+     
 
-        # 获取参数
-        self.role_name = rospy.get_param("role_name", "ego_vehicle")
-        self.steer_Lag = rospy.get_param("steer_Lag", 0.05)
-        self.acc_Lag = rospy.get_param("acc_Lag", 0.05)
-        self.brake_Lag = rospy.get_param("brake_Lag", 0.05)
-        self.steer_tau = rospy.get_param("steer_tau", 0.2)
-        self.acc_tau = rospy.get_param("acc_tau", 0.05)
-        self.brake_tau = rospy.get_param("brake_tau", 0.05)
-        self.steer_max_vel = rospy.get_param("steer_max_vel", 0.7854) # 45度/s
         
-        self.store_periods = rospy.get_param("store_periods", 5) # 存储的指令周期数量
+        # 获取参数
+        self.role_name = rospy.get_param("~role_name", "ego_vehicle")
+        self.steer_Lag = rospy.get_param("~steer_Lag", 0.05)
+        self.acc_Lag = rospy.get_param("~acc_Lag", 0.05)
+        self.brake_Lag = rospy.get_param("~brake_Lag", 0.05)
+        self.steer_tau = rospy.get_param("~steer_tau", 0.2)
+        self.acc_tau = rospy.get_param("~acc_tau", 0.05)
+        self.brake_tau = rospy.get_param("~brake_tau", 0.05)
+        self.steer_max_vel = rospy.get_param("~steer_max_vel", 0.7854) # 45度/s
+        
+        self.store_periods = rospy.get_param("~store_periods", 5) # 存储的指令周期数量
         
         self.actual_steer = 0.0
         self.actual_acc = 0.0
@@ -51,9 +55,7 @@ class ControlToVehicleControlWithDynamics:
         self.steer_cmd_store = np.array([0.0] * self.store_periods)
         self.acc_cmd_store = np.array([0.0] * self.store_periods)
         self.brake_cmd_store = np.array([0.0] * self.store_periods)
-        self.cmd_time_store = np.array(range(-1*self.store_periods,0))
-        self.cmd_time_store = self.cmd_time_store.astype(float)
-        self.cmd_time_store += rospy.get_time() # 加上当前时间的偏移量
+        self.cmd_time_store = None
         self.max_steering_angle = None
 
         # 订阅车辆信息
@@ -96,7 +98,20 @@ class ControlToVehicleControlWithDynamics:
         if self.max_steering_angle is None:
             rospy.logwarn("尚未接收车辆信息，暂不处理控制指令")
             return
-
+        if self.cmd_time_store is None:
+            # ========== 关键修改：初始化时间数组为连续的过去时间 ==========
+            # 获取当前时间（节点启动后的时间）
+            current_time = rospy.get_time()
+            print(f"当前时间: {current_time}")
+            # 假设控制周期为0.05秒（20Hz），可根据实际频率调整
+            # 生成 [current_time - (N-1)*dt, ..., current_time - dt]
+            dt = 0.05  # 控制周期（与实际接收频率一致）
+            self.cmd_time_store = np.array([
+                current_time - i * dt 
+                for i in range(self.store_periods-1, -1, -1)  # 从N-1到0倒序
+            ])
+            # 验证初始时间数组（应接近current_time，且间隔均匀）
+            rospy.loginfo("初始时间数组: %s", self.cmd_time_store)
         control = CarlaEgoVehicleControl()
         
         # 存储指令
@@ -106,8 +121,8 @@ class ControlToVehicleControlWithDynamics:
         self.cmd_time_store = np.roll(self.cmd_time_store, -1)
         
         self.steer_cmd_store[-1] = -race_control.lateral.steering_angle
-        rospy.logwarn(f"steer_cmd stored: {race_control.lateral.steering_angle}")
-        rospy.logwarn(f"steer_cmd stored: {self.steer_cmd_store}")
+        # rospy.logwarn(f"steer_cmd stored: {race_control.lateral.steering_angle}")
+        # rospy.logwarn(f"steer_cmd stored: {self.steer_cmd_store}")
         
         self.acc_cmd_store[-1] = race_control.throttle
         self.brake_cmd_store[-1] = race_control.brake
@@ -120,7 +135,7 @@ class ControlToVehicleControlWithDynamics:
         acc_cmd = np.interp(self.cmd_time_store[-1]-self.acc_Lag, self.cmd_time_store, self.acc_cmd_store)
         brake_cmd = np.interp(self.cmd_time_store[-1]-self.brake_Lag, self.cmd_time_store, self.brake_cmd_store)
         
-        rospy.loginfo(f"current time: {self.cmd_time_store[-1]}, stored times: {self.cmd_time_store}, lagged steering time:{self.cmd_time_store[-1]-self.steer_Lag}, stored steer_cmd:{self.steer_cmd_store}, steer_cmd: {steer_cmd}, acc_cmd: {acc_cmd}, brake_cmd: {brake_cmd}")
+        # rospy.loginfo(f"current time: {self.cmd_time_store[-1]}, stored times: {self.cmd_time_store}, lagged steering time:{self.cmd_time_store[-1]-self.steer_Lag}, stored steer_cmd:{self.steer_cmd_store}, steer_cmd: {steer_cmd}, acc_cmd: {acc_cmd}, brake_cmd: {brake_cmd}")
         # 计算带有一节动力学的实际动态
         self.actual_steer = self.actual_steer + float(np.clip((steer_cmd - self.actual_steer)  / self.steer_tau, -self.steer_max_vel, self.steer_max_vel) * ts)
         self.actual_acc = self.actual_acc + float(acc_cmd - self.actual_acc) * ts / self.acc_tau
