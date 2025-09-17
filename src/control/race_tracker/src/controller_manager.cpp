@@ -249,6 +249,16 @@ private:
             ROS_WARN("\033[32m检测到GREEN旗帜比赛正常无限速\033[0m");
         }
     }
+    /**
+     * @brief 紧急停止函数
+     * @details 当检测到RED标志时，调用此函数设置控制指令为紧急停止
+     */
+    void emergencyStop() {
+        control_msg_.emergency = true;
+        control_msg_.throttle = 0.0;
+        control_msg_.brake = 1.0;
+        ROS_WARN("\033[31m[ControllerManager] ***********紧急停止已触发***********\033[0m");
+    }
 
     /**
      * @brief 周期标志检查回调（检查标志状态是否更新）
@@ -257,7 +267,7 @@ private:
         // 检查是否有最新的标志数据
         auto wait_time = ros::Time::now().toSec() - time_last_flag_check_;
         if (wait_time > flag_timeout_) {
-            ROS_WARN_STREAM("[ControllerManager] 等待标志数据(已等待:" << wait_time <<" s),设置当前标志为RED");
+            ROS_WARN_STREAM("[ControllerManager] 等待标志数据(已等待:" << wait_time <<" s),\033[31m设置当前标志为RED\033[0m");
             // 设置当前标志为RED
             last_flag_ = boost::make_shared<const race_msgs::Flag>(init_flag_msg_);
         }
@@ -287,6 +297,7 @@ private:
             }
             path = last_path_;
             status = last_status_;
+
         }
 
         // 3. 重置控制指令（避免历史值干扰，保留基础字段）
@@ -296,6 +307,15 @@ private:
         for (const auto& plugin : plugins_) {
             plugin->computeControl(status, path, &control_msg_, dt, last_flag_);
         }
+        // 检查标志状态是否为RED或者BLACK
+        if (last_flag_->flag == race_msgs::Flag::RED || last_flag_->flag == race_msgs::Flag::BLACK) {
+            // 若为RED或者BLACK，触发紧急停止
+            emergencyStop();
+        } else {
+            control_msg_.emergency = false; // 取消紧急状态
+        }
+
+
 
         // 5. 设置控制指令时间戳并发布
         control_msg_.header.stamp = current_time;

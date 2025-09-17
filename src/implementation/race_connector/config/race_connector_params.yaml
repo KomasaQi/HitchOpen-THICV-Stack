@@ -1,0 +1,21 @@
+# race_connector节点的配置参数
+
+# MQTT连接参数
+mqtt_address: "36.138.92.159"
+mqtt_port: 1883
+client_id: "TMS_001"
+mqtt_topic: "TMS"
+mqtt_qos: 0
+mqtt_retain: False
+send_interval: 1
+use_mqtt_v5: True
+
+# 急停相关配置
+estop_topic: "TMS/E-STOP"
+estop_qos: 1
+estop_retain: True
+
+# 关键参数：断联检测和ROS参数设置
+watchdog_timeout: 5  # 断联时间阈值（秒）
+ros_param_name: "/competition_timer/flag"  # 要设置的ROS参数名称
+ros_param_value: "RED"  # 断联时设置的参数值
