@@ -17,6 +17,8 @@ find_package(catkin REQUIRED COMPONENTS
   # std_srvs
   nav_msgs
   serial
+  tf2_ros
+
 )
 include_directories(
   include 

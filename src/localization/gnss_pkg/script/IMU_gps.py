@@ -24,7 +24,10 @@ from std_msgs.msg import Float32
 # import os
 import math
 import numpy as np
-
+import tf
+import tf2_ros
+import tf_transformations
+from geometry_msgs.msg import Quaternion
 from serial.serialutil import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
 
 
@@ -239,6 +242,15 @@ def receive_data():
             lat_degree=math.degrees(lat)
             long_degree=math.degrees(long)
             x,y=GPStoXY(lat_degree,long_degree,116.38,39.90)
+            
+            
+            # 进行heading转换，东为0-PI~PI，北为 PI/2
+            new_heading=-Heading+PI/2
+            if new_heading<-PI:
+                new_heading = new_heading + 2*PI 
+            
+            
+            
             odom_msg=Odometry()
             imu_msg=Imu()
 
@@ -248,10 +260,10 @@ def receive_data():
             odom_msg.child_frame_id='odom'
             odom_msg.pose.pose.position.x=x
             odom_msg.pose.pose.position.y=y
-            odom_msg.pose.pose.position.z=0.0
-            odom_msg.twist.twist.linear.x=Velocity_north
-            odom_msg.twist.twist.linear.y=Velocity_east
-            odom_msg.twist.twist.linear.z=0.0
+            odom_msg.pose.pose.position.z=height
+            odom_msg.twist.twist.linear.x=Velocity_east*math.cos(new_heading)+Velocity_north*math.sin(new_heading) # 随体速度 纵向
+            odom_msg.twist.twist.linear.y=Velocity_north*math.cos(new_heading)-Velocity_east*math.sin(new_heading) # 随体速度 横向
+            odom_msg.twist.twist.linear.z=-Velocity_down # 我们要向上的速度
             odom_msg.twist.twist.angular.x=Angular_velocity_X
             odom_msg.twist.twist.angular.y=Angular_velocity_Y
             odom_msg.twist.twist.angular.z=Angular_velocity_Z
@@ -275,9 +287,10 @@ def receive_data():
 
             pub_odom.publish(odom_msg)
             pub_imu.publish(imu_msg)
-            pub_roll.publish(Roll)
-            pub_pitch.publish(Pitch)
-            pub_heading.publish(Heading)
+            pub_roll.publish(Roll) 
+            pub_pitch.publish(-Pitch) # 转换方向 
+            
+            pub_heading.publish(new_heading) # 转换方向，东为0-PI~PI，北为 PI/2
             pub_gps.publish(gps_msg)
 
 
