@@ -272,7 +272,7 @@ git clone https://github.com/KomasaQi/HitchOpen-THICV-Stack.git  # 首先下载�
 cd HitchOpen-THICV-Stack
 catkin_make # 进行编译
 ```
-如果一切顺利，编译完成一切就都完美结束了，但是大概率不会，会报错。比如找不到`race_msgs::XXXX`之类的文件，但不要着急，这是因为编译顺序的问题，其中一些包之间有相互依赖的关系，需要先编译依赖的包，再编译当前包才不会出错，但是往往不会按照这个顺序来就导致了错误。这个时候是需要再重复在刚刚的终端运行：
+如果一切顺利，编译完成一切就都完美结束了，但是大概率不会，会报错。比如找不到`race_msgs::XXXX`之类的文件，但不要着急，这是因为编译顺序的问题，其中一些包之间有相互依赖的关系，需要先编译依赖的包，再编译当前包才不会出错，但是往往不会按照这个顺序来就导致了错误。这个时候是需要**再重复在刚刚的终端运行**：
 ``` bash
 catkin_make
 ```
@@ -289,7 +289,7 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 这样在运行ROS代码的时候就可以找到本项目的内容了。记得新建一个终端再运行代码，否则很可能加载了也不起作用（是个系统bug）。
 
 ### 4.3 相关资源下载
-一些定位与建图相关的资源可以在[百度云盘数据库](https://pan.baidu.com/s/1-sAB_cNlYPqTjDuaFgz9pg)下载，提取码：`ejmu`。
+一些定位与建图相关的ROSBAG资源可以在[百度云盘数据库](https://pan.baidu.com/s/1-sAB_cNlYPqTjDuaFgz9pg)下载，提取码：`ejmu`。
 
 本项目的一些相关文件也放在[清华云盘-极限AI挑战赛THU](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/)，比如clash-for-linux等小组件。
 
@@ -299,6 +299,21 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 ### 4.4 运行本项目
 下面提供了一些运行的案例可以参考。
 #### 4.4.1 Carla车辆轨迹跟踪仿真
+在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示：
+![Carla Town10HD_Opt](/tutorial/images/carla_town10hd_opt.png)
+
+然后在本项目的终端中运行：
+``` bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_example_ego_vehicle.launch
+```
+然后在新的终端中运行：
+``` bash
+roslaunch carla_ros_control carla_ros_control.launch
+```
+最后在新的终端中运行：
+``` bash
+roslaunch carla_ros_waypoints waypoints.launch
+```
 
 ## Contributors:
 - 戚笑景 Komasa Qi （清华大学）
