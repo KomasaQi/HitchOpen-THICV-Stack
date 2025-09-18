@@ -1,0 +1,37 @@
+/* config_coinhsl.h.in. */
+
+#ifndef __CONFIG_COINHSL_H__
+#define __CONFIG_COINHSL_H__
+
+/* Define to 1 if MA27 is available. */
+#undef COINHSL_HAS_MA27_S
+#undef COINHSL_HAS_MA27_D
+
+/* Define to 1 if MA28 is available. */
+#undef COINHSL_HAS_MA28_S
+#undef COINHSL_HAS_MA28_D
+
+/* Define to 1 if MA57 is available. */
+#undef COINHSL_HAS_MA57_S
+#undef COINHSL_HAS_MA57_D
+
+/* Define to 1 if HSL_MA77 is available. */
+#undef COINHSL_HAS_MA77_S
+#undef COINHSL_HAS_MA77_D
+
+/* Define to 1 if HSL_MA86 is available. */
+#undef COINHSL_HAS_MA86_S
+#undef COINHSL_HAS_MA86_D
+
+/* Define to 1 if HSL_MA97 is available. */
+#undef COINHSL_HAS_MA97_S
+#undef COINHSL_HAS_MA97_D
+
+/* Define to 1 if MC19 is available. */
+#undef COINHSL_HAS_MC19_S
+#undef COINHSL_HAS_MC19_D
+
+/* Define to 1 if MC68 is available. */
+#undef COINHSL_HAS_MC68_I
+
+#endif

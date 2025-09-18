@@ -40,7 +40,7 @@ catkin_package(
  INCLUDE_DIRS include
  LIBRARIES go2_control
  CATKIN_DEPENDS roscpp std_msgs
- DEPENDS CasADi
+ DEPENDS # CasADi
 #  DEPENDS system_lib
 )
 
