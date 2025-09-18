@@ -304,17 +304,36 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
 ![Carla Town10HD_Opt](/tutorial/images/runing_carla.png)
 
-然后在本项目的终端中运行：
+然后在本项目的终端中运行：(强烈建议安装terminator, 可以在一个终端中打开多个窗口，`sudo apt install terminator`)。让我们在第一个终端中启动`carla-ros-bridge`并生成一辆**Tesla.Model3**自车：
 ``` bash
 roslaunch carla_ros_bridge carla_ros_bridge_with_example_ego_vehicle.launch
 ```
-然后在新的终端中运行：
+然后在新的终端中运行带有一阶+纯时延动力学的转向、刹车、油门动力学的`carla_race_bridge`，以将本仓库自定义的`race_msgs`消息包中的消息与`carla-ros-bridge`中的消息进行转换：
 ``` bash
-roslaunch carla_ros_control carla_ros_control.launch
+roslaunch carla_race_bridge carla_race_bridge_with_dynamics.launch
 ```
-最后在新的终端中运行：
+再在新的一个终端中运行静态全局规划代码：
 ``` bash
-roslaunch carla_ros_waypoints waypoints.launch
+roslaunch race_global_static_planner race_global_carla_town10.launch
+```
+之后在新的一个终端中运行轨迹跟踪控制代码：（NMPC双轴转向+PID纵向速度跟踪）
+``` bash
+roslaunch race_tracker excel_controller_carla.launch
+```
+
+
+
+![track_sim_run](/tutorial/images/tracking_sim_run.png)
+
+
+此时应该会显示收到RED Flag，启动了紧急停止，车辆并不会运动，我们需要打开`competition_timer`来控制车辆运行。
+``` bash
+roslaunch competition_timer competition_timer.launch
+```
+我们需要设置比赛旗帜的颜色来控制车辆状态。如：
+手动更改比赛计时器的旗帜状态为GREEN：
+``` bash
+rosparam set /competition_timer/flag GREEN # 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G80
 ```
 
 ## Contributors:
