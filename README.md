@@ -75,16 +75,35 @@ HitchOpen-THICV-Stack/
 
 
 ### 3.5 运动控制算法
-
+所有运动控制算法都包含在`race_tracker`包的`controller_manager`中，任何控制算法都满足`controller_plugin_base.h`当中定义的插件接口形式，以插件存在并被按照相关launch文件中设定的顺序被调用。通过这种架构可以方便地实现横纵向控制器解耦或耦合的方案共存，也可以很容易地通过插件调用的顺序设置来覆盖前一个插件的命令，如进行ABS/TCS相关操作等。所有相关插件在`race_tracker/plugins`目录下，新撰写的插件也应该符合对应的接口，从而方便地进行拓展。与MPC相关的部分推荐通过CasADi来构建，一些示例性代码在`/src/control/go2_control`软件包下实现。
+- **1.nmpc_controller ----横纵向耦合运动学双轴转向轨迹跟踪控制器**
+- **2.nmpc_lateral_controller ----横向运动学双轴转向NMPC控制器**
+- **3.pure_pursuit ----纯跟踪横向控制器**
+- **4.pid_controller ----PID纵向控制器**
 
 
 ### 3.6 比赛计时器 Competition Timer
-`competition_timer`是控制代码运行的必要前提，为车辆运行提供安全保障，在运行前务必进行相关设置。
+`competition_timer`是控制代码运行的必要前提，为车辆运行提供安全保障，在运行前务必进行相关设置。整个程序运行的流程可以用状态机描述：）
+
+**等待比赛开始** --> **进入起点范围** --> **在跑圈中** --> **比赛结束**
+
+可以通过设置launch文件来调整比赛是否为跑圈制，还是单纯跑到终点就算结束。可以在launch文件中设置起终点（终点参数只在非跑圈模式下生效）和圈数等参数，然后可以启动比赛计时器launch文件。
+
+启动比赛计时器：
+``` bash
+roslaunch competition_timer competition_timer.launch # 可以自行设置其他参数
+```
 
 手动更改比赛计时器的旗帜状态为GREEN：
 ``` bash
 rosparam set /competition_timer/flag GREEN # 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G80
 ```
+
+- `RED` : 紧急状态，车辆应立即停止运行。
+- `BLACK` : 比赛结束状态，车辆应立即停止运行。
+- `GREEN` : 比赛正常进行状态，车辆可以正常运行并且没有限速。
+- `Gxx` : 带有数字的比赛旗帜表示限速，单位是`km/h`，比如`G20`表示正常进行比赛但是限速`20km/h`。
+
 
 ## 4. 安装运行
 
