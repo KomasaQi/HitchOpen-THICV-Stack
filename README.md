@@ -299,8 +299,8 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 ### 4.4 运行本项目
 下面提供了一些运行的案例可以参考。
 #### 4.4.1 Carla车辆轨迹跟踪仿真
-在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示：
-![Carla Town10HD_Opt](/tutorial/images/carla_town10hd_opt.png)
+在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
+![Carla Town10HD_Opt](/tutorial/images/runing_carla.png)
 
 然后在本项目的终端中运行：
 ``` bash
