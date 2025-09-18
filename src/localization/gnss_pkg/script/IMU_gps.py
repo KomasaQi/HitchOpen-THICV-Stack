@@ -26,9 +26,11 @@ import math
 import numpy as np
 import tf
 import tf2_ros
-import tf_transformations
+
 from geometry_msgs.msg import Quaternion
 from serial.serialutil import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
+
+
 
 
 CONSTANTS_RADIUS_OF_EARTH = 6371000. 
@@ -248,7 +250,8 @@ def receive_data():
             new_heading=-Heading+PI/2
             if new_heading<-PI:
                 new_heading = new_heading + 2*PI 
-            
+            new_pitch=-Pitch
+            new_roll=Roll
             
             
             odom_msg=Odometry()
@@ -265,17 +268,22 @@ def receive_data():
             odom_msg.twist.twist.linear.y=Velocity_north*math.cos(new_heading)-Velocity_east*math.sin(new_heading) # 随体速度 横向
             odom_msg.twist.twist.linear.z=-Velocity_down # 我们要向上的速度
             odom_msg.twist.twist.angular.x=Angular_velocity_X
-            odom_msg.twist.twist.angular.y=Angular_velocity_Y
-            odom_msg.twist.twist.angular.z=Angular_velocity_Z
+            odom_msg.twist.twist.angular.y=-Angular_velocity_Y # 转换方向
+            odom_msg.twist.twist.angular.z=-Angular_velocity_Z # 转换方向
             #imu
+            q = tf.transformations.quaternion_from_euler(new_roll, new_pitch, new_heading)
             imu_msg.header.stamp=rospy.Time.now()
             imu_msg.header.frame_id='ego_vehicle/imu'
+            imu_msg.orientation.x=q[0]
+            imu_msg.orientation.y=q[1]
+            imu_msg.orientation.z=q[2]
+            imu_msg.orientation.w=q[3]
             imu_msg.linear_acceleration.x=Body_acceleration_X
-            imu_msg.linear_acceleration.y=Body_acceleration_Y
-            imu_msg.linear_acceleration.z=Body_acceleration_Z
+            imu_msg.linear_acceleration.y=-Body_acceleration_Y # 转换方向
+            imu_msg.linear_acceleration.z=-Body_acceleration_Z # 转换方向
             imu_msg.angular_velocity.x=Angular_velocity_X
-            imu_msg.angular_velocity.y=Angular_velocity_Y
-            imu_msg.angular_velocity.z=Angular_velocity_Z
+            imu_msg.angular_velocity.y=-Angular_velocity_Y # 转换方向
+            imu_msg.angular_velocity.z=-Angular_velocity_Z # 转换方向
             
             #gps
             gps_msg=NavSatFix()
@@ -287,8 +295,8 @@ def receive_data():
 
             pub_odom.publish(odom_msg)
             pub_imu.publish(imu_msg)
-            pub_roll.publish(Roll) 
-            pub_pitch.publish(-Pitch) # 转换方向 
+            pub_roll.publish(new_roll) 
+            pub_pitch.publish(new_pitch) # 转换方向 
             
             pub_heading.publish(new_heading) # 转换方向，东为0-PI~PI，北为 PI/2
             pub_gps.publish(gps_msg)
