@@ -12,6 +12,8 @@ Hello，我是Komasa Qi，这个仓库主要是整理了关于液罐车小车平
 - 显卡：RTX 3080 及以上
 - 存储：256 GB SSD 及以上
 
+![HitchOpen-THICV-Stack](/tutorial/images/HitchOpen_THICV_Stack.png)
+
 相关仿真是跑在CARLA 0.9.13版本上的，仿真桥相关代码在`src/simulation/carla_race_bridge`目录下。[Ubuntu 20.04 ROS Noetic安装Carla 0.9.13 Linux编译版笔记](/tutorial/install_carla/Linux安装Carla编译版教程-小晶.docx)
 
 实车代码一方面是运行在我们的液罐车模型小车上，这是一辆半挂式液罐车，另一方面会运行在HitchOpe山下山赛的PIX Hooke底盘上，这辆小车是四轮转向的，所以相关代码自定义消息中预留了后轮转向的控制接口和状态反馈。
