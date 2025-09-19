@@ -370,7 +370,7 @@ roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 
 ![track_sim_run_lidar_loc](/tutorial/images/complete_tracking.png)
 
-此时可以启动比赛计时器。由于定位模块更新频率收传感器限制并不快，且存在误差，在高速容易导致误差累计车辆失稳。所以这里经过测试，设置G60参数来限制车速。
+此时可以设置比赛计时器参数（在launch文件中已经启动了competition_timer）:由于定位模块更新频率收传感器限制并不快，且存在误差，在高速容易导致误差累计车辆失稳;所以这里经过测试，设置G60参数来限制车速。
 ``` bash
 rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 ```
