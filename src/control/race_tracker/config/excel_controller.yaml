@@ -5,7 +5,7 @@ nmpc_lateral_controller:
   nu: 2                 # 控制量维度 [delta1_des, delta2_des]
   
   # 预测与控制步长配置
-  prediction_step: 15   # NMPC预测步长
+  prediction_step: 20   # NMPC预测步长
   sparse_control_step: 4 # 稀疏控制量步数
   
   # 车辆动力学参数
