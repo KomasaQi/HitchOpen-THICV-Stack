@@ -361,7 +361,11 @@ roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 然后就可以来设置一个GREEN旗帜，车辆就会开始运动了。
 
 #### 4.4.2 Carla车辆定位+轨迹跟踪仿真
-这是最为全面的一个仿真案例，采用liorf_localization进行定位。我们可以启动一下该启动的内容：
+这是最为全面的一个仿真案例，采用liorf_localization进行定位。
+
+在进行定位前需要[☞下载`Carla Town10HD_Opt`的点云地图文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Carla_Map_Town10`目录下。
+
+我们可以启动一下该启动的内容：
 ``` bash
 roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 ```
