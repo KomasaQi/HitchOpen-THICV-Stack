@@ -154,8 +154,8 @@ class RaceConnector:
                 client.subscribe(self.topic, qos=self.qos)
                 rospy.loginfo(f"Subscribed to: {self.topic}")
 
-            client.subscribe(self.estop_topic, qos=self.estop_qos)
-            rospy.loginfo(f"Subscribed to: {self.estop_topic}")
+            # client.subscribe(self.estop_topic, qos=self.estop_qos)
+            # rospy.loginfo(f"Subscribed to: {self.estop_topic}")
 
             # 重置静默时间
             self.last_rx_time = time.monotonic()
@@ -168,8 +168,8 @@ class RaceConnector:
             rospy.loginfo("Connected to MQTT broker (MQTT 3.1.1).")
             client.subscribe(self.topic, qos=self.qos)
             rospy.loginfo(f"Subscribed to: {self.topic}  [注意：会收到自己发布的消息]")
-            client.subscribe(self.estop_topic, qos=self.estop_qos)
-            rospy.loginfo(f"Subscribed to: {self.estop_topic}")
+            # client.subscribe(self.estop_topic, qos=self.estop_qos)
+            # rospy.loginfo(f"Subscribed to: {self.estop_topic}")
             self.last_rx_time = time.monotonic()
             self.last_warn_time = time.monotonic()
         else:
