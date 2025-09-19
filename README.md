@@ -325,7 +325,7 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 
 然后在本项目的终端中运行：(强烈建议安装terminator, 可以在一个终端中打开多个窗口，`sudo apt install terminator`)。让我们在第一个终端中启动`carla-ros-bridge`并生成一辆**Tesla.Model3**自车：
 ``` bash
-roslaunch carla_ros_bridge carla_ros_bridge_with_example_ego_vehicle.launch
+roslaunch carla_ros_bridge carla_ros_bridge_with_example_ego_vehicle.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0" # 设置起点前产生车辆
 ```
 然后在新的终端中运行带有一阶+纯时延动力学的转向、刹车、油门动力学的`carla_race_bridge`，以将本仓库自定义的`race_msgs`消息包中的消息与`carla-ros-bridge`中的消息进行转换：
 ``` bash
@@ -354,6 +354,27 @@ roslaunch competition_timer competition_timer.launch
 ``` bash
 rosparam set /competition_timer/flag GREEN # 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G80
 ```
+上述除了设置旗帜的内容可以通过一行代码启动：
+``` bash
+roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
+```
+然后就可以来设置一个GREEN旗帜，车辆就会开始运动了。
+
+#### 4.4.2 Carla车辆定位+轨迹跟踪仿真
+这是最为全面的一个仿真案例，采用liorf_localization进行定位。我们可以启动一下该启动的内容：
+``` bash
+roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
+```
+
+启动后应该是类似下图的界面，但是定位信息不存在。我们需要手动指定一下初始位置估计，方便算法来收敛。在左侧全局试图的`RVIZ`中，点击`绿色箭头后的 2D Pose Estimation`，然后在如下图所示的地图下方轨迹中断位置点击鼠标左键，并向右拖动指定航向为向右，稍后应该即可收敛到正确的位置，并在右上方小的自车视角RVIZ中查看到实时白色点云信息更新。
+
+![track_sim_run_lidar_loc](/tutorial/images/complete_tracking.png)
+
+此时可以启动比赛计时器。由于定位模块更新频率收传感器限制并不快，且存在误差，在高速容易导致误差累计车辆失稳。所以这里经过测试，设置G60参数来限制车速。
+``` bash
+rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
+```
+
 
 ## Contributors:
 - 戚笑景 Komasa Qi （清华大学）

@@ -1,0 +1,42 @@
+<!-- 本脚本启动在Carla Town10HD_Opt中，使用liorf-localization定位的考虑动态的轨迹跟踪控制，是完整的仿真流程 -->
+<launch>
+    <!-- 启动Carla ROS Bridge -->
+    <arg name='spawn_point' value='-114.0,-30.0,1.5,0.0,0.0,-90.0'/>
+    <arg name="object_config" default="$(find simple_racing)/config/objects_no_tf_tesla_model3.json" />
+    <arg name="robot_name" default="carla/ego_vehicle" />
+    
+    <!-- 启动Carla ROS Bridge -->
+    <include file="$(find carla_ros_bridge)/launch/carla_ros_bridge.launch" >
+        <arg name="timeout" value="20.0" />
+        <arg name="town" value="Town10HD_Opt" />
+        <arg name='fixed_delta_seconds' value='0.05'/>
+    </include>
+    <!-- 按照没有地图TF的方式生成自车 -->
+    <include file="$(find carla_spawn_objects)/launch/carla_spawn_objects.launch" >
+        <arg name="objects_definition_file" value="$(arg object_config)" />
+        <arg name='spawn_point_ego_vehicle' value='$(arg spawn_point)'/>
+    </include>
+    <!-- 启动手动控制 -->
+    <include file="$(find carla_manual_control)/launch/carla_manual_control.launch" />
+
+    <!-- 启动liorf-localization -->
+    <include file="$(find liorf_localization)/launch/run_carla_navigation.launch" />
+
+    <!-- 启动可行区域分割patchwork++ -->
+    <include file="$(find patchworkpp)/launch/carla_nav.launch" />
+
+
+
+    <!-- 启动Carla Race Bridge-->
+    <include file="$(find carla_race_bridge)/launch/carla_race_bridge_with_dynamics_lio.launch" />
+
+    <!-- 启动全局规划器 -->
+    <include file="$(find race_global_static_planner)/launch/race_global_carla_town10.launch" />
+
+    <!-- 启动跟踪控制器 -->
+    <include file="$(find race_tracker)/launch/excel_controller_carla.launch" />
+
+    <!--启动Competition Timer-->
+    <include file="$(find competition_timer)/launch/competition_timer.launch" />
+
+</launch>

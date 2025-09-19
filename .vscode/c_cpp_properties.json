@@ -51,6 +51,7 @@
         "/home/komasa/HitchOpen-THICV-Stack/devel/race_msgs/include/**",
         "/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/**",
         "/home/komasa/HitchOpen-THICV-Stack/src/common/competition_timer/include/**",
+        "/home/komasa/HitchOpen-THICV-Stack/src/localization/liorf_localization/include/**",
         "/home/komasa/opt/acados/include/**",
         "/usr/include/**"
       ],

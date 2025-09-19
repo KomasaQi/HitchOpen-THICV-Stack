@@ -1,0 +1,4 @@
+<launch>
+    <include file="$(find carla_race_state_converter)/launch/carla_state_converter_lio.launch" />
+    <include file="$(find carla_race_msgs_to_control)/launch/carla_race_msgs_to_control_with_dynamics.launch" />
+</launch>
