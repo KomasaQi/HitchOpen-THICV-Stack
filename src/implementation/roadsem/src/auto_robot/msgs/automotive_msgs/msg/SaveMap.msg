@@ -1,0 +1,5 @@
+float32 file_res
+string filename
+string scene_name
+string scene_id
+string save_dir

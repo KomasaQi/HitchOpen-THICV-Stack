@@ -1,0 +1,10 @@
+bool is_set
+uint8 set_solution
+float64 lla_origin_latitude
+float64 lla_origin_longitude
+---
+uint8 current_solution
+
+uint8 SMARTCAR_UNKNOWN = 0
+uint8 SMARTCAR_LIDAR = 1
+uint8 SMARTCAR_RTKGPS = 2

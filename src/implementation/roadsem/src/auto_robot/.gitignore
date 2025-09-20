@@ -1,0 +1,15 @@
+*.pcd
+*.pyc
+*.csv
+*.tar
+*.tar.gz
+*.zip
+*.7z
+*.pb
+*.out
+*.patch
+.vscode
+autox_pannel
+*/autox_pannel/
+*/__pycache__/
+*.mp3

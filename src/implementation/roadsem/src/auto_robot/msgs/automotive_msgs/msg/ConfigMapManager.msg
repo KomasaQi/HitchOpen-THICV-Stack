@@ -1,0 +1,2 @@
+string path_static_map
+string path_dynamic_map

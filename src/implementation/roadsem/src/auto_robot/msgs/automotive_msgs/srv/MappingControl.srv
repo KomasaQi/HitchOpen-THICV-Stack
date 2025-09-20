@@ -1,0 +1,19 @@
+uint8 mapping_control
+uint8 mapping_method
+uint8 scene_type
+string scene_name
+string scene_id
+
+uint8 MapStart = 1
+uint8 MapStop  = 2
+
+uint8 MappingMethodNDT    = 1
+uint8 MappingMethodLioSam = 2
+
+uint8 SceneInDoor  = 1
+uint8 SceneOutDoor = 2
+---
+uint8 ret_code
+
+uint8 Success = 1
+uint8 Fail    = 2

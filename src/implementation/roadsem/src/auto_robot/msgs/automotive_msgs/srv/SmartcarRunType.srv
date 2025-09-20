@@ -1,0 +1,7 @@
+bool is_set
+uint8 run_type
+---
+uint8 res_type
+
+uint8 RUNTYPE_MANUAL = 0
+uint8 RUNTYME_AUTO = 1

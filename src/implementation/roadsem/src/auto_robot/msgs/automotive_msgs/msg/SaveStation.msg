@@ -1,0 +1,2 @@
+string station_name
+string save_path

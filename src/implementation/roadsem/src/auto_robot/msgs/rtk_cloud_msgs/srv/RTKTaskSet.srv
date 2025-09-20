@@ -1,0 +1,9 @@
+int32   points_num
+float32 step_size
+bool    enable_traffic_light
+rtk_cloud_msgs/RTKPoint[] traj
+---
+bool result
+uint8 current_status
+uint16 err_code
+string err_msg

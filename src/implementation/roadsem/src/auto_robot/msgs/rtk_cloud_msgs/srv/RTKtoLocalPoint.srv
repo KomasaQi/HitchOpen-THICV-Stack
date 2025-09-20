@@ -1,0 +1,3 @@
+rtk_cloud_msgs/RTKPoint[] gps_points
+---
+rtk_cloud_msgs/LocalPoint[] local_points

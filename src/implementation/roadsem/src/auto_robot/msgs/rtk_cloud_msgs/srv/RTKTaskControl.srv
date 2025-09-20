@@ -1,0 +1,11 @@
+int8   cmd
+time   start_time
+---
+bool result
+uint8 current_status
+uint16 err_code
+string err_msg
+
+int8 TASK_RUN    = 1  # 任务开始
+int8 TASK_PAUSE  = 2  # 任务暂停
+int8 TASK_FINISH = 3  # 任务停止

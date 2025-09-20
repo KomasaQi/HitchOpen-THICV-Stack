@@ -1,0 +1,8 @@
+# m
+float32 bracket_width
+float32 bracket_length
+float32 distance_bracket_backend_to_control_point
+float32 path1_offset
+float32 path2_offset
+
+float32 max_offset_distance
