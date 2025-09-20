@@ -37,6 +37,6 @@
     <include file="$(find race_tracker)/launch/excel_controller_carla.launch" />
 
     <!--启动Competition Timer-->
-    <include file="$(find competition_timer)/launch/competition_timer.launch" />
+    <!-- <include file="$(find competition_timer)/launch/competition_timer.launch" /> -->
 
 </launch>
