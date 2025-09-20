@@ -20,6 +20,12 @@ find_package(CasADi REQUIRED)
 if(NOT CasADi_FOUND)
   message(FATAL_ERROR "Casadi not found! Please install Casadi first.")
 endif()
+
+find_package(Eigen3 REQUIRED)
+if(NOT Eigen3_FOUND)
+  message(FATAL_ERROR "Eigen3 not found! Please install Eigen3 first.")
+endif()
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -53,6 +59,7 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -235,6 +242,20 @@ install(TARGETS atc_dual_axis_tracker
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+
+# linear tracker QP mpc程序测试
+add_executable(test_qp_mpc src/test_qp_mpc.cpp)
+target_link_libraries(test_qp_mpc
+  ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_LIBRARIES}
+  ${EIGEN3_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so
+)
+target_include_directories(test_qp_mpc PRIVATE /usr/local/include ${EIGEN3_INCLUDE_DIRS})
+install(TARGETS test_qp_mpc
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 #############
 ## Install ##

@@ -1,0 +1,11 @@
+<launch>
+
+
+
+ 
+    <node pkg="tf" type="static_transform_publisher" name="basefootprint_to_laser" args="0 0 0 0 0 1 0 base_footprint laser 50" />
+
+    <node pkg="tf" type="static_transform_publisher" name="odom_to_basefootprint" args="0 0 0 0 0 0 1 /odom /base_footprint 50" />
+
+
+</launch>

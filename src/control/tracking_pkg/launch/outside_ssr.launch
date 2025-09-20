@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="ssr_pkg" type="angle_serial_reader_node.py" name="angle_serial_reader_node" output="screen" />
+  <node name="gnss_node" pkg="gnss_pkg" type="IMUtest_copy.py" output="screen">
+    <param name="port" value="/dev/ttyUSB0" />
+  </node>
+
+</launch>

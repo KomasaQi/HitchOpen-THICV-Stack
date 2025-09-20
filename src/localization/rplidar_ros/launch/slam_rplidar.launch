@@ -1,0 +1,9 @@
+<launch>
+  <!-- <node name="map_server" pkg="map_server" type="map_server" args="~/mymap.yaml" /> -->
+  <include file="$(find rplidar_ros)/launch/rplidar_s2.launch" />
+  <include file="$(find rplidar_ros)/launch/rplidar_slam_static.launch" />
+  <!-- <include file="$(find hector_mapping)/launch/mapping_default.launch" /> -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find rplidar_ros)/rviz/slam_rplidar.rviz" />
+  <node pkg="ssr_pkg" type="angle_serial_reader_node.py" name="angle_serial_reader_node" output="screen" />
+  <node pkg="tracking_pkg" type="ACC_Target_Detector_node.py" name="ACC_Target_Detector_node" output="screen" />
+</launch>

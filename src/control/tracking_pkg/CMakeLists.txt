@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(carla_race_state_converter)
+project(tracking_pkg)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -8,14 +8,13 @@ project(carla_race_state_converter)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  carla_msgs
   geometry_msgs
   nav_msgs
-  race_msgs
   roscpp
+  rospy
+  sensor_msgs
   std_msgs
-  tf2
-  tf2_ros
+  race_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -75,7 +74,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate added messages and services with any dependencies listed here
 # generate_messages(
 #   DEPENDENCIES
-#   carla_msgs#   geometry_msgs#   nav_msgs#   race_msgs#   std_msgs
+#   geometry_msgs#   nav_msgs#   sensor_msgs#   std_msgs
 # )
 
 ################################################
@@ -109,8 +108,8 @@ find_package(catkin REQUIRED COMPONENTS
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES carla_race_state_converter
-#  CATKIN_DEPENDS carla_msgs geometry_msgs nav_msgs race_msgs roscpp std_msgs tf2 tf2_ros
+#  LIBRARIES tracking_pkg
+#  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy sensor_msgs std_msgs
 #  DEPENDS system_lib
 )
 
@@ -121,13 +120,13 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-  include
+# include
   ${catkin_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/carla_race_state_converter.cpp
+#   src/${PROJECT_NAME}/tracking_pkg.cpp
 # )
 
 ## Add cmake target dependencies of the library
@@ -138,8 +137,8 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(state_converter_node src/state_converter_node.cpp)
-add_executable(state_converter_lio_node src/state_converter_lio_node.cpp)
+# add_executable(${PROJECT_NAME}_node src/tracking_pkg_node.cpp)
+
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -148,17 +147,12 @@ add_executable(state_converter_lio_node src/state_converter_lio_node.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-add_dependencies(state_converter_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-add_dependencies(state_converter_lio_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(state_converter_node
-  ${catkin_LIBRARIES}
-
-)
-target_link_libraries(state_converter_lio_node
-  ${catkin_LIBRARIES}
-)
+# target_link_libraries(${PROJECT_NAME}_node
+#   ${catkin_LIBRARIES}
+# )
 
 #############
 ## Install ##
@@ -207,10 +201,17 @@ target_link_libraries(state_converter_lio_node
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_carla_race_state_converter.cpp)
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_tracking_pkg.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+
+set(CMAKE_CXX_FLAGS "-std=c++11")
+ 
+link_directories("/usr/local/lib")
+include_directories("/usr/local/include")
+ 

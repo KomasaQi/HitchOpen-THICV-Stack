@@ -1,0 +1,8 @@
+<launch>
+
+    <node pkg="chassis_pkg" type="chassis_node.py" name="chassis_node" output="screen" />
+    <node pkg="tracking_pkg" type="ref_path_pub_node.py" name="ref_path_pub_node" output="screen" />
+    <node pkg="tracking_pkg" type="ACC_ref_speed_planner.py" name="ACC_ref_speed_planner"  />
+    <node pkg="tracking_pkg" type="ACC_pid_tracking_node.py" name="ACC_pid_tracking_node" output="screen" />
+
+</launch>

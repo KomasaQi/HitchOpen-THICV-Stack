@@ -125,6 +125,7 @@
         "*.txx": "cpp",
         "*.def": "cpp",
         "ranges": "cpp",
-        "span": "cpp"
+        "span": "cpp",
+        "dense": "cpp"
     }
 }

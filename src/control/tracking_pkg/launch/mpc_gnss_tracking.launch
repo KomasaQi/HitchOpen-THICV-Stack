@@ -1,0 +1,7 @@
+<launch>
+
+    <node pkg="chassis_pkg" type="chassis_node.py" name="chassis_node" output="screen" />
+    <node pkg="tracking_pkg" type="outside_ref_path_pub_node.py" name="ref_path_pub_node" output="screen" />
+    <node pkg="tracking_pkg" type="outside_MPC_tracking_node.py" name="mpc_tracking_node" output="screen" />
+    <node pkg="tracking_pkg" type="truck_data_logger.py" name="truck_data_logger" output="screen" />
+</launch>

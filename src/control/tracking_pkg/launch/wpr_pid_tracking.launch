@@ -1,0 +1,12 @@
+<launch>
+	<include file="$(find wpr_simulation)/launch/wpb_stage_slam.launch"/>
+	<node pkg="hector_mapping" type="hector_mapping" name="hector_mapping">
+		<param name="map_update_distance_thresh" value="0.1"/>
+		<param name="map_update_angle_thresh" value="0.1"/>
+		<param name="map_pub_period" value="0.2"/>
+	</node>
+    <node pkg="tracking_pkg" type="ref_path_pub_node.py" name="ref_path_pub_node" output="screen" />
+    <node pkg="tracking_pkg" type="tracking_node.py" name="tracking_node" output="screen" />
+	<node pkg="rviz" type="rviz" name = "rviz" args="-d $(find tracking_pkg)/rviz/wpr_tracking.rviz"/>
+	<node pkg="rqt_robot_steering" type="rqt_robot_steering" name="rqt_robot_steering"/>	
+</launch>
