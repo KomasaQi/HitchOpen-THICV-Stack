@@ -10,6 +10,7 @@ This directory contains self defined message definitions used in the HitchOpen T
 - [VehicleStatus.msg](msg/VehicleStatus.msg)
 - [WheelSpeed.msg](msg/WheelSpeed.msg)
 - [Euler.msg](msg/Euler.msg)
+- [Tracking.msg](msg/Tracking.msg)
 
 
 # Specific Message Definitions
