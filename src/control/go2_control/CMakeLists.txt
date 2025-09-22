@@ -60,6 +60,8 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  /usr/local/include
+  ${CasADi_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -251,6 +253,7 @@ target_link_libraries(test_qp_mpc
   ${EIGEN3_LIBRARIES}
   ${EIGEN3_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so
+  ${CasADi_LIBRARIES}
 )
 target_include_directories(test_qp_mpc PRIVATE /usr/local/include ${EIGEN3_INCLUDE_DIRS})
 install(TARGETS test_qp_mpc

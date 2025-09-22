@@ -25,7 +25,7 @@
 using boost::asio::ip::udp;
 
 // GLOBAL 系统参数设置
-const double max_steer_angle = 26.0;  // 最大转角读数26°
+const double max_steer_angle = 23.0;  // 最大转角读数23°
 
 
 
@@ -116,6 +116,7 @@ private:
         can_msgs::ecu ecu_msg;
         ecu_msg.shift = ecu_msg.SHIFT_N;
         last_ecu_.motor = 0.0;
+        last_ecu_.throttle = 0.0;
         // ecu_msg.brake = true;
         can_frame drive_frame   = createDriveCtrlFrame(last_ecu_);
         can_frame brake_frame   = createBrakeCtrlFrame(last_ecu_);
@@ -660,13 +661,15 @@ private:
         float speed = std::max(0.0f, std::min(ecu_msg.motor, 50.0f));  // 限制速度范围 0-50 m/s
         uint16_t speed_ctrl = static_cast<uint16_t>(speed / 0.01f);    // 速度控制 (16位无符号，分辨率0.01 m/s)
         uint8_t target_gear = 0;
+        uint16_t throttle_ctrl = static_cast<uint16_t>(ecu_msg.throttle * 100.0f); // 油门控制 (10位无符号，分辨率0.1)
+
 
 
         // 驱动使能
         PixDriver::writeBit(frame.data, 0, 1);
 
         // 驱动模式控制 - 默认为速度控制模式(0)
-        uint8_t drive_mode = 0; // 0:speed ctrl mode  1:throttle ctrl mode
+        uint8_t drive_mode = ecu_msg.driver_mode; // 0:speed ctrl mode  1:throttle ctrl mode
         PixDriver::writeUInt(frame.data, 2, 2, drive_mode);
 
         // 档位控制
@@ -678,6 +681,7 @@ private:
                 target_gear = this->current_gear_;
             }
             speed_ctrl = 0;
+            throttle_ctrl = 0;
         }else{
             switch(ecu_msg.shift) {
                 case can_msgs::ecu::SHIFT_D: target_gear = pix_driver::DriveStatusFb::GearStatusD; break;
@@ -689,14 +693,16 @@ private:
         PixDriver::writeUInt(frame.data, 4, 2, target_gear);
 
         // 四驱两驱模式 - 0:4wd 1:Rwd 2:Fwd  --默认为4wd
-        PixDriver::writeUInt(frame.data, 6, 2, 0);
+        uint8_t traction_mode = ecu_msg.traction_mode;
+        PixDriver::writeUInt(frame.data, 6, 2, traction_mode);
 
         // 当不一致时，不设置速度
         if (this->current_gear_ != ecu_msg.shift) {
             speed_ctrl = 0;
+            throttle_ctrl = 0;
         }
         PixDriver::writeUInt(frame.data, 8, 16, speed_ctrl);
-
+        PixDriver::writeUInt(frame.data, 24, 10, throttle_ctrl);
         // 循环计数 (4位，0-15循环)
         static uint8_t drive_life = 0;
         PixDriver::writeUInt(frame.data, 48, 4, drive_life);
@@ -778,6 +784,7 @@ private:
         PixDriver::writeBit(frame.data, 0, 1);
 
         // 转向模式控制 - 默认为前轮转向(0)
+        uint8_t steer_mode = ecu_msg.steer_mode;
         /*
             0:front ackerman
             1:same front and back
@@ -785,12 +792,13 @@ private:
             3:back ackrman
             4:front back
         */
-        PixDriver::writeUInt(frame.data, 4, 4, 0);
+        PixDriver::writeUInt(frame.data, 4, 4, steer_mode);
 
         // 转向角度控制 (16位有符号，分辨率1度，范围-500~500)
         int16_t steer_angle = clamp<double>(500*ecu_msg.steer/max_steer_angle, -500, 500);
+        int16_t steer_angle_rear = clamp<double>(500*ecu_msg.steer_rear/max_steer_angle, -500, 500);
         PixDriver::writeInt(frame.data, 8, 16, steer_angle);   // 前转向角度控制
-        // PixDriver::writeInt(frame.data, 24, 16, steer_angle);  // 后转向角度控制
+        PixDriver::writeInt(frame.data, 24, 16, steer_angle_rear);  // 后转向角度控制
 
         // 转向角速度控制 (8位无符号，分辨率2 deg/s，范围0-500 deg/s)
         // 使用固定值100 deg/s

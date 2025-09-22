@@ -13,6 +13,7 @@ bool hand_brake # 手刹状态
 bool emergency # 是否紧急状态
 bool clutch # 离合器状态
 uint8 steering_mode # 转向模式，1：单轴转向，2：双轴转向 参见Control.msg
+race_msgs/Tracking tracking # 跟踪信息
 
 
 

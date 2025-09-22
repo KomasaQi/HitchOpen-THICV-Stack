@@ -108,6 +108,7 @@ bool hand_brake # 手刹状态
 bool emergency # 是否紧急状态
 bool clutch # 离合器状态
 uint8 steering_mode # 转向模式，1：单轴转向，2：双轴转向 参见Control.msg
+race_msgs/Tracking tracking # 跟踪信息
 ```
 
 ## WheelSpeed.msg
@@ -138,4 +139,10 @@ uint8 G20 = 20   # 绿色旗帜且限速20km/h
 uint8 G40 = 40   # 绿色旗帜且限速40km/h
 uint8 G60 = 60   # 绿色旗帜且限速60km/h 
 uint8 G80 = 80   # 绿色旗帜且限速80km/h
+```
+
+## Tracking.msg
+``` bash
+float64 lateral_tracking_error # 横向跟踪误差, m
+float64 heading_angle_error # 航向角跟踪误差, rad
 ```
