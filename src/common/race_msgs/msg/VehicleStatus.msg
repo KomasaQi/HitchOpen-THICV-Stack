@@ -14,6 +14,8 @@ bool emergency # 是否紧急状态
 bool clutch # 离合器状态
 uint8 steering_mode # 转向模式，1：单轴转向，2：双轴转向 参见Control.msg
 race_msgs/Tracking tracking # 跟踪信息
+float32 throttle_fb # 油门值 0~1
+float32 brake_fb # 刹车值 0~1
 
 
 
