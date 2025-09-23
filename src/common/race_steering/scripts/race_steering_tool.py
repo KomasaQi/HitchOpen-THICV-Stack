@@ -56,6 +56,10 @@ class RaceSteeringTool:
         self.s_pressed = False
         self.a_pressed = False
         self.d_pressed = False
+        self.up_pressed = False
+        self.down_pressed = False
+        self.left_pressed = False
+        self.right_pressed = False
         
         # 注册信号处理，允许Ctrl+C直接退出
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -84,8 +88,8 @@ class RaceSteeringTool:
         self.min_velocity = rospy.get_param('~min_velocity', -5.0)
         self.max_acceleration = rospy.get_param('~max_acceleration', 2.0)
         self.min_acceleration = rospy.get_param('~min_acceleration', -2.0)
-        self.max_steering_angle = rospy.get_param('~max_steering_angle', 1.0)
-        self.min_steering_angle = rospy.get_param('~min_steering_angle', -1.0)
+        self.max_steering_angle = rospy.get_param('~max_steering_angle', 0.4)
+        self.min_steering_angle = rospy.get_param('~min_steering_angle', -0.4)
         
         # 衰减参数 (线性衰减，单位：单位值/秒)
         self.throttle_decay_rate = rospy.get_param('~throttle_decay_rate', 1.0)
@@ -243,16 +247,9 @@ class RaceSteeringTool:
         elif current_mode == self.control_msg.DES_ACCEL_ONLY:
             self.handle_mode_2(key, dt)
         
-        # 通用控制指令
-        # 左转 (A/左箭头)
-        if key == 'a' or key == '\x1b[D':
-            self.control_msg.lateral.steering_angle += self.steering_control_rate * dt
 
                 
-        # 右转 (D/右箭头)
-        elif key == 'd' or key == '\x1b[C':
-            self.control_msg.lateral.steering_angle -= self.steering_control_rate * dt
-
+            
         # 急停
         elif key == 'q':
             self.control_msg.emergency = True
@@ -276,8 +273,27 @@ class RaceSteeringTool:
         elif key == 'h':
             self.print_help()
         
-            
-
+        # 通用控制指令
+        if self.control_msg.steering_mode == self.control_msg.FRONT_STEERING_MODE:
+            # 左转 (A/左箭头)
+            if key == 'a' or key == '\x1b[D':
+                self.control_msg.lateral.steering_angle += self.steering_control_rate * dt
+            # 右转 (D/右箭头)
+            elif key == 'd' or key == '\x1b[C':
+                self.control_msg.lateral.steering_angle -= self.steering_control_rate * dt
+        else:
+            # 前轮左转 (A)
+            if key == 'a' :
+                self.control_msg.lateral.steering_angle += self.steering_control_rate * dt
+            # 前轮右转 (D)
+            elif key == 'd' :
+                self.control_msg.lateral.steering_angle -= self.steering_control_rate * dt
+            # 后轮左转 (左箭头)
+            if  key == '\x1b[D':
+                self.control_msg.lateral.rear_wheel_angle += self.steering_control_rate * dt
+            # 后轮右转 (右箭头)
+            elif  key == '\x1b[C':
+                self.control_msg.lateral.rear_wheel_angle -= self.steering_control_rate * dt
         # 限制参数范围
         self.limit_parameters()
         
@@ -313,12 +329,15 @@ class RaceSteeringTool:
         # 增加速度 (W/上箭头)
         if key == 'w' or key == '\x1b[A':
             self.control_msg.longitudinal.velocity += self.velocity_control_rate * dt
-            # 如果当前是空挡或停车档，自动切换到1档
-            if self.control_msg.gear in [self.control_msg.GEAR_NEUTRAL, self.control_msg.GEAR_PARK]:
+            # 如果期望速度大于0，切换到1档
+            if self.control_msg.longitudinal.velocity > 0:
                 self.control_msg.gear = self.control_msg.GEAR_1
         # 减少速度 (S/下箭头)
         elif key == 's' or key == '\x1b[B':
             self.control_msg.longitudinal.velocity -= self.velocity_control_rate * dt
+            # 如果期望速度小于0，设置为倒挡
+            if self.control_msg.longitudinal.velocity < 0:
+                self.control_msg.gear = self.control_msg.GEAR_REVERSE
 
     def handle_mode_2(self, key, dt):
         """处理模式2: 目标加速度控制"""
@@ -356,6 +375,9 @@ class RaceSteeringTool:
         time_since_release_s = time.time() - self.key_release_time_s
         time_since_release_a = time.time() - self.key_release_time_a
         time_since_release_d = time.time() - self.key_release_time_d
+        time_since_release_left = time.time() - self.key_release_time_left
+        time_since_release_right = time.time() - self.key_release_time_right
+        
         # 修改：衰减触发条件（无按键 + 松开时间超过延迟阈值）
         if not self.w_pressed and time_since_release_w > self.decay_delay:
             # 油门衰减（保留原有逻辑）
@@ -380,6 +402,19 @@ class RaceSteeringTool:
                     self.control_msg.lateral.steering_angle = min(0.0, self.control_msg.lateral.steering_angle + decay_amount)
             else:
                 self.control_msg.lateral.steering_angle = 0.0
+        if not self.left_pressed and not self.right_pressed and time_since_release_left > self.decay_delay and time_since_release_right > self.decay_delay:
+        # 后轴转向衰减
+            if abs(self.control_msg.lateral.rear_wheel_angle) > self.decay_threshold:
+                decay_amount = self.steering_decay_rate * dt
+                if self.control_msg.lateral.rear_wheel_angle > 0:
+                    self.control_msg.lateral.rear_wheel_angle = max(0.0, self.control_msg.lateral.rear_wheel_angle - decay_amount)
+                else:
+                    self.control_msg.lateral.rear_wheel_angle = min(0.0, self.control_msg.lateral.rear_wheel_angle + decay_amount)
+            else:
+                self.control_msg.lateral.rear_wheel_angle = 0.0
+                
+                
+                
         # 正方向衰减 (A/左箭头) 按下，如果方向此时为负，仍然存在这个衰减
         if self.a_pressed and time_since_release_a > self.decay_delay:
             if self.control_msg.lateral.steering_angle < 0:
@@ -389,14 +424,24 @@ class RaceSteeringTool:
             if self.control_msg.lateral.steering_angle > 0:
                 self.control_msg.lateral.steering_angle = min(0.0, self.control_msg.lateral.steering_angle - decay_amount)
 
-        # 处理双轴转向，后轴与前轴反向等大
-        if self.control_msg.steering_mode == self.control_msg.DUAL_STEERING_MODE:
-            self.control_msg.lateral.rear_wheel_angle = -self.control_msg.lateral.steering_angle
-            self.control_msg.lateral.rear_wheel_angle_velocity = -self.control_msg.lateral.steering_angle_velocity
+        # 后轴正方向衰减 (左箭头) 按下，如果后轴方向此时为负，仍然存在这个衰减
+        if self.left_pressed and time_since_release_left > self.decay_delay:
+            if self.control_msg.lateral.rear_wheel_angle < 0:
+                self.control_msg.lateral.rear_wheel_angle = max(0.0, self.control_msg.lateral.rear_wheel_angle + decay_amount)
+        # 后轴负方向衰减 (右箭头) 按下，如果后轴方向此时为正，仍然存在这个衰减
+        if self.right_pressed and time_since_release_right > self.decay_delay:
+            if self.control_msg.lateral.rear_wheel_angle > 0:
+                self.control_msg.lateral.rear_wheel_angle = min(0.0, self.control_msg.lateral.rear_wheel_angle - decay_amount)
 
-        else: # 否则就将后轴转向指令置零
-            self.control_msg.lateral.rear_wheel_angle = 0.0
-            self.control_msg.lateral.rear_wheel_angle_velocity = 0.0
+
+        # # 处理双轴转向，后轴与前轴反向等大
+        # if self.control_msg.steering_mode == self.control_msg.DUAL_STEERING_MODE:
+        #     self.control_msg.lateral.rear_wheel_angle = -self.control_msg.lateral.steering_angle
+        #     self.control_msg.lateral.rear_wheel_angle_velocity = -self.control_msg.lateral.steering_angle_velocity
+
+        # else: # 否则就将后轴转向指令置零
+        #     self.control_msg.lateral.rear_wheel_angle = 0.0
+        #     self.control_msg.lateral.rear_wheel_angle_velocity = 0.0
             
 
     def limit_parameters(self):
@@ -481,8 +526,13 @@ class RaceSteeringTool:
         line1 = (f"模式: {mode_str} | 转向: {steering_mode_str} | "
                 f"手刹：{ '是' if self.control_msg.hand_brake else '否'} | 离合：{ '是' if self.control_msg.clutch else '否'} "
                 f"急停: {'是' if self.control_msg.emergency else '否'}")
-        line2 = (f"转向角: {self.control_msg.lateral.steering_angle:.2f}rad | " 
-                f"{mode_values} | 档位: {self.get_gear_name()}")
+        if self.control_msg.steering_mode == self.control_msg.FRONT_STEERING_MODE:
+            line2 = (f"转向角: {self.control_msg.lateral.steering_angle:.2f}rad | " 
+                    f"{mode_values} | 档位: {self.get_gear_name()}")
+        else:
+            line2 = (f"前转向角: {self.control_msg.lateral.steering_angle:.2f}rad | "
+                     f"后转向角: {self.control_msg.lateral.rear_wheel_angle:.2f}rad | " 
+                    f"{mode_values} | 档位: {self.get_gear_name()}")
         
         # ANSI 转义序列：
         # \033[F  光标上移1行
@@ -532,6 +582,12 @@ class RaceSteeringTool:
         self.key_release_time_s = time.time()
         self.key_release_time_a = time.time()
         self.key_release_time_d = time.time()
+        
+        self.key_release_time_up = time.time()
+        self.key_release_time_down = time.time()
+        self.key_release_time_left = time.time()
+        self.key_release_time_right = time.time()
+        
         try:
             while self.running and not rospy.is_shutdown():
 
@@ -550,30 +606,81 @@ class RaceSteeringTool:
                 else:
                     self.key_pressed = False  # 无按键：标记为松开
                 
-                if key in ['w', '\x1b[A']:
-                    self.w_pressed = True
-                    self.key_release_time_w = current_time
+                if self.control_msg.steering_mode == self.control_msg.FRONT_STEERING_MODE:
+                    if key in ['w', '\x1b[A']:
+                        self.w_pressed = True
+                        self.key_release_time_w = current_time
+                    else:
+                        self.w_pressed = False
+                    
+                    if key in ['s', '\x1b[B']:
+                        self.s_pressed = True
+                        self.key_release_time_s = current_time
+                    else:
+                        self.s_pressed = False
+                    
+                    if key in ['a', '\x1b[D']:
+                        self.a_pressed = True
+                        self.key_release_time_a = current_time
+                    else:
+                        self.a_pressed = False
+                    
+                    if key in ['d', '\x1b[C']:
+                        self.d_pressed = True
+                        self.key_release_time_d = current_time
+                    else:
+                        self.d_pressed = False
                 else:
-                    self.w_pressed = False
-                
-                if key in ['s', '\x1b[B']:
-                    self.s_pressed = True
-                    self.key_release_time_s = current_time
-                else:
-                    self.s_pressed = False
-                
-                if key in ['a', '\x1b[D']:
-                    self.a_pressed = True
-                    self.key_release_time_a = current_time
-                else:
-                    self.a_pressed = False
-                
-                if key in ['d', '\x1b[C']:
-                    self.d_pressed = True
-                    self.key_release_time_d = current_time
-                else:
-                    self.d_pressed = False
-                
+                    if key in ['w']:
+                        self.w_pressed = True
+                        self.key_release_time_w = current_time
+                    else:
+                        self.w_pressed = False
+                    
+                    if key in ['s']:
+                        self.s_pressed = True
+                        self.key_release_time_s = current_time
+                    else:
+                        self.s_pressed = False
+                    
+                    if key in ['a']:
+                        self.a_pressed = True
+                        self.key_release_time_a = current_time
+                    else:
+                        self.a_pressed = False
+                    
+                    if key in ['d']:
+                        self.d_pressed = True
+                        self.key_release_time_d = current_time
+                    else:
+                        self.d_pressed = False
+                        
+                    if key in ['\x1b[A']:
+                        self.up_pressed = True
+                        self.key_release_time_up = current_time
+                    else:
+                        self.up_pressed = False
+                    
+                    if key in [ '\x1b[B']:
+                        self.down_pressed = True
+                        self.key_release_time_down = current_time
+                    else:
+                        self.down_pressed = False
+                    
+                    if key in ['\x1b[D']:
+                        self.left_pressed = True
+                        self.key_release_time_left = current_time
+                    else:
+                        self.left_pressed = False
+                    
+                    if key in ['\x1b[C']:
+                        self.right_pressed = True
+                        self.key_release_time_right = current_time
+                    else:
+                        self.right_pressed = False
+                        
+                        
+                        
                 self.update_control(key,dt)
                 
                 # 应用衰减机制

@@ -32,13 +32,14 @@ private:
     // ros::Subscriber imu_sub_;
     // ros::Subscriber odom_sub_;
 
-    // ros::Subscriber steer_pix_sub_;
+    ros::Subscriber steer_pix_sub_;
     ros::Subscriber brake_pix_sub_;
-    // ros::Subscriber drive_pix_sub_;
+    ros::Subscriber drive_pix_sub_;
     // ros::Subscriber power_pix_sub_;
     // ros::Subscriber vehicle_state_pix_sub_;
     ros::Subscriber wheel_rpm_pix_sub_;
-    ros::Subscriber vehicle_work_state_sub_;
+    // ros::Subscriber vehicle_work_state_sub_;
+
     
     // 发布者
     ros::Publisher vehicle_state_pub_;
@@ -50,7 +51,8 @@ private:
     // pix_driver::VehicleStatusFb vehicle_state_pix_msg_;
     pix_driver::ChassisWheelRpmFb wheel_rpm_pix_msg_;
     pix_driver::BrakeStatusFb brake_pix_msg_;
-
+    pix_driver::SteerStatusFb steer_pix_msg_;
+    pix_driver::DriveStatusFb drive_pix_msg_;
 
     
     // 消息接收标志
@@ -77,10 +79,13 @@ public:
         // vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 10, &StateConverter::vehicleStatusCallback, this);
         wheel_rpm_pix_sub_ = nh_.subscribe("/can/wheel_rpm", 10, &StateConverter::wheelRpmCallback, this);
         brake_pix_sub_ = nh_.subscribe("/can/brake_status", 10, &StateConverter::brakeCallback, this);
+        steer_pix_sub_ = nh_.subscribe("/can/steer_status", 10, &StateConverter::steerCallback, this);
+        drive_pix_sub_ = nh_.subscribe("/can/drive_status", 10, &StateConverter::driveCallback, this);
 
         // 初始化发布者
         vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 10);
         
+
         ROS_INFO("Carla Race State Converter initialized");
     }
     
@@ -130,10 +135,22 @@ public:
         publishVehicleState();
     }
     
+    void steerCallback(const pix_driver::SteerStatusFb::ConstPtr& msg) {
+        steer_pix_msg_ = *msg;
+        steer_pix_received_ = true;
+        publishVehicleState();
+    }
+    
+    void driveCallback(const pix_driver::DriveStatusFb::ConstPtr& msg) {
+        drive_pix_msg_ = *msg;
+        drive_pix_received_ = true;
+        publishVehicleState();
+    }
+    
     // 发布转换后的消息
     void publishVehicleState() {
         // 等待所有必要的消息都被接收
-        if ( !wheel_rpm_pix_received_) {
+        if ( !wheel_rpm_pix_received_ || !brake_pix_received_ || !steer_pix_received_) {
             return;
         }
         
@@ -159,11 +176,11 @@ public:
         // state_msg.acc.angular = imu_msg_.angular_velocity;
         
         // 填充转向信息
-        // state_msg.lateral.steering_angle = -vehicle_status_msg_.control.steer;
+        state_msg.lateral.steering_angle = -steer_pix_msg_.steer_angle_front/450*23/180*PI;
         // 这里假设转向角速度无法直接获取，设置为0或需要额外计算
         state_msg.lateral.steering_angle_velocity = 0.0;
         // 双轴转向相关信息，CARLA默认可能不提供，设置为0
-        state_msg.lateral.rear_wheel_angle = 0.0;
+        state_msg.lateral.rear_wheel_angle = -steer_pix_msg_.steer_angle_rear/450*23/180*PI;
         state_msg.lateral.rear_wheel_angle_velocity = 0.0;
         
         // 填充车轮速度（假设四轮速度相同，根据车速计算）
@@ -175,17 +192,22 @@ public:
         state_msg.wheel_speed.right_rear = wheel_rpm_pix_msg_.wheel_rpm_rr;
         
         // 填充档位信息
-        // CARLA的gear为1表示前进，-1表示倒车，这里映射到自定义的档位
-        // if (vehicle_status_msg_.control.reverse) {
-        //     state_msg.gear = race_msgs::Control::GEAR_REVERSE;
-        // } else if (vehicle_status_msg_.control.gear == 0) {
-        //     state_msg.gear = race_msgs::Control::GEAR_NEUTRAL;
-        // } else {
-        //     state_msg.gear = vehicle_status_msg_.control.gear;
-        // }
+        if (drive_pix_msg_.gear_status == pix_driver::DriveStatusFb::GearStatusR) {
+            state_msg.gear = race_msgs::Control::GEAR_REVERSE;
+        } else if (drive_pix_msg_.gear_status == pix_driver::DriveStatusFb::GearStatusN ){
+            state_msg.gear = race_msgs::Control::GEAR_PARK;
+        } else if (drive_pix_msg_.gear_status == pix_driver::DriveStatusFb::GearStatusD) {
+            state_msg.gear = race_msgs::Control::GEAR_1;
+        } else {
+            state_msg.gear = drive_pix_msg_.gear_status;
+        }
         
         // 设置控制模式（默认设置为油门刹车模式）
-        state_msg.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY;
+        if (drive_pix_msg_.drive_mode == pix_driver::DriveStatusFb::DriveModeSpeedCtrl) {
+            state_msg.control_mode = race_msgs::Control::DES_SPEED_ONLY;
+        } else {
+            state_msg.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY;
+        }
         // state_msg.throttle_fb = ;
         state_msg.brake_fb = brake_pix_msg_.brake_pedal/100.0;
         
@@ -199,7 +221,19 @@ public:
         state_msg.clutch = true;
         
         // 转向模式（默认设为前轮转向）
-        state_msg.steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
+        if (steer_pix_msg_.steer_mode == pix_driver::SteerStatusFb::SteerModeFrontAckerman) {
+            state_msg.steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
+        } else if (steer_pix_msg_.steer_mode == pix_driver::SteerStatusFb::SteerModeBackAckerman) {
+            state_msg.steering_mode = race_msgs::Control::BACK_STEERING_MODE;
+        } else if (steer_pix_msg_.steer_mode == pix_driver::SteerStatusFb::SteerModeFrontDifferentBack) {
+            state_msg.steering_mode = race_msgs::Control::CENTER_STEERING_MODE;
+        } else if (steer_pix_msg_.steer_mode == pix_driver::SteerStatusFb::SteerModeSameFrontBack) {
+            state_msg.steering_mode = race_msgs::Control::WEDGE_STEERING_MODE;
+        } else if (steer_pix_msg_.steer_mode == pix_driver::SteerStatusFb::SteerModeFrontBack) {
+            state_msg.steering_mode = race_msgs::Control::DUAL_STEERING_MODE;
+        } else {
+            state_msg.steering_mode = steer_pix_msg_.steer_mode;
+        }
         
         // 发布消息
         vehicle_state_pub_.publish(state_msg);

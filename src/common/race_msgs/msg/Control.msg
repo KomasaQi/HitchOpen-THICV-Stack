@@ -27,8 +27,13 @@ bool clutch # 离合标志
 
 # 自定义的内容：是否双轴转向
 uint8 steering_mode
+uint8 WEDGE_STEERING_MODE = 0
 uint8 FRONT_STEERING_MODE = 1
 uint8 DUAL_STEERING_MODE = 2
+uint8 BACK_STEERING_MODE = 3
+uint8 CENTER_STEERING_MODE = 4
+
+
 
 
 

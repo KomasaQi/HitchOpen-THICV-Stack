@@ -14,8 +14,8 @@ race_steering_tool:
   min_velocity: -10.0        # 最小速度限制 (m/s)
   max_acceleration: 4.0     # 最大加速度限制 (m/s²)
   min_acceleration: -8.0    # 最小加速度限制 (m/s²)
-  max_steering_angle: 1.22173   # 最大转向角限制 (rad)
-  min_steering_angle: -1.22173  # 最小转向角限制 (rad)
+  max_steering_angle: 0.4   # 最大转向角限制 (rad)
+  min_steering_angle: -0.4  # 最小转向角限制 (rad)
 
   # 衰减参数 (线性衰减，单位：单位值/秒)
   throttle_decay_rate: 2.0  # 油门衰减速率
