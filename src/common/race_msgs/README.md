@@ -148,3 +148,16 @@ float64 lateral_tracking_error # 横向跟踪误差, m
 float64 heading_angle_error # 航向角跟踪误差, rad
 float64 velocity_error # 速度跟踪误差, m/s
 ```
+
+## LateralLoadTransfer.msg
+``` bash
+float64 ltr # 侧向载荷转移率
+float64 ltr_rate # 侧向载荷转移率的变化率
+```
+
+## LateralLoadTransferStamped.msg
+``` bash
+std_msgs/Header header
+float64 ltr # 侧向载荷转移率
+float64 ltr_rate # 侧向载荷转移率的变化率
+```
