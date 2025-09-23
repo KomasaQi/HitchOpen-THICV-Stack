@@ -1,0 +1,4 @@
+<launch>
+    <node name="race_msgs_to_pix_control" pkg="pix_race_bridge" type="race_msgs_to_pix_control.py" output="screen" />
+    <node name="state_converter" pkg="pix_race_bridge" type="state_converter" output="screen"/>
+</launch>
