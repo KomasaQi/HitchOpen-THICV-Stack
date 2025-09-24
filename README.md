@@ -1,4 +1,4 @@
-# HitchOpen-THICV-Stack 清华大学智能网联汽车课题组自动驾驶软件栈
+# HitchOpen-THICV-Stack : **清华大学智能网联汽车课题组自动驾驶软件栈**
 
 
 ## 1. 项目介绍
