@@ -234,7 +234,7 @@ sudo make install
 ``` bash
 git clone https://github.com/coin-or/qpOASES.git
 cd qpOASES
-# git checkout -b 0.6.0 v0.6.0 # 具体版本还没确认过，可以自行先确认一下
+git checkout release/3.2.1 # 具体版本还没确认过，如过还不行可以切换更早版本（比如：releases/3.1.0，releases/3.1.1，releases/3.2.0， stable/3.0， stable/3.1， stable/3.2）
 git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
