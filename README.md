@@ -35,7 +35,6 @@ HitchOpen-THICV-Stack/
 |   ├── mapping/         # 地图构建
 |   |   ├── liorf/                                # LIO-SAM改进版
 |   |   └── lio-sam/                              # LIO激光惯性里程计建图
-|   ├── decision/        # 决策算法
 |   ├── planning/        # 规划算法
 |   |   ├── race_global_static_planner/           # 全局静态规划器
 |   |   └── race_tracker/                         # 路径跟踪控制器
@@ -51,7 +50,12 @@ HitchOpen-THICV-Stack/
 |   |   ├── carla_race_state_converter/           # 状态转换代码
 |   |   └── carla_race_msgs_to_control/           # 控制指令转换代码
 |   ├── implementation/  # 仿真相关
-|   |   └── race_connector/                       # 远程电脑连接
+|   |   ├── race_connector/                       # 远程电脑连接
+|   |   ├── messages/                             # PIX底盘各种消息包
+|   |   ├── pix_driver/                           # PIX底盘驱动
+|   |   ├── pix_molde/                            # PIX底盘rivz可视化模型
+|   |   ├── pix_race_bridge/                      # PIX底盘与本项目的桥接
+|   |   └── sensors/                              # 传感器相关代码 gnss rplidar
 |   └── launch/          # 启动文件目录
 |       └── carla_race_bridge/                    # 仿真桥启动文件
 ├── config/    # 配置文件目录
@@ -320,6 +324,7 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 
 ### 4.4 运行本项目
 下面提供了一些运行的案例可以参考。
+---
 #### 4.4.1 Carla车辆轨迹跟踪仿真
 在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
 ![Carla Town10HD_Opt](/tutorial/images/runing_carla.png)
@@ -360,6 +365,7 @@ rosparam set /competition_timer/flag GREEN # 设置比赛状态，可选：GREEN
 roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 ```
 然后就可以来设置一个GREEN旗帜，车辆就会开始运动了。
+---
 
 #### 4.4.2 Carla车辆定位+轨迹跟踪仿真
 这是最为全面的一个仿真案例，采用liorf_localization进行定位。
@@ -379,6 +385,7 @@ roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 ``` bash
 rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 ```
+---
 #### 4.4.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
 这是用实车数据进行的定位仿真案例，采用liorf_localization进行定位仿真。采集的是国汽智联园区外部的感知数据。在进行定位前需要[☞下载`Cicv`的点云地图文件`GlobalMap.pcd`（注意不要改名字）](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下。同时[☞下载`pix_moving.bag`的传感器实时录制文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2Fpix_moving.bag)，也放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下（或其他任何你能找到的文件路径）。
 
@@ -403,8 +410,9 @@ rosbag play pix_moving.bag
 如果不出意外，定位效果应该会一切正常如下图所示，直到定位到bag包播放结束。
 ![localization result](/tutorial/images/cicv_loc_result.png)
 
-
+---
 ## Contributors:
+
 - 戚笑景 Komasa Qi （清华大学）
 - 何瑞坤 He Ruikun （辽宁工业大学）
 - 邹恒多 Zou Hengduo （清华大学）
@@ -413,7 +421,7 @@ rosbag play pix_moving.bag
 - 黄梓谦 Huang Ziqian （华南理工大学）
 - 冷佳桐 Leng Jiatong （清华大学）
 - 李珂 Li Ke （重庆大学） 
-- 蒋涛 Jiang Tao （重庆大学）
+- 蒋涛 Javier Jiang （重庆大学）
 
 
 感谢以上所有参与项目的贡献者，我们的项目是一个开源项目，欢迎所有的贡献者参与进来。
