@@ -264,7 +264,7 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 在进行操作之前强烈建议进行鱼香ROS的换源操作，包括系统源和Python源等，否则后续可能会遇到一些问题。
 ``` bash
 sudo apt update
-sudo apt install -y ros-noetic-ros-base \
+sudo apt install -y ros-noetic-ros-base libceres-dev\
 ros-noetic-tf ros-noetic-pcl-conversions ros-noetic-cv-bridge \
 ros-noetic-visualization-msgs ros-noetic-geometry-msgs ros-noetic-nav-msgs \
 libpcl-dev libopencv-dev libgeographic-dev ros-noetic-robot-localization ros-noetic-robot-state-publisher ros-noetic-navigation ros-noetic-ackermann-msgs
