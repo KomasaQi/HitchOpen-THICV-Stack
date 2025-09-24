@@ -182,7 +182,7 @@ HSL是Ipopt的一个求解器，我们用到了`ma27`求解器。首先克隆HSL
 cd ~/opt # 进入优化库集中存储目录
 git clone https://github.com/coin-or-tools/ThirdParty-HSL.git
 ```
-这个求解器是一般来说需要在[COIN-HSL](https://link.zhihu.com/?target=https%3A//licences.stfc.ac.uk/product/coin-hsl)购买，但是COIN-HSL是一个商业软件，我们这里只能使用免费的`ma27`求解器。当然也可以申请免费的高级学术版。这里我们将免费版的内容放在[/tutorial/install_casadi_with_ipopt目录下面](/tutorial/install_casadi_with_ipopt/coinhsl/),复制`coinhsl`文件夹到刚刚下载好的`ThirdParty-HSL`目录下，然后进行下一步。
+这个求解器是一般来说需要在[COIN-HSL](https://link.zhihu.com/?target=https%3A//licences.stfc.ac.uk/product/coin-hsl)购买，但是COIN-HSL是一个商业软件，我们这里只能使用免费的`ma27`求解器。当然也可以申请免费的高级学术版。这里我们将免费版的内容放在[/tutorial/install_casadi_with_ipopt目录下面](/tutorial/install_casadi_with_ipopt/),复制`coinhsl`文件夹到刚刚下载好的`ThirdParty-HSL`目录下，然后进行下一步。(如果是arm架构的话，复制同一个文件夹下的那个压缩包，然后解压到刚刚说的位置，重命名为coinhsl文件夹)
 ``` bash
 sudo ./configure
 sudo make -j$(nproc)
@@ -226,10 +226,11 @@ sudo make install
 ```
 - **4. 安装qpoases**
 
-如果安装过程没有报错就最好，如果报错了也可以不安装，但是在稍后编译casadi的时候记得关闭qpoases的编译选项。
+如果安装过程没有报错就最好，如果报错了也可以不安装，但是在稍后编译casadi的时候记得关闭qpoases的编译选项。这里在ubuntu20.04下可以切换到更早的版本，否则会报错。
 ``` bash
 git clone https://github.com/coin-or/qpOASES.git
 cd qpOASES
+# git checkout -b 0.6.0 v0.6.0 # 具体版本还没确认过，可以自行先确认一下
 git submodule update --init --recursive
 mkdir build && cd build
 cmake ..

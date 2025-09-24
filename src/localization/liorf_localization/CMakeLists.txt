@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
 )
 
+
 find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED QUIET)
 find_package(OpenCV REQUIRED QUIET)
