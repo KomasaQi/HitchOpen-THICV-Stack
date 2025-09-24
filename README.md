@@ -363,7 +363,7 @@ roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 #### 4.4.2 Carla车辆定位+轨迹跟踪仿真
 这是最为全面的一个仿真案例，采用liorf_localization进行定位。
 
-在进行定位前需要[☞下载`Carla Town10HD_Opt`的点云地图文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Carla_Map_Town10`目录下。
+在进行定位前需要[☞下载`Carla Town10HD_Opt`的点云地图文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCarla_Map_Town10%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Carla_Map_Town10`目录下。
 
 我们可以启动一下该启动的内容：
 ``` bash
@@ -378,6 +378,29 @@ roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 ``` bash
 rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 ```
+#### 4.4.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
+这是用实车数据进行的定位仿真案例，采用liorf_localization进行定位仿真。采集的是国汽智联园区外部的感知数据。在进行定位前需要[☞下载`Cicv`的点云地图文件`GlobalMap.pcd`（注意不要改名字）](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下。同时[☞下载`pix_moving.bag`的传感器实时录制文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2Fpix_moving.bag)，也放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下（或其他任何你能找到的文件路径）。
+
+我们可以启动一下位姿发布：
+``` bash
+roslaunch lio_sam cicv_robot_state_publisher.launch
+```
+再启动我们的liorf_localization：
+``` bash
+roslaunch liorf_localization run_cicv_localization.launch
+```
+此时拖动界面到全景预览的这个视角位置，然后找到左下角中红色方框框柱的位置，将视野移动过去，在这里我们要手动指定一下初始位置估计，方便算法来收敛。
+![start gui](/tutorial/images/cicv_map.png)
+在左侧全局试图的`RVIZ`中，点击`绿色箭头后的 2D Pose Estimation`，然后在如下图所示的地图下方轨迹中断位置点击鼠标左键，并向右拖动指定航向为向图示所示位置。大概就位置就在路边公交车那一侧开始数第三辆车中间的位置具体如下图所示：
+![init pose estimation](/tutorial/images/init_pose_estimation_cicv.png)
+
+接下来我们就可以播放rosbag包了：
+``` bash
+cd $(rospack find simple_racing)/maps/Cicv_Map_Outside/
+rosbag play pix_moving.bag
+```
+如果不出意外，定位效果应该会一切正常如下图所示，直到定位到bag包播放结束。
+![localization result](/tutorial/images/cicv_loc_result.png)
 
 
 ## Contributors:
@@ -390,5 +413,6 @@ rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 - 冷佳桐 Leng Jiatong （清华大学）
 - 李珂 Li Ke （重庆大学） 
 - 蒋涛 Jiang Tao （重庆大学）
+
 
 感谢以上所有参与项目的贡献者，我们的项目是一个开源项目，欢迎所有的贡献者参与进来。
