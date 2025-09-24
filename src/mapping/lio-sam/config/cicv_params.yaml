@@ -8,7 +8,7 @@ lio_sam:
 
   # Frames
   lidarFrame: "velodyne"
-  baselinkFrame: "base_link"
+  baselinkFrame: "ego_vehicle"
   odometryFrame: "ego_vehicle/odom_liosam"
   mapFrame: "map"
 
@@ -20,7 +20,7 @@ lio_sam:
   
   # Export settings
   savePCD: true                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/下载/LOAM"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/下载/LOAM_new"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
   # Sensor Settings
   sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox' --> or 'leishen', which will calculate point time based on lidar firing order
@@ -33,7 +33,7 @@ lio_sam:
 
   # IMU Settings
   imuType: 1                                    # 0: 6-axis  1: 9-axis
-  imuRate: 500.0                                # IMU data frequency 
+  imuRate: 100.0                                # IMU data frequency 
   imuAccNoise: 3.9939570888238808e-03
   imuGyrNoise: 1.5636343949698187e-03
   imuAccBiasN: 6.4356659353532566e-05
@@ -70,14 +70,14 @@ lio_sam:
   rotation_tollerance: 1000                     # radians
 
   # CPU Params
-  numberOfCores: 20                              # number of cores for mapping optimization
-  mappingProcessInterval: 0.0                  # seconds, regulate mapping frequency
+  numberOfCores: 4                              # number of cores for mapping optimization
+  mappingProcessInterval: 0.05                  # seconds, regulate mapping frequency
 
   # Surrounding map
   surroundingkeyframeAddingDistThreshold: 1.0   # meters, regulate keyframe adding threshold
   surroundingkeyframeAddingAngleThreshold: 0.2  # radians, regulate keyframe adding threshold
-  surroundingKeyframeDensity: 2.0               # meters, downsample surrounding keyframe poses   
-  surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
+  surroundingKeyframeDensity: 1.0               # meters, downsample surrounding keyframe poses   
+  surroundingKeyframeSearchRadius: 100.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
 
   # Loop closure
   loopClosureEnableFlag: true
@@ -108,7 +108,7 @@ lio_sam:
 
 # Navsat (convert GPS coordinates to Cartesian)
 navsat:
-  frequency: 50
+  frequency: 100
   wait_for_datum: false
   delay: 0.0
   magnetic_declination_radians: 0
@@ -126,7 +126,7 @@ ekf_gps:
   base_link_frame: ego_vehicle
   world_frame: ego_vehicle
 
-  frequency: 50
+  frequency: 100
   two_d_mode: false
   sensor_timeout: 0.01
   # -------------------------------------

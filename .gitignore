@@ -36,6 +36,7 @@ CMakeLists.txt.user
 srv/_*.py
 *.pcd
 *.pyc
+*.bag
 qtcreator-*
 *.user
 

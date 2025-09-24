@@ -3,13 +3,13 @@ liorf:
   # Topics
   pointCloudTopic: "/velodyne_points"               # Point cloud data
   imuTopic: "/imu_message"                         # IMU data
-  odomTopic: "/odom_message"                   # IMU pre-preintegration odometry, same frequency as IMU
+  odomTopic: "/odom_message_preinteg"                   # IMU pre-preintegration odometry, same frequency as IMU
   gpsTopic: "/gps_message"                   # GPS odometry topic from navsat, see module_navsat.launch file
 
   # Frames
   lidarFrame: "velodyne"
-  baselinkFrame: "base_link"
-  odometryFrame: "ego_vehicle/odom"
+  baselinkFrame: "ego_vehicle"
+  odometryFrame: "odom"
   mapFrame: "map"
 
   # GPS Settings
@@ -26,8 +26,8 @@ liorf:
   sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox' or 'robosense'
   N_SCAN: 32                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
   Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
-  downsampleRate: 2                           # default: 1. Downsample your data if too many points(line). i.e., 16 = 64 / 4, 16 = 16 / 1
-  point_filter_num: 5                         # default: 3. Downsample your data if too many points(point). e.g., 16: 1, 32: 5, 64: 8
+  downsampleRate: 1                           # default: 1. Downsample your data if too many points(line). i.e., 16 = 64 / 4, 16 = 16 / 1
+  point_filter_num: 2                         # default: 3. Downsample your data if too many points(point). e.g., 16: 1, 32: 5, 64: 8
   lidarMinRange: 2.0                          # default: 1.0, minimum lidar range to be used
   lidarMaxRange: 200.0                       # default: 1000.0, maximum lidar range to be used
 
