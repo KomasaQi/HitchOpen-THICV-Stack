@@ -11,7 +11,7 @@
     <include file="$(find race_global_static_planner)/launch/race_global_pix_cicv.launch" />
 
     <!-- 启动跟踪控制器 -->
-    <include file="$(find race_tracker)/launch/excel_controller_pix.launch" />
+    <!-- <include file="$(find race_tracker)/launch/excel_controller_pix.launch" /> -->
 
     <!--启动Competition Timer-->
     <!-- <include file="$(find competition_timer)/launch/competition_timer.launch" /> -->

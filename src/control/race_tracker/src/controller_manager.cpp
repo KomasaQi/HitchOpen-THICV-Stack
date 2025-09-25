@@ -54,6 +54,7 @@ private:
         nh_.param("topic/control", control_topic_, std::string("/race/control"));
         nh_.param("topic/flag", flag_topic_, std::string("/race/flag"));
         nh_.param("ego_frame_id", ego_frame_id_, std::string("ego_vehicle"));
+        nh_.param("dual_steer_enable",dual_axis_steer_, false);
         // 标志超时时间（s），默认1秒
         nh_.param("flag_timeout", flag_timeout_, 1.0);
         // 初始标志状态，默认RED
@@ -159,7 +160,12 @@ private:
         control_msg_.hand_brake = false; // 手刹关闭
         control_msg_.clutch = false; // 离合关闭
         control_msg_.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY; // 默认油门刹车模式
-        control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向"
+        if (dual_axis_steer_){
+            control_msg_.steering_mode = race_msgs::Control::DUAL_STEERING_MODE; // 可以设置成双轴转向
+        }else {
+            control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
+        }
+        
         // 横向/纵向默认值
         control_msg_.lateral.steering_angle = 0.0;
         control_msg_.lateral.steering_angle_velocity = 0.0;
@@ -380,7 +386,7 @@ private:
     ros::Time last_control_time_;
     double speed_limit_; // 速度限制（m/s）
     double default_speed_limit_; // 默认速度限制（m/s）
-    bool steer_mode_; // 转向模式
+    bool dual_axis_steer_; // 转向模式
 
 
 

@@ -77,13 +77,21 @@ void PIDController::computeControl(
         resetPID(); // 重置PID状态
         return;
     }
-    if (vehicle_status->emergency || vehicle_status->hand_brake) {
-        ROS_WARN("[%s] 紧急状态/手刹开启，输出0油门+最大刹车", getName().c_str());
-        control_msg->throttle = 0.0;
-        control_msg->brake = max_brake_;
-        resetPID(); // 重置PID状态
-        return;
-    }
+    // if (vehicle_status->emergency || vehicle_status->hand_brake) {
+    //     ROS_WARN("[%s] 紧急状态/手刹开启，输出0油门+最大刹车", getName().c_str());
+    //     control_msg->throttle = 0.0;
+    //     control_msg->brake = max_brake_;
+    //     resetPID(); // 重置PID状态
+    //     return;
+    // }
+    // if (vehicle_status->emergency ) {
+    //     ROS_WARN("[%s] 紧急状态/手刹开启，输出0油门+最大刹车", getName().c_str());
+    //     control_msg->throttle = 0.0;
+    //     control_msg->brake = max_brake_;
+    //     resetPID(); // 重置PID状态
+    //     return;
+    // }
+
     if (dt < 1e-6) { // 避免dt过小导致微分项爆炸
         ROS_WARN("[%s] 控制周期过短（dt=%.6f），跳过本次计算", getName().c_str(), dt);
         return;

@@ -13,6 +13,8 @@
         <param name="topic/control" type="string" value="/race/control" />
         <param name="topic/flag" type="string" value="/race/flag" />
         <param name="ego_frame_id" type="string" value="ego_vehicle" />
+        <param name="dual_steer_enable" type="bool" value="true" />
+        
 
         <!-- 2. 仅使用NMPC插件 -->
         <rosparam param="plugins">

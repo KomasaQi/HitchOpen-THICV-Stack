@@ -25,7 +25,7 @@ local_visualization_enable: true
 
 # -------------------------- 局部路径范围配置 --------------------------
 # 局部路径向前覆盖距离（车辆前方的路径长度，单位：米）
-local_path_forward_distance: 55.0
+local_path_forward_distance: 20.0
 
 # 局部路径向后覆盖距离（车辆后方的路径长度，单位：米）
 local_path_backward_distance: 5.0
