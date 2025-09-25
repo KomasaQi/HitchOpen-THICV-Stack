@@ -157,7 +157,7 @@ class ControlToVehicleControl:
             elif drive_state == DRIVE:
                 ecu_cmd.shift = ecu.SHIFT_D
                 ecu_cmd.motor = speed_cmd
-                ecu_cmd.throttle = throttle_cmd
+                ecu_cmd.throttle = throttle_cmd*100
                 if race_control.control_mode == Control.THROTTLE_BRAKE_ONLY:
                     if race_control.gear < 1:
                         drive_state = STOPPED
@@ -184,7 +184,7 @@ class ControlToVehicleControl:
             elif drive_state == REVERSE:
                 ecu_cmd.shift = ecu.SHIFT_R
                 ecu_cmd.motor = -speed_cmd
-                ecu_cmd.throttle = throttle_cmd
+                ecu_cmd.throttle = throttle_cmd*10
                 if race_control.control_mode == Control.THROTTLE_BRAKE_ONLY:
                     if race_control.gear > 0:
                         drive_state = STOPPED
