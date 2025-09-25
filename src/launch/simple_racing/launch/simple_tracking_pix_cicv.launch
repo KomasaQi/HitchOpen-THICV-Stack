@@ -1,0 +1,10 @@
+<launch> 
+    <arg name="port" default="/dev/ttyUSB2"/>
+    <include file="$(find hesai_lidar)/launch/hesai_lidar.launch" />
+    <include file="$(find automotive)/launch/pix/pix_driver.launch" />
+
+    <node pkg="gnss_pkg" type="IMU_gps.py" name="IMU_gps"/>
+
+    <include file="$(find gnss_converter)/launch/gnss_converter.launch" />
+
+</launch>

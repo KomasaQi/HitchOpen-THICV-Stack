@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<robot name="lio" xmlns:xacro="http://tixiaoshan.github.io/">
+  <xacro:property name="PI" value="3.1415926535897931" />
+
+  <link name="chassis_link"></link>
+
+  <link name="base_link"></link>
+  <joint name="base_link_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis_link" />
+    <origin xyz="0 0 0" rpy="0 0 1.57079" />
+  </joint>
+
+  <link name="ego_vehicle/imu"> </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="chassis_link" />
+    <child link="ego_vehicle/imu" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <link name="lidar_top"> </link>
+  <joint name="velodyne_joint" type="fixed">
+    <parent link="chassis_link" />
+    <child link="lidar_top" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <link name="gps_link"> </link>
+  <joint name="navsat_joint" type="fixed">
+    <parent link="chassis_link" />
+    <child link="gps_link" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+</robot>

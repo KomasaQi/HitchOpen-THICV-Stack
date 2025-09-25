@@ -1,15 +1,15 @@
 liorf:
 
   # Topics
-  pointCloudTopic: "/velodyne_points"               # Point cloud data
+  pointCloudTopic: "/hesai/pandar"               # Point cloud data
   imuTopic: "/imu_message"                         # IMU data
-  odomTopic: "/odom_message_preinteg"                   # IMU pre-preintegration odometry, same frequency as IMU
-  gpsTopic: "/gps_message"                   # GPS odometry topic from navsat, see module_navsat.launch file
+  odomTopic: "/odometry_imu"                   # IMU pre-preintegration odometry, same frequency as IMU
+  gpsTopic: "/gnss"                   # GPS odometry topic from navsat, see module_navsat.launch file
 
   # Frames
-  lidarFrame: "velodyne"
-  baselinkFrame: "ego_vehicle"
-  odometryFrame: "odom"
+  lidarFrame: "lidar_top"
+  baselinkFrame: "base_link"
+  odometryFrame: "ego_vehicle/odometry"
   mapFrame: "map"
 
   # GPS Settings
@@ -20,19 +20,19 @@ liorf:
   
   # Export settings
   savePCD: false                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/下载/CICV/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/下载/new_CICV/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
   # Sensor Settings
   sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox' or 'robosense'
-  N_SCAN: 32                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
+  N_SCAN: 64                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
   Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
   downsampleRate: 1                           # default: 1. Downsample your data if too many points(line). i.e., 16 = 64 / 4, 16 = 16 / 1
   point_filter_num: 2                         # default: 3. Downsample your data if too many points(point). e.g., 16: 1, 32: 5, 64: 8
-  lidarMinRange: 2.0                          # default: 1.0, minimum lidar range to be used
+  lidarMinRange: 3.0                          # default: 1.0, minimum lidar range to be used
   lidarMaxRange: 200.0                       # default: 1000.0, maximum lidar range to be used
 
   # IMU Settings
-  imuType: 0                                  # 0: 6-axis  1: 9-axis
+  imuType: 1                                  # 0: 6-axis  1: 9-axis
   imuRate: 100.0
   imuAccNoise: 3.9939570888238808e-03
   imuGyrNoise: 1.5636343949698187e-03

@@ -29,8 +29,8 @@ private:
     ros::NodeHandle private_nh_;
     
     // 订阅者
-    // ros::Subscriber imu_sub_;
-    // ros::Subscriber odom_sub_;
+    ros::Subscriber imu_sub_;
+    ros::Subscriber odom_sub_;
 
     ros::Subscriber steer_pix_sub_;
     ros::Subscriber brake_pix_sub_;
@@ -45,8 +45,8 @@ private:
     ros::Publisher vehicle_state_pub_;
     
     // 存储接收到的消息
-    // sensor_msgs::Imu imu_msg_;
-    // nav_msgs::Odometry odom_msg_;
+    sensor_msgs::Imu imu_msg_;
+    nav_msgs::Odometry odom_msg_;
     // std_msgs::Float32 speedometer_msg_;
     // pix_driver::VehicleStatusFb vehicle_state_pix_msg_;
     pix_driver::ChassisWheelRpmFb wheel_rpm_pix_msg_;
@@ -62,6 +62,8 @@ private:
     bool power_pix_received_;
     bool vehicle_state_pix_received_;
     bool wheel_rpm_pix_received_;
+    bool odom_received_;
+    bool imu_received_;
     
     // 车辆参数（可能需要根据实际车辆调整）
     double wheel_radius_;
@@ -73,14 +75,15 @@ public:
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.30);
         
         // 初始化订阅者
-        // imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
-        // odom_sub_ = nh_.subscribe("/carla/ego_vehicle/odometry", 10, &StateConverter::odomCallback, this);
+        imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
+        odom_sub_ = nh_.subscribe("/liorf_localization/mapping/odometry", 10, &StateConverter::odomCallback, this);
         // speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 10, &StateConverter::speedometerCallback, this);
         // vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 10, &StateConverter::vehicleStatusCallback, this);
         wheel_rpm_pix_sub_ = nh_.subscribe("/can/wheel_rpm", 10, &StateConverter::wheelRpmCallback, this);
         brake_pix_sub_ = nh_.subscribe("/can/brake_status", 10, &StateConverter::brakeCallback, this);
         steer_pix_sub_ = nh_.subscribe("/can/steer_status", 10, &StateConverter::steerCallback, this);
         drive_pix_sub_ = nh_.subscribe("/can/drive_status", 10, &StateConverter::driveCallback, this);
+        
 
         // 初始化发布者
         vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 10);
@@ -99,17 +102,17 @@ public:
     }
     
     // 回调函数
-    // void imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
-    //     imu_msg_ = *msg;
-    //     imu_received_ = true;
-    //     publishVehicleState();
-    // }
+    void imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
+        imu_msg_ = *msg;
+        imu_received_ = true;
+        publishVehicleState();
+    }
     
-    // void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
-    //     odom_msg_ = *msg;
-    //     odom_received_ = true;
-    //     publishVehicleState();
-    // }
+    void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
+        odom_msg_ = *msg;
+        odom_received_ = true;
+        publishVehicleState();
+    }
     
     // void speedometerCallback(const std_msgs::Float32::ConstPtr& msg) {
     //     speedometer_msg_ = *msg;
@@ -161,10 +164,10 @@ public:
         state_msg.child_frame_id = "ego_vehicle";
         
         // 填充pose
-        // state_msg.pose = odom_msg_.pose.pose;
+        state_msg.pose = odom_msg_.pose.pose;
         
         // 计算并填充euler角
-        // state_msg.euler = quaternionToEuler(odom_msg_.pose.pose.orientation);
+        state_msg.euler = quaternionToEuler(odom_msg_.pose.pose.orientation);
         
         // 填充速度信息
         double wheel_speed = (wheel_rpm_pix_msg_.wheel_rpm_lf + wheel_rpm_pix_msg_.wheel_rpm_rf 
@@ -172,8 +175,8 @@ public:
         state_msg.vel.linear.x = wheel_speed * wheel_radius_ ;
         
         // 填充加速度信息（来自IMU）
-        // state_msg.acc.linear = imu_msg_.linear_acceleration;
-        // state_msg.acc.angular = imu_msg_.angular_velocity;
+        state_msg.acc.linear = imu_msg_.linear_acceleration;
+        state_msg.acc.angular = imu_msg_.angular_velocity;
         
         // 填充转向信息
         state_msg.lateral.steering_angle = -steer_pix_msg_.steer_angle_front/450*23/180*PI;

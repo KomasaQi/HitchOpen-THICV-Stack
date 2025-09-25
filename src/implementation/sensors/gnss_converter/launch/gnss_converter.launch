@@ -1,0 +1,8 @@
+<launch>
+  <!-- 启动GNSS消息转换节点 -->
+  <node name="fused_fix_to_gnss" pkg="gnss_converter" type="fused_fix_to_gnss.py" output="screen">
+    <!-- 可以在这里添加参数，如果需要的话 -->
+    <!-- <param name="param_name" value="param_value"/> -->
+  </node>
+</launch>
+
