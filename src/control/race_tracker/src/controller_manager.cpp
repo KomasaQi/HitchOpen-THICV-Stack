@@ -159,7 +159,7 @@ private:
         control_msg_.hand_brake = false; // 手刹关闭
         control_msg_.clutch = false; // 离合关闭
         control_msg_.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY; // 默认油门刹车模式
-        control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
+        control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向"
         // 横向/纵向默认值
         control_msg_.lateral.steering_angle = 0.0;
         control_msg_.lateral.steering_angle_velocity = 0.0;
@@ -380,6 +380,7 @@ private:
     ros::Time last_control_time_;
     double speed_limit_; // 速度限制（m/s）
     double default_speed_limit_; // 默认速度限制（m/s）
+    bool steer_mode_; // 转向模式
 
 
 
