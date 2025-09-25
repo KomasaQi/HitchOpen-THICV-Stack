@@ -1,4 +1,0 @@
-<launch>
-    <include file="$(find carla_race_state_converter)/launch/carla_state_converter.launch" />
-    <include file="$(find carla_race_msgs_to_control)/launch/carla_race_msgs_to_control.launch" />
-</launch>
