@@ -1,0 +1,48 @@
+# NMPC横向控制器参数配置
+nmpc_lateral_controller:
+  # 状态与控制维度配置
+  nx: 6                 # 状态维度 [x, y, theta, vx, delta1, delta2]
+  nu: 2                 # 控制量维度 [delta1_des, delta2_des]
+  
+  # 预测与控制步长配置
+  prediction_step: 20   # NMPC预测步长
+  sparse_control_step: 4 # 稀疏控制量步数
+  
+  # 车辆动力学参数
+  front_steer_time_constant: 0.3  # 前轴转向动态时间常数
+  rear_steer_time_constant: 0.3   # 后轴转向动态时间常数
+  sampling_time: 0.1              # 采样时间 (s)
+  wheelbase: 2.8                  # 车辆轴距 (m)
+  gravity: 9.806                  # 重力加速度 (m/s²)
+  max_acceleration: 0.5           # 预设最大加速度 (m/s²)
+  
+  # 参考路径处理参数
+  num_waypoints: 30               # 目标参考路点数量
+  
+  # 控制量边界约束
+  min_front_steer: -0.4           # 前轴最小转向角 (rad)
+  max_front_steer: 0.4            # 前轴最大转向角 (rad)
+  min_rear_steer: -0.4            # 后轴最小转向角 (rad)
+  max_rear_steer: 0.4             # 后轴最大转向角 (rad)
+  
+  # 代价函数权重
+  weight_position: 5.0            # 位置跟踪权重
+  weight_heading: 3.0             # 航向跟踪权重
+  weight_acceleration: 2.0        # 加速度平滑权重
+  weight_front_steer: 500.0       # 前轴转向角平滑权重
+  weight_front_steer_control: 1.0 # 前轴转向控制指令
+  weight_rear_steer: 500.0        # 后轴转向角平滑权重
+  weight_rear_steer_control: 1.0  # 后轴转向控制指令
+  weight_terminal_position: 10.0  # 终端位置权重
+  weight_terminal_heading: 5.0    # 终端航向权重
+    
+
+pid_controller:
+  kp: 0.6
+  ki: 0.05
+  kd: 0.1
+  max_throttle: 0.8
+  max_brake: 0.8
+  integral_limit: 2.0
+  speed_tolerance: 0.2
+  min_target_speed: 0.5
