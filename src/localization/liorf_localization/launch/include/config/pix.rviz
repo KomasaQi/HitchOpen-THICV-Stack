@@ -12,6 +12,8 @@ Panels:
         - /Point Cloud1/Velodyne1
         - /Mapping1
         - /Mapping1/Map (global)1
+        - /Path1
+        - /Path2
       Splitter Ratio: 0.5600000023841858
     Tree Height: 797
   - Class: rviz/Selection
@@ -151,8 +153,8 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 19.759523391723633
-            Min Value: -4.421731472015381
+            Max Value: 13.715373039245605
+            Min Value: -4.179123878479004
             Value: true
           Axis: Z
           Channel Name: intensity
@@ -288,6 +290,54 @@ Visualization Manager:
           Value: false
       Enabled: true
       Name: Mapping
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 236; 0; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.5
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /race/global_path_vis
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 1
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /race/local_path_vis
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -309,7 +359,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 59.67243576049805
+      Distance: 260.63043212890625
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -317,9 +367,9 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -7.180467128753662
-        Y: -1.153342604637146
-        Z: -51.187705993652344
+        X: -5.428826332092285
+        Y: -62.99062728881836
+        Z: -50.73175048828125
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false

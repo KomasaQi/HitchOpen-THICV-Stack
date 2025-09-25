@@ -56,9 +56,10 @@ isrun = True
 
 # 获取命令行输入参数
 def parse_opt(known=False):
+    
     parser = argparse.ArgumentParser()
     # parser.add_argument('--debugs', type=bool, default=False, help='if debug info output in terminal ')
-    parser.add_argument('--port', type=str, default='/dev/imu_gnss', help='the models serial port receive data; example: '
+    parser.add_argument('--port', type=str, default='/dev/ttyUSB2', help='the models serial port receive data; example: '
                                                                  '    Windows: COM3'
                                                                  '    Linux: /dev/ttyUSB0')
 
