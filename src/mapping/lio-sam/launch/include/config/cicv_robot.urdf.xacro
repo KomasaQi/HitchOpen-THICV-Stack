@@ -37,14 +37,5 @@
 
 
 
-  <!-- Sensor: odometry -->
-  <link name="ego_vehicle/odometry"></link>
-  <joint name="odometry_joint" type="fixed">
-    <parent link="ego_vehicle" />
-    <child link="ego_vehicle/odometry" />
-    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-  </joint>
-
-
 
 </robot>

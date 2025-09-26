@@ -47,6 +47,7 @@ add_library(pure_pursuit_controller plugins/pure_pursuit_controller.cpp)
 add_library(pid_controller plugins/pid_controller.cpp)
 add_library(nmpc_controller plugins/nmpc_controller.cpp)
 add_library(nmpc_lateral_controller plugins/nmpc_lateral_controller.cpp)
+add_library(anti_rollover_controller plugins/anti_rollover_controller.cpp)
 
 # Link against the base class library
 target_link_libraries(pure_pursuit_controller ${catkin_LIBRARIES})
@@ -59,6 +60,10 @@ target_link_libraries(nmpc_lateral_controller ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
 target_include_directories(nmpc_lateral_controller PRIVATE /usr/local/include)
+target_link_libraries(anti_rollover_controller ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(anti_rollover_controller PRIVATE /usr/local/include)
 
 # Make the plugins known to ROS
 install(TARGETS
@@ -67,6 +72,7 @@ install(TARGETS
   pid_controller
   nmpc_controller
   nmpc_lateral_controller
+  anti_rollover_controller
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

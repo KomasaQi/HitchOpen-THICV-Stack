@@ -23,7 +23,7 @@
            type="race_tracker::NMPCController"
            base_class_type="race_tracker::ControllerPluginBase">
         <description>
-            A simple NMPC controller for longitudinal and lateral control for dual axis steering electric vehicle.
+            NMPC controller for longitudinal and lateral control for dual axis steering electric vehicle.
         </description>
     </class>
 </library>
@@ -34,7 +34,17 @@
            type="race_tracker::NMPCLateralController"
            base_class_type="race_tracker::ControllerPluginBase">
         <description>
-            A simple NMPC controller for lateral control for dual axis steering electric vehicle.
+            NMPC controller for lateral control for dual axis steering electric vehicle.
+        </description>
+    </class>
+</library>
+
+<library path="lib/libanti_rollover_controller">
+    <class name="race_tracker::AntiRolloverController"
+           type="race_tracker::AntiRolloverController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            Anti-rollover NMPC controller for lateral control of semi-trailer tank truck.
         </description>
     </class>
 </library>

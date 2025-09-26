@@ -8,10 +8,17 @@ Panels:
         - /links1/map1
         - /links1/base_link1
         - /Odometry1
+        - /Odometry1/Odom IMU1
+        - /Odometry1/Odom IMU1/Shape1
+        - /Odometry1/Odom lidar1
+        - /Odometry1/Odom lidar1/Shape1
+        - /Odometry1/Odom IMU incremental1/Shape1
         - /Point Cloud1
         - /Point Cloud1/Velodyne1
-        - /Mapping1
         - /Mapping1/Map (global)1
+        - /Mapping1/Path (local)1
+        - /Odom GPS1
+        - /Odom GPS1/Shape1
       Splitter Ratio: 0.5600000023841858
     Tree Height: 901
   - Class: rviz/Selection
@@ -67,7 +74,7 @@ Visualization Manager:
           Length: 1
           Name: base_link
           Radius: 0.30000001192092896
-          Reference Frame: lidar_link
+          Reference Frame: map
           Show Trail: false
           Value: true
       Enabled: true
@@ -100,12 +107,12 @@ Visualization Manager:
             Alpha: 1
             Axes Length: 0.5
             Axes Radius: 0.10000000149011612
-            Color: 255; 25; 0
+            Color: 25; 255; 0
             Head Length: 0.30000001192092896
             Head Radius: 0.10000000149011612
             Shaft Length: 1
             Shaft Radius: 0.05000000074505806
-            Value: Axes
+            Value: Arrow
           Topic: /odometry/imu
           Unreliable: false
           Value: true
@@ -144,6 +151,41 @@ Visualization Manager:
           Topic: /liorf_localization/mapping/odometry
           Unreliable: false
           Value: true
+        - Angle Tolerance: 0.10000000149011612
+          Class: rviz/Odometry
+          Covariance:
+            Orientation:
+              Alpha: 0.5
+              Color: 255; 255; 127
+              Color Style: Unique
+              Frame: Local
+              Offset: 1
+              Scale: 1
+              Value: true
+            Position:
+              Alpha: 0.30000001192092896
+              Color: 204; 51; 204
+              Scale: 1
+              Value: true
+            Value: true
+          Enabled: true
+          Keep: 300
+          Name: Odom IMU incremental
+          Position Tolerance: 0.10000000149011612
+          Queue Size: 10
+          Shape:
+            Alpha: 1
+            Axes Length: 0.5
+            Axes Radius: 0.10000000149011612
+            Color: 255; 25; 0
+            Head Length: 0.30000001192092896
+            Head Radius: 0.10000000149011612
+            Shaft Length: 1
+            Shaft Radius: 0.05000000074505806
+            Value: Arrow
+          Topic: /odometry/imu_incremental
+          Unreliable: false
+          Value: true
       Enabled: true
       Name: Odometry
     - Class: rviz/Group
@@ -151,8 +193,8 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 23.74026870727539
-            Min Value: -4.30629301071167
+            Max Value: 16.681228637695312
+            Min Value: -5.811498641967773
             Value: true
           Axis: Z
           Channel Name: intensity
@@ -266,12 +308,12 @@ Visualization Manager:
           Buffer Length: 1
           Class: rviz/Path
           Color: 255; 85; 255
-          Enabled: false
+          Enabled: true
           Head Diameter: 0.30000001192092896
           Head Length: 0.20000000298023224
           Length: 0.30000001192092896
           Line Style: Billboards
-          Line Width: 0.10000000149011612
+          Line Width: 1
           Name: Path (local)
           Offset:
             X: 0
@@ -285,9 +327,44 @@ Visualization Manager:
           Shaft Length: 0.10000000149011612
           Topic: /liorf_localization/imu/path
           Unreliable: false
-          Value: false
+          Value: true
       Enabled: true
       Name: Mapping
+    - Angle Tolerance: 0.10000000149011612
+      Class: rviz/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Keep: 100
+      Name: Odom GPS
+      Position Tolerance: 0.10000000149011612
+      Queue Size: 10
+      Shape:
+        Alpha: 1
+        Axes Length: 2
+        Axes Radius: 0.10000000149011612
+        Color: 255; 25; 0
+        Head Length: 0.30000001192092896
+        Head Radius: 0.10000000149011612
+        Shaft Length: 1
+        Shaft Radius: 0.05000000074505806
+        Value: Axes
+      Topic: /odometry/gps_biased
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -309,7 +386,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 167.52992248535156
+      Distance: 342.26727294921875
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -317,17 +394,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 101.76830291748047
-        Y: 43.310638427734375
-        Z: -43.521766662597656
+        X: -121.591064453125
+        Y: 17.766658782958984
+        Z: -182.6079559326172
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4447970688343048
+      Pitch: 1.5647963285446167
       Target Frame: base_link
-      Yaw: 4.281655311584473
+      Yaw: 4.5166497230529785
     Saved: ~
 Window Geometry:
   Displays:
