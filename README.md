@@ -168,12 +168,12 @@ mkdir -p ~/opt && cd ~/opt # -p表示如果目录不存在则创建
 ASL是Ipopt的一个依赖项，需要先安装ASL，否则后续安装Ipopt会失败。我们新建一个目录专门用来存放Casadi相关的优化库：
 ``` bash
 cd ~/opt # 进入优化库集中存储目录
-git clone https://github.com/coin-or/ASL.git # 下载ASL库
-cd ASL # 切换到ASL目录
-mkdir build && cd build # 切换到build目录
-cmake .. # 配置CMake
-make -j$(nproc) # 编译ASL
-sudo make install # 安装ASL
+git clone https://github.com/coin-or-tools/ThirdParty-ASL.git # 下载ASL库
+cd ThirdParty-ASL 
+sudo ./get.ASL
+sudo ./configure
+sudo make -j$(nproc)
+sudo make install
 ```
 出现Libraries have been installed in:/usr/local/lib就说明安装成功。
 - **2.2 安装BLAS,LAPACK**
