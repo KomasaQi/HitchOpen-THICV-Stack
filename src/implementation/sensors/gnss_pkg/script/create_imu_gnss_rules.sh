@@ -13,6 +13,8 @@
 # sudo udevadm control --reload && sudo udevadm trigger
 # echo "finish "
 
+
+
 #!/bin/bash
 # 显式加载 ROS 环境（根据你的 ROS 版本修改，比如 noetic/melodic）
 source /opt/ros/noetic/setup.bash

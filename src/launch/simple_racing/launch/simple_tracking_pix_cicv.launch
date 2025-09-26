@@ -1,6 +1,6 @@
 <launch> 
 
-    <include file="$(find hesai_lidar)/launch/hesai_lidar.launch" />
+    <!-- <include file="$(find hesai_lidar)/launch/hesai_lidar.launch" /> -->
     <include file="$(find automotive)/launch/pix/pix_driver.launch" />
 
     <include file="$(find gnss_converter)/launch/gnss_converter.launch" />

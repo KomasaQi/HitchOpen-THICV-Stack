@@ -3,8 +3,8 @@ liorf_localization:
   # Topics
   pointCloudTopic: "/hesai/pandar"               # Point cloud data
   imuTopic: "/imu_message"                         # IMU data
-  odomTopic: "/odometry_imu"                   # IMU pre-preintegration odometry, same frequency as IMU
-  gpsTopic: "/gnss"                   # GPS odometry topic from navsat, see module_navsat.launch file
+  odomTopic: "/odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
+  gpsTopic: "/odometry/gps_biased"                   # GPS odometry topic from navsat, see module_navsat.launch file
 
   # Frames
   lidarFrame: "lidar_top"

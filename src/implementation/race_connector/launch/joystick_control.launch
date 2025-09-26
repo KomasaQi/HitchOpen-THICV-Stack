@@ -1,0 +1,7 @@
+<launch>
+  <!-- 启动race_runner节点 -->
+  <node name="race_runner" pkg="race_connector" type="race_runner.py" output="screen">
+    <!-- 加载参数配置文件 -->
+    <rosparam command="load" file="$(find race_connector)/config/race_runner_params.yaml" />
+  </node>
+</launch>

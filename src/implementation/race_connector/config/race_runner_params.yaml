@@ -1,0 +1,3 @@
+ros_param_name: "/competition_timer/flag"  # 要设置的ROS参数名称
+ros_param_red_value: "RED"  # 断联时设置的参数值
+ros_param_green_value: "GREEN"  # 绿色触发时设置的参数值

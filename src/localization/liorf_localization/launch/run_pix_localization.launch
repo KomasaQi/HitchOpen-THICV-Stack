@@ -10,4 +10,9 @@
     <!--- Run Rviz-->
     <include file="$(find liorf_localization)/launch/include/module_pix_rviz.launch" />
 
+
+
+
+
+
 </launch>

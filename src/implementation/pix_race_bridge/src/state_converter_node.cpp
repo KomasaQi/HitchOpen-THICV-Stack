@@ -76,7 +76,8 @@ public:
         
         // 初始化订阅者
         imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
-        odom_sub_ = nh_.subscribe("/liorf_localization/mapping/odometry", 10, &StateConverter::odomCallback, this);
+        // odom_sub_ = nh_.subscribe("/liorf_localization/mapping/odometry", 10, &StateConverter::odomCallback, this);
+        odom_sub_ = nh_.subscribe("/odometry/imu", 10, &StateConverter::odomCallback, this);
         // speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 10, &StateConverter::speedometerCallback, this);
         // vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 10, &StateConverter::vehicleStatusCallback, this);
         wheel_rpm_pix_sub_ = nh_.subscribe("/can/wheel_rpm", 10, &StateConverter::wheelRpmCallback, this);
