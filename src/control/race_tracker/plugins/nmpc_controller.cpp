@@ -197,7 +197,7 @@ bool NMPCController::initialize(ros::NodeHandle& nh) {
 
         // 状态跟踪代价
         cost += w_pos_ * dist_sq(min_idx);
-        cost += w_theta_ * casadi::MX::sumsqr(X_(2, k) - ref_theta);
+        cost += w_theta_ * casadi::MX::sumsqr(X_(2, k) - ref_theta - X_(2, 0));
         cost += w_v_ * casadi::MX::sumsqr(X_(3, k) - ref_v);
 
         // 控制量平滑代价
@@ -407,7 +407,7 @@ std::vector<double> NMPCController::linear_interpolate(const std::vector<double>
 }
 
 casadi::DM NMPCController::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
-                                                  int start_idx, int end_idx, int n_waypoints) {
+                                                  int start_idx, int end_idx, int n_waypoints, double yaw0) {
     std::vector<double> s_original, x_original, y_original, theta_original, v_original;
     for (int i = start_idx; i <= end_idx; ++i) {
         const auto& path_pt = path.points[i];
@@ -416,7 +416,13 @@ casadi::DM NMPCController::interpolate_path_segment(const race_msgs::Path& path,
         s_original.push_back(cum_dist[rel_idx]);
         x_original.push_back(path_pt.pose.position.x);
         y_original.push_back(path_pt.pose.position.y);
-        theta_original.push_back(quaternion_to_yaw(path_pt.pose.orientation));
+        double original_yaw = quaternion_to_yaw(path_pt.pose.orientation) - yaw0;
+        if (original_yaw > M_PI) {
+            original_yaw -= 2 * M_PI;
+        } else if (original_yaw < -M_PI) {
+            original_yaw += 2 * M_PI;
+        }
+        theta_original.push_back(original_yaw);
         v_original.push_back(path_pt.velocity);
     }
 
@@ -449,6 +455,7 @@ casadi::DM NMPCController::interpolate_path_segment(const race_msgs::Path& path,
 casadi::DM NMPCController::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
     double x0 = current_state[0];
     double y0 = current_state[1];
+    double yaw0 = current_state[2];
     double vx0 = current_state[3];
 
     int nearest_idx = find_nearest_path_point(x0, y0, input_path);
@@ -484,7 +491,7 @@ casadi::DM NMPCController::process_race_path(const race_msgs::Path& input_path, 
     ROS_DEBUG("[%s] 截取路径段：索引%d → 索引%d（总距离%.2f m）",
              getName().c_str(), nearest_idx, end_idx, cum_dist[end_idx - nearest_idx]);
 
-    return interpolate_path_segment(input_path, cum_dist, nearest_idx, end_idx, n_waypoints_);
+    return interpolate_path_segment(input_path, cum_dist, nearest_idx, end_idx, n_waypoints_, yaw0);
 }
 
 bool NMPCController::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
