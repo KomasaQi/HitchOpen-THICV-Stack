@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="pix_model">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="0.106103092514261 -0.0660548565177884 0.38026650655333"
+        rpy="0 0 0" />
+      <mass
+        value="36.9114288093113" />
+      <inertia
+        ixx="3.97522574306112"
+        ixy="0.0215069469217656"
+        ixz="0.209652975962014"
+        iyy="7.73350286330966"
+        iyz="-0.168672732712015"
+        izz="8.08401632977592" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="imu_link">
+    <inertial>
+      <origin
+        xyz="0.0992871676063133 0.00260392805642422 0.16143239375831"
+        rpy="0 0 0" />
+      <mass
+        value="36.3361485747687" />
+      <inertia
+        ixx="0.777779364343093"
+        ixy="-0.00174072222877737"
+        ixz="2.99919128612729E-05"
+        iyy="0.904028245623736"
+        iyz="0.00147871064515462"
+        izz="1.28965317758837" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/imu_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/imu_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="imu_joint"
+    type="fixed">
+    <origin
+      xyz="0.00836000535046235 -0.0686135902865697 0.207673724848016"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="imu_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser">
+    <inertial>
+      <origin
+        xyz="0.000186968494254437 9.24112459790849E-07 0.028361663549632"
+        rpy="0 0 0" />
+      <mass
+        value="0.575300444135117" />
+      <inertia
+        ixx="0.000614176045984101"
+        ixy="7.11988858909715E-08"
+        ixz="3.05384811876351E-06"
+        iyy="0.000622302509164523"
+        iyz="2.14694151568173E-08"
+        izz="0.00074092122915037" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.322156862745098 0.7219607843137255 0.953333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://pix_model/meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="continuous">
+    <origin
+      xyz="0.00836000535045458 -0.0688872059195504 1.05681749492016"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+</robot>
