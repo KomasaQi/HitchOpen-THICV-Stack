@@ -27,7 +27,7 @@ nmpc_lateral_controller:
   
   # 代价函数权重
   weight_position: 5.0            # 位置跟踪权重
-  weight_heading: 3.0             # 航向跟踪权重
+  weight_heading: 13.0             # 航向跟踪权重
   weight_acceleration: 2.0        # 加速度平滑权重
   weight_front_steer: 500.0       # 前轴转向角平滑权重
   weight_front_steer_control: 1.0 # 前轴转向控制指令

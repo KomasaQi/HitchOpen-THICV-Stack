@@ -37,7 +37,7 @@ private:
                                          const std::vector<double>& val_original, 
                                          const std::vector<double>& s_target);
     casadi::DM interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
-                                      int start_idx, int end_idx, int n_waypoints);
+                                      int start_idx, int end_idx, int n_waypoints, double yaw0);
     casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state);
 
     // NMPC求解函数
