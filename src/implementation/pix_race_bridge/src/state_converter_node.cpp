@@ -75,7 +75,7 @@ public:
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.30);
         
         // 初始化订阅者
-        imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
+        imu_sub_ = nh_.subscribe("/imu_raw", 10, &StateConverter::imuCallback, this);
         // odom_sub_ = nh_.subscribe("/liorf_localization/mapping/odometry", 10, &StateConverter::odomCallback, this);
         odom_sub_ = nh_.subscribe("/odometry/imu", 10, &StateConverter::odomCallback, this);
         // speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 10, &StateConverter::speedometerCallback, this);

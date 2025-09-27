@@ -21,7 +21,6 @@ class TMSControllerSlave:
         self.qos = rospy.get_param('~mqtt_qos', 0)
         self.retain = rospy.get_param('~mqtt_retain', False)
         self.interval = rospy.get_param('~send_interval', 1)
-        self.use_mqtt_v5 = rospy.get_param('~use_mqtt_v5', False)  # 新增：是否使用MQTT v5以支持noLocal订阅
         
         # 看门狗配置
         self.watchdog_timeout = rospy.get_param('~watchdog_timeout', 5)
@@ -35,11 +34,6 @@ class TMSControllerSlave:
         self.green_topic = rospy.get_param('~green_topic', "TMS/TRIGGERGREEN")
         self.green_qos = rospy.get_param('~green_qos', 1)
         self.green_retain = rospy.get_param('~green_retain', False)
-        
-        # ROS flag 配置（用于控制车辆停止/运行）
-        self.ros_param_name = rospy.get_param('~ros_param_name', "/competition_timer")
-        self.estop_flag_value = rospy.get_param('~estop_flag_value', "RED")  # 急停时的flag值
-        self.green_flag_value = rospy.get_param('~green_flag_value', "GREEN")   # 恢复时的flag值
         
         # 状态变量
         self.last_rx_time = time.monotonic()
@@ -61,13 +55,8 @@ class TMSControllerSlave:
     
     def init_mqtt_client(self):
         """初始化MQTT客户端并设置回调函数"""
-        if self.use_mqtt_v5:
-            self.client = mqtt.Client(
-                client_id=self.client_id,
-                protocol=mqtt.MQTTv5
-            )
-        else:
-            self.client = mqtt.Client(client_id=self.client_id)
+        # 不指定callback_api_version，使用默认版本以兼容旧版本paho-mqtt
+        self.client = mqtt.Client(client_id=self.client_id)
         
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -82,19 +71,12 @@ class TMSControllerSlave:
             rospy.logerr(f"Failed to connect to MQTT broker: {e}")
     
     def trigger_estop(self, reason: str):
-        """发布急停并标记状态，同时设置ROS flag"""
+        """发布急停并标记状态"""
         if self.estop_triggered:
             return
             
         self.estop_triggered = True
         rospy.logwarn(f"[E-STOP] 触发急停，原因：{reason}")
-        
-        # 设置ROS flag为停止
-        try:
-            rospy.set_param(self.ros_param_name, self.estop_flag_value)
-            rospy.loginfo(f"Set ROS parameter {self.ros_param_name} to {self.estop_flag_value}")
-        except Exception as e:
-            rospy.logerr(f"Failed to set ROS parameter: {e}")
         
         payload = json.dumps({
             "state": "TRIGGERED",
@@ -107,15 +89,8 @@ class TMSControllerSlave:
             self.client.publish(self.estop_topic, payload, qos=self.estop_qos, retain=self.estop_retain)
     
     def trigger_green(self, reason: str):
-        """发布绿色触发消息，同时设置ROS flag"""
+        """发布绿色触发消息"""
         rospy.loginfo(f"[GREEN] 触发绿色触发，原因：{reason}")
-        
-        # 设置ROS flag为运行
-        try:
-            rospy.set_param(self.ros_param_name, self.green_flag_value)
-            rospy.loginfo(f"Set ROS parameter {self.ros_param_name} to {self.green_flag_value}")
-        except Exception as e:
-            rospy.logerr(f"Failed to set ROS parameter: {e}")
         
         payload = json.dumps({
             "state": "TRIGGERED",
@@ -135,92 +110,40 @@ class TMSControllerSlave:
                 self.trigger_estop(reason="no_rx_5s")
             time.sleep(0.2)
     
-    def on_connect(self, client, userdata, flags, rc, *args, **kwargs):
-        """MQTT连接回调 - 兼容不同参数格式"""
+    def on_connect(self, client, userdata, flags, rc):
+        """MQTT连接回调 - 使用兼容的参数格式"""
         if rc == 0:
             rospy.loginfo("Connected to MQTT broker.")
-            if self.use_mqtt_v5:
-                try:
-                    client.subscribe(
-                        self.estop_topic,
-                        options=mqtt.SubscribeOptions(qos=self.estop_qos, noLocal=True)
-                    )
-                    client.subscribe(
-                        self.green_topic,
-                        options=mqtt.SubscribeOptions(qos=self.green_qos, noLocal=True)
-                    )
-                    rospy.loginfo(f"Subscribed to: {self.estop_topic}, {self.green_topic} (noLocal=True)")
-                except Exception as e:
-                    rospy.logwarn(f"Subscribe with noLocal failed: {e}. Fallback to plain subscribe.")
-                    client.subscribe(self.estop_topic, qos=self.estop_qos)
-                    client.subscribe(self.green_topic, qos=self.green_qos)
-            else:
-                client.subscribe(self.estop_topic, qos=self.estop_qos)
-                client.subscribe(self.green_topic, qos=self.green_qos)
-                rospy.loginfo(f"Subscribed to: {self.estop_topic}, {self.green_topic} (noLocal not supported in MQTT v3)")
-            
+            client.subscribe(self.estop_topic, qos=self.estop_qos)
+            client.subscribe(self.green_topic, qos=self.green_qos)
             client.subscribe(self.computer_topic, qos=self.qos)
-            rospy.loginfo(f"Subscribed to: {self.computer_topic}")
-            
+            rospy.loginfo(f"Subscribed to: {self.estop_topic}, {self.green_topic}, {self.computer_topic}")
             self.last_rx_time = time.monotonic()
         else:
             rospy.logerr(f"Connect failed, rc={rc}")
     
     def on_message(self, client, userdata, msg):
-        """接收消息回调 - 先检查topic再解析，避免非JSON心跳解析失败"""
+        """接收消息回调"""
         try:
-            payload_str = msg.payload.decode("utf-8")
+            payload = msg.payload.decode("utf-8")
         except UnicodeDecodeError:
-            payload_str = str(msg.payload)
-            rospy.logwarn(f"无法解码消息 payload: {msg.payload} (topic: {msg.topic})")
-        
-        from_id = "unknown"
-        payload_dict = {}
-        
-        # 只在E-STOP或GREEN主题下尝试JSON解析
-        if msg.topic in (self.estop_topic, self.green_topic):
-            try:
-                payload_dict = json.loads(payload_str)
-                from_id = payload_dict.get("from", "unknown")
-            except json.JSONDecodeError:
-                rospy.logwarn(f"无法解析JSON payload: {payload_str} (topic: {msg.topic})")
+            payload = str(msg.payload)
         
         if msg.topic == self.estop_topic:
-            if from_id == self.client_id:
-                rospy.logdebug(f"[RX][E-STOP] 忽略自己发送的消息: {payload_str}")
-                return  # 忽略自己发送的E-STOP
-            rospy.loginfo(f"[RX][E-STOP] {payload_str} (from: {from_id})")
-            if not self.estop_triggered:
-                self.estop_triggered = True
-                try:
-                    rospy.set_param(self.ros_param_name, self.estop_flag_value)
-                    rospy.loginfo(f"Set ROS parameter {self.ros_param_name} to {self.estop_flag_value} due to received E-STOP")
-                except Exception as e:
-                    rospy.logerr(f"Failed to set ROS parameter: {e}")
-        
+            rospy.loginfo(f"[RX][E-STOP] {payload}")
         elif msg.topic == self.green_topic:
-            if from_id == self.client_id:
-                rospy.logdebug(f"[RX][GREEN] 忽略自己发送的消息: {payload_str}")
-                return  # 忽略自己发送的GREEN
-            rospy.loginfo(f"[RX][GREEN] {payload_str} (from: {from_id})")
-            if self.estop_triggered:
-                self.estop_triggered = False
-                try:
-                    rospy.set_param(self.ros_param_name, self.green_flag_value)
-                    rospy.loginfo(f"\033[32mSet ROS parameter {self.ros_param_name} to {self.green_flag_value} due to received GREEN\033[0m")
-                except Exception as e:
-                    rospy.logerr(f"Failed to set ROS parameter: {e}")
-            self.last_rx_time = time.monotonic()  # 更新倒计时（即使未触发E-STOP）
-        
+            rospy.loginfo(f"[RX][GREEN] {payload}")
+            # 接收到 GREEN 消息时，重置倒计时并恢复发送心跳
+            self.estop_triggered = False
+            self.last_rx_time = time.monotonic()
         elif msg.topic == self.computer_topic:
-            rospy.loginfo(f"[RX][COMPUTER] {payload_str}")
-            self.last_rx_time = time.monotonic()  # 更新倒计时（心跳信号）
-        
+            rospy.loginfo(f"[RX][COMPUTER] {payload}")
+            self.last_rx_time = time.monotonic()  # 更新倒计时
         else:
-            rospy.loginfo(f"[RX] topic={msg.topic} payload={payload_str}")
+            rospy.loginfo(f"[RX] topic={msg.topic} payload={payload}")
     
-    def on_disconnect(self, client, userdata, rc, *args, **kwargs):
-        """MQTT断开连接回调 - 兼容不同参数格式"""
+    def on_disconnect(self, client, userdata, rc):
+        """MQTT断开连接回调 - 使用兼容的参数格式"""
         if rc != 0:
             rospy.logwarn(f"MQTT断开连接，rc={rc}（将自动尝试重连）")
         else:
@@ -236,7 +159,6 @@ class TMSControllerSlave:
             else:
                 if self.client and self.client.is_connected():
                     self.client.publish(self.topic, "TMS", qos=self.qos, retain=self.retain)
-                    rospy.logdebug("[TX] Published 'TMS' to {self.topic}")
                 else:
                     rospy.logwarn("MQTT未连接，暂不发送消息")
             

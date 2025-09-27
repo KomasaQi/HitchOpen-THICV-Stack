@@ -8,13 +8,20 @@
   <joint name="base_link_joint" type="fixed">
     <parent link="base_link"/>
     <child link="chassis_link" />
-    <origin xyz="0 0 0" rpy="0 0 1.57079" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
   </joint>
 
   <link name="ego_vehicle/imu"> </link>
   <joint name="imu_joint" type="fixed">
     <parent link="chassis_link" />
     <child link="ego_vehicle/imu" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <link name="imu_link"> </link>
+  <joint name="imu_pix_joint" type="fixed">
+    <parent link="chassis_link" />
+    <child link="imu_link" />
     <origin xyz="0 0 0" rpy="0 0 0" />
   </joint>
 

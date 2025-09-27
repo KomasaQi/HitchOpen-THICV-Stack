@@ -1,0 +1,22 @@
+<launch>
+
+    <arg name="project" default="lio_sam"/>
+    
+    <!-- <node pkg="lio_sam" name="nan_filter" type="filter_nan.py" output="screen"/> -->
+    
+    <!-- Parameters -->
+    <rosparam file="$(find lio_sam)/config/pix_params.yaml" command="load" /> 
+
+    <!--- LOAM -->
+    <include file="$(find lio_sam)/launch/include/module_loam.launch" />
+
+    <!--- Robot State TF -->
+    <include file="$(find lio_sam)/launch/include/pix_robot_state_publisher.launch" />
+
+    <!--- Run Navsat -->
+    <include file="$(find lio_sam)/launch/include/module_navsat_pix.launch" />
+
+    <!--- Run Rviz-->
+    <include file="$(find lio_sam)/launch/include/pix_rviz.launch" />
+
+</launch>

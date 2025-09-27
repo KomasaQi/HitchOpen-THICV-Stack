@@ -7,7 +7,7 @@
 
 
   <!-- Sensor: lidar -->
-  <link name="hesai/pandar"></link>
+  <link name="lidar_top"></link>
   <joint name="lidar_joint" type="fixed">
     <parent link="ego_vehicle" />
     <child link="lidar_top" />
@@ -15,7 +15,13 @@
   </joint>
 
 
-
+  <!-- Sensor: gnss -->
+  <link name="gps_link"></link>
+  <joint name="gps_joint" type="fixed">
+    <parent link="ego_vehicle" />
+    <child link="gps_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
 
   <!-- Sensor: gnss -->
   <link name="ego_vehicle/gps"></link>
@@ -33,17 +39,17 @@
     <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
   </joint>
 
-
-
-
-
-  <!-- Sensor: odometry -->
-  <link name="ego_vehicle/odometry"></link>
-  <joint name="odometry_joint" type="fixed">
+  <!-- Sensor: imu -->
+  <link name="imu_link"></link>
+  <joint name="imu_pix_joint" type="fixed">
     <parent link="ego_vehicle" />
-    <child link="ego_vehicle/odometry" />
+    <child link="imu_link" />
     <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
   </joint>
+
+
+
+
 
 
 

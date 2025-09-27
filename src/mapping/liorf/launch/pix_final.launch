@@ -3,7 +3,7 @@
     <arg name="project" default="liorf"/>
     
     <!-- Parameters -->
-    <rosparam file="$(find liorf)/config/pix.yaml" command="load" />
+    <rosparam file="$(find liorf)/config/pix_final.yaml" command="load" />
 
     <!--- LOAM -->
     <include file="$(find liorf)/launch/include/module_loam_pix.launch" /> <!--完成-->
@@ -12,7 +12,7 @@
     <include file="$(find liorf)/launch/include/module_robot_state_publisher_pix.launch" /> <!--完成-->
 
     <!--- Run Navsat -->
-    <include file="$(find liorf)/launch/include/module_navsat_pix.launch" /> 
+    <include file="$(find liorf)/launch/include/module_navsat_pix.launch" /> <!--完成-->
 
     <!--- Run Rviz-->
     <include file="$(find liorf)/launch/include/module_rviz_pix.launch" /> <!--完成-->

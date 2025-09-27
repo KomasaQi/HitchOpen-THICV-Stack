@@ -1,14 +1,14 @@
-liorf:
+lio_sam:
 
   # Topics
   pointCloudTopic: "/hesai/pandar"               # Point cloud data
   imuTopic: "/imu_raw"                         # IMU data
   odomTopic: "/odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
-  gpsTopic: "gnss"                   # GPS odometry topic from navsat, see module_navsat.launch file
+  gpsTopic: "/odometry/gps"                   # GPS odometry topic from navsat, see module_navsat.launch file
 
   # Frames
   lidarFrame: "lidar_top"
-  baselinkFrame: "base_link"
+  baselinkFrame: "ego_vehicle"
   odometryFrame: "ego_vehicle/odometry"
   mapFrame: "map"
 
@@ -20,40 +20,50 @@ liorf:
   
   # Export settings
   savePCD: false                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/下载/new_CICV/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/下载/LOAM_new"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
   # Sensor Settings
-  sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox' or 'robosense'
+  sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox' --> or 'leishen', which will calculate point time based on lidar firing order
   N_SCAN: 64                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
   Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
-  downsampleRate: 1                           # default: 1. Downsample your data if too many points(line). i.e., 16 = 64 / 4, 16 = 16 / 1
-  point_filter_num: 2                         # default: 3. Downsample your data if too many points(point). e.g., 16: 1, 32: 5, 64: 8
-  lidarMinRange: 3.0                          # default: 1.0, minimum lidar range to be used
-  lidarMaxRange: 200.0                       # default: 1000.0, maximum lidar range to be used
+  downsampleRate: 1                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
+  lidarMinRange: 2.0                          # default: 1.0, minimum lidar range to be used
+  lidarMaxRange: 300.0                       # default: 1000.0, maximum lidar range to be used
+  pointTimeCalculateFlag: false               # default: false, calculate point time based on lidar firing order --> for some lidars' data points time is not referenced to the same time stamp as the lidar firing order
 
   # IMU Settings
-  imuType: 1                                  # 0: 6-axis  1: 9-axis
-  imuRate: 1000.0
+  imuType: 1                                    # 0: 6-axis  1: 9-axis
+  imuRate: 1000.0                                # IMU data frequency 
   imuAccNoise: 3.9939570888238808e-03
   imuGyrNoise: 1.5636343949698187e-03
   imuAccBiasN: 6.4356659353532566e-05
   imuGyrBiasN: 3.5640318696367613e-05
   imuGravity: 9.80511
   imuRPYWeight: 0.01
+  resetPreintegrationNum: 100                              # default: 100, number of IMU data to be reset after initialization
+
 
   # Extrinsics: T_lb (lidar -> imu)
-  extrinsicTrans: [0.0,0.0,0.0]
-  extrinsicRot: [1.0, 0.0, 0.0, 
-                  0.0, 1.0, 0.0, 
-                  0.0, 0.0, 1.0]
+  extrinsicTrans: [0.0, 0.0, 0.0]
 
-  # This parameter is set only when the 9-axis IMU is used, but it must be a high-precision IMU. e.g. MTI-680
-  extrinsicRPY: [1.0, 0.0, 0.0, 
-                  0.0, 1.0, 0.0, 
-                  0.0, 0.0, 1.0]
+  extrinsicRot: [1, 0, 0,
+                  0, 1, 0,
+                  0, 0, 1]
+  extrinsicRPY: [1, 0, 0,
+                  0, 1, 0,
+                  0, 0, 1]
+
+  # LOAM feature threshold
+  edgeThreshold: 1.0
+  surfThreshold: 0.1
+  edgeFeatureMinValidNum: 10
+  surfFeatureMinValidNum: 100
+  surfDistanceThreshold: 0.1                    # defualt: 0.2
 
   # voxel filter paprams
-  mappingSurfLeafSize: 0.2                      # default: 0.4 - outdoor, 0.2 - indoor
+  odometrySurfLeafSize: 0.4                     # default: 0.4 - outdoor, 0.2 - indoor
+  mappingCornerLeafSize: 0.2                    # default: 0.2 - outdoor, 0.1 - indoor
+  mappingSurfLeafSize: 0.4                      # default: 0.4 - outdoor, 0.2 - indoor
 
   # robot motion constraint (in case you are using a 2D robot)
   z_tollerance: 1000                            # meters
@@ -66,9 +76,8 @@ liorf:
   # Surrounding map
   surroundingkeyframeAddingDistThreshold: 1.0   # meters, regulate keyframe adding threshold
   surroundingkeyframeAddingAngleThreshold: 0.2  # radians, regulate keyframe adding threshold
-  surroundingKeyframeDensity: 2.0               # meters, downsample surrounding keyframe poses   
-  surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
-  surroundingKeyframeMapLeafSize: 0.5           # downsample local map point cloud
+  surroundingKeyframeDensity: 1.0               # meters, downsample surrounding keyframe poses   
+  surroundingKeyframeSearchRadius: 100.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
 
   # Loop closure
   loopClosureEnableFlag: true
@@ -77,7 +86,6 @@ liorf:
   historyKeyframeSearchRadius: 15.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
   historyKeyframeSearchTimeDiff: 30.0           # seconds, key frame that is n seconds older will be considered for loop closure
   historyKeyframeSearchNum: 25                  # number of hostory key frames will be fused into a submap for loop closure
-  loopClosureICPSurfLeafSize: 0.5               # downsample icp point cloud  
   historyKeyframeFitnessScore: 0.3              # icp threshold, the smaller the better alignment
 
   # Visualization
@@ -85,8 +93,18 @@ liorf:
   globalMapVisualizationPoseDensity: 10.0       # meters, global map visualization keyframe density
   globalMapVisualizationLeafSize: 1.0           # meters, global map visualization cloud density
 
+  # IVox
+  dynamicSearchRadiusFlag: false                      # 是否使用动态搜索半径
+  neighborSearchRadius: 1.0                   # default: 2.0, radius used for searching neighboring points to build local map
+  useIVox: true                                  # iVox数据结构，在空旷场景不建议使用，水库那种场景可以使用(不要改)
+  iVoxType: 1                                     # 0->CENTER, 1->NEARBY6, 2->NEARBY16, 3->NEARBY26
+  iVoxCapacity: 10000
+  iVoxResolution: 1.0                             # meters
 
-
+  # gravity optimization
+  gravityOptimizationFlag: true
+  gravityEstimateWindowSize: 100
+  gravityNoise: 1.0e-02
 
 # Navsat (convert GPS coordinates to Cartesian)
 navsat:
@@ -105,7 +123,7 @@ ekf_gps:
   publish_tf: false
   map_frame: map
   odom_frame: ego_vehicle/odometry
-  base_link_frame: base_link
+  base_link_frame: ego_vehicle
   world_frame: ego_vehicle/odometry
 
   frequency: 100
@@ -127,7 +145,7 @@ ekf_gps:
   # -------------------------------------
   # Odometry (From Navsat):
   # -------------------------------------
-  odom0: /odometry/gps
+  odom0: /odometry/imu
   odom0_config: [true,  true,  true,
                  false, false, false,
                  false, false, false,
