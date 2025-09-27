@@ -5,7 +5,8 @@
 
 # -------------------------- CSV路径配置 --------------------------
 # 全局路径CSV文件路径（为空时使用默认路径：包内config/corsa.csv）
-csv_file_path: "config/cicv_garage_map/Cicv_Garage_Map.csv"
+# csv_file_path: "config/cicv_garage_map/Cicv_Garage_Map.csv" # 麻花轨迹
+csv_file_path: "config/cicv_garage_map/Cicv_Garage_Eight_Map.csv" # 8字绕环
 
 enable_closed_loop: true # 是否处理为闭环路径
 

@@ -47,6 +47,8 @@ private:
     double integral_limit_;    // 积分限幅（防止积分饱和），默认2.0
     double speed_tolerance_;   // 速度误差容忍度（m/s），默认0.2（误差小于此值时不输出）
     double min_target_speed_;  // 最小目标速度（m/s），默认0.5（避免低速抖动）
+    double predict_time_horizon_;  // 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）
+
 
     // PID状态变量（需持续更新）
     double last_error_;        // 上一次速度误差

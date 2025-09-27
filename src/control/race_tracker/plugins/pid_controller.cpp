@@ -14,6 +14,7 @@ PIDController::PIDController()
       speed_tolerance_(0.2),
       min_target_speed_(0.5),
       last_error_(0.0),
+      predict_time_horizon_(0.5),
       integral_error_(0.0) {}
 
 bool PIDController::initialize(ros::NodeHandle& nh) {
@@ -32,6 +33,8 @@ bool PIDController::initialize(ros::NodeHandle& nh) {
     nh_pid.param("integral_limit", integral_limit_, 2.0);
     nh_pid.param("speed_tolerance", speed_tolerance_, 0.2);
     nh_pid.param("min_target_speed", min_target_speed_, 0.5);
+    nh_pid.param("predict_time_horizon", predict_time_horizon_, 0.5);
+
 
     // 打印参数加载日志
     logParamLoad("kp", kp_, 0.6);
@@ -42,6 +45,7 @@ bool PIDController::initialize(ros::NodeHandle& nh) {
     logParamLoad("integral_limit", integral_limit_, 2.0);
     logParamLoad("speed_tolerance", speed_tolerance_, 0.2);
     logParamLoad("min_target_speed", min_target_speed_, 0.5);
+    logParamLoad("predict_time_horizon", predict_time_horizon_, 0.5);
 
     // 检查参数有效性
     if (max_throttle_ < 0.1 || max_throttle_ > 1.0) {
@@ -160,6 +164,8 @@ double PIDController::findTargetVelocity(
     const auto& vehicle_pos = vehicle_status->pose.position;
     double min_dist_to_veh = std::numeric_limits<double>::max();
     size_t closest_idx = 0;
+    double predicted_distance = vehicle_status->vel.linear.x * predict_time_horizon_;
+
 
     // 找到车辆当前位置最近的路径点（取其速度为目标速度）
     for (size_t i = 0; i < path->points.size(); ++i) {
@@ -171,9 +177,19 @@ double PIDController::findTargetVelocity(
             closest_idx = i;
         }
     }
-
-    // 若最近点是最后一个，返回其速度；否则返回下一个点（避免滞后）
-    size_t target_idx = (closest_idx + 1) < path->points.size() ? closest_idx + 1 : closest_idx;
+    // 以最近点为基础，向后继续找到第一个累计距离超过预测距离的点
+    size_t target_idx;
+    double accumulated_distance = 0.0;
+    for (size_t i = closest_idx; i < path->points.size(); ++i) {
+        const auto& path_pos = path->points[i].pose.position;
+        double dist_to_prev = std::sqrt((path_pos.x - vehicle_pos.x) * (path_pos.x - vehicle_pos.x) +
+                                     (path_pos.y - vehicle_pos.y) * (path_pos.y - vehicle_pos.y));
+        accumulated_distance += dist_to_prev;
+        if (accumulated_distance > predicted_distance) {
+            target_idx = i;
+            break;
+        }
+    }
     return path->points[target_idx].velocity;
 }
 

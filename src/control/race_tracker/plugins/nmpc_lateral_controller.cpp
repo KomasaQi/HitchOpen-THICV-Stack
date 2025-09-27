@@ -403,13 +403,14 @@ casadi::DM NMPCLateralController::interpolate_path_segment(const race_msgs::Path
         s_original.push_back(cum_dist[rel_idx]);
         x_original.push_back(path_pt.pose.position.x);
         y_original.push_back(path_pt.pose.position.y);
-        double original_theta = quaternion_to_yaw(path_pt.pose.orientation);
+        double original_theta = quaternion_to_yaw(path_pt.pose.orientation) - yaw0;
         // 归一化到-PI PI
         if (original_theta > M_PI){
             original_theta -= 2 * M_PI;
         } else if (original_theta < -M_PI){
             original_theta += 2 * M_PI;
         }
+        std::cout << "第" << rel_idx << "个路点的航向角: " << original_theta << std::endl;
         theta_original.push_back(original_theta);
         v_original.push_back(path_pt.velocity);
     }
