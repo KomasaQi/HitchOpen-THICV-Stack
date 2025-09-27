@@ -6,11 +6,12 @@
     <include file="$(find gnss_converter)/launch/gnss_converter.launch" />
     <include file="$(find pix_race_bridge)/launch/pix_race_bridge.launch" />
     <!-- <要手动启动gnss_pkg IMU_gps.py并指定port> -->
-    <include file="$(find liorf_localization)/launch/run_pix_localization.launch" />
+    <include file="$(find liorf_localization)/launch/run_pix_garage_localization.launch" />
     <!-- 启动全局规划器 -->
-    <include file="$(find race_global_static_planner)/launch/race_global_pix_cicv.launch" />
+    <include file="$(find race_global_static_planner)/launch/race_global_pix_garage.launch" />
     <!-- 启动机器人显示 -->
     <include file="$(find pix_model)/launch/pix_model.launch" />
+
     <!-- 启动跟踪控制器 -->
     <!-- <include file="$(find race_tracker)/launch/excel_controller_pix.launch" /> -->
 

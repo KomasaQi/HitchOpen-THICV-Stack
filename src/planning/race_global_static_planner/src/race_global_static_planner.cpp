@@ -211,7 +211,7 @@ bool RaceGlobalStaticPlanner::readGlobalPathFromCSV()
             path_point.curvature = std::stod(point_tokens[5]);        // 轨迹曲率（1/m）
 
             // 航向角转换：用户定义（东向0）→ TF定义（北向0，顺时针正）
-            double tf_yaw = M_PI_2 - heading;  // 核心转换公式
+            double tf_yaw = heading;  // 核心转换公式
             path_point.pose.orientation = tf::createQuaternionMsgFromYaw(tf_yaw);
 
             // 添加到全局路径集合
@@ -382,7 +382,7 @@ race_msgs::Path RaceGlobalStaticPlanner::generateLocalPath(const race_msgs::Vehi
         // 2.2 计算航向角距离成本（周期性最短距离）
         // 路径点航向角：从TF四元数转换回用户定义格式
         double tf_yaw = tf::getYaw(path_point.pose.orientation);
-        double path_heading = M_PI_2 - tf_yaw;  // TF→用户定义
+        double path_heading = tf_yaw;  // TF→用户定义
         double heading_dist = AngleUtils::angle_norm(path_heading, car_heading);  // 弧度单位
         double heading_cost = weight_heading_ * heading_dist*heading_dist;
 

@@ -126,6 +126,11 @@
         "*.def": "cpp",
         "ranges": "cpp",
         "span": "cpp",
-        "dense": "cpp"
+        "dense": "cpp",
+        "csignal": "cpp",
+        "charconv": "cpp",
+        "coroutine": "cpp",
+        "cuchar": "cpp",
+        "scoped_allocator": "cpp"
     }
 }

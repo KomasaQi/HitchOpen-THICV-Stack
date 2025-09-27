@@ -1,10 +1,10 @@
 <package format="2">
-  <name>Pix_molde</name>
+  <name>pix_model</name>
   <version>1.0.0</version>
   <description>
-    <p>URDF Description package for Pix_molde</p>
+    <p>URDF Description package for pix_model</p>
     <p>This package contains configuration data, 3D models and launch files
-for Pix_molde robot</p>
+for pix_model robot</p>
   </description>
   <author>TODO</author>
   <maintainer email="TODO@email.com" />

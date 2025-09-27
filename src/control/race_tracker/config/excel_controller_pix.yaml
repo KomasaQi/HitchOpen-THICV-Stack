@@ -22,17 +22,17 @@ nmpc_lateral_controller:
   # 控制量边界约束
   min_front_steer: -0.4           # 前轴最小转向角 (rad)
   max_front_steer: 0.4            # 前轴最大转向角 (rad)
-  min_rear_steer: -0.01            # 后轴最小转向角 (rad)
-  max_rear_steer: 0.01             # 后轴最大转向角 (rad)
+  min_rear_steer: -0.2            # 后轴最小转向角 (rad)
+  max_rear_steer: 0.2             # 后轴最大转向角 (rad)
   
   # 代价函数权重
   weight_position: 55.0            # 位置跟踪权重
-  weight_heading: 5.0             # 航向跟踪权重
+  weight_heading: 0.0             # 航向跟踪权重
   weight_acceleration: 2.0        # 加速度平滑权重
   weight_front_steer: 1500.0       # 前轴转向角平滑权重
-  weight_front_steer_control: 1500.0 # 前轴转向控制指令
+  weight_front_steer_control: 500.0 # 前轴转向控制指令
   weight_rear_steer: 1500.0        # 后轴转向角平滑权重
-  weight_rear_steer_control: 1500.0  # 后轴转向控制指令
+  weight_rear_steer_control: 500.0  # 后轴转向控制指令
   weight_terminal_position: 160.0  # 终端位置权重
   weight_terminal_heading: 150.0    # 终端航向权重
     

@@ -1,21 +1,19 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"type": "catkin_make",
-			"args": [
-				"--directory",
-				"/home/komasa/HitchOpen-THICV-Stack",
-				"-DCMAKE_BUILD_TYPE=RelWithDebInfo"
-			],
-			"problemMatcher": [
-				"$catkin-gcc"
-			],
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			},
-			"label": "catkin_make: build"
-		}
-	]
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "catkin_make",  // 任务名称（自定义）
+            "type": "shell",
+            "command": "catkin_make",  // 要执行的命令
+            "args": [],  // 可选：添加编译参数，例如 "-DCMAKE_BUILD_TYPE=Release"
+            "options": {
+                "cwd": "${workspaceFolder}"  // 切换到工作空间的 src 目录（关键！）
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true  // 设置为默认构建任务（Ctrl+Shift+B 直接触发）
+            },
+            "problemMatcher": []
+        }
+    ]
 }
