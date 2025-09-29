@@ -22,6 +22,9 @@ class FusedFixToGnss:
                                     0.0, 2.89, 0.0, 
                                     0.0, 0.0, 5.78]
         self.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
+
+        # 初始化GPS状态为NO_FIX
+        self.gps_status = NavSatStatus.STATUS_NO_FIX
         
         # 记录最后一次更新协方差的时间
         self.last_covariance_update = rospy.Time.now()
@@ -33,6 +36,8 @@ class FusedFixToGnss:
         # 更新协方差信息
         self.position_covariance = fix_data.position_covariance
         self.position_covariance_type = fix_data.position_covariance_type
+        # 更新GPS状态
+        self.gps_status = fix_data.status.status
         
         # 更新最后一次更新时间
         self.last_covariance_update = rospy.Time.now()
@@ -50,13 +55,14 @@ class FusedFixToGnss:
         gnss_msg.header = fused_data.header
         
         # 设置状态信息
-        gnss_msg.status.status = NavSatStatus.STATUS_FIX if fused_data.status == 0 else NavSatStatus.STATUS_NO_FIX
+        gnss_msg.status.status = NavSatStatus.STATUS_FIX if self.gps_status == 0 else NavSatStatus.STATUS_NO_FIX
         gnss_msg.status.service = NavSatStatus.SERVICE_GPS
         
         # 复制位置信息
         gnss_msg.latitude = fused_data.latitude
         gnss_msg.longitude = fused_data.longitude
         gnss_msg.altitude = fused_data.altitude
+
         
         # 使用从/fix获取的最新协方差信息
         gnss_msg.position_covariance = self.position_covariance

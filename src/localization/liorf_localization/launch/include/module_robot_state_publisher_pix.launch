@@ -1,0 +1,11 @@
+<launch>
+
+	<arg name="project" default="liorf_localization"/>
+
+    <param name="robot_description" command="$(find xacro)/xacro $(find liorf_localization)/launch/include/config/pix_robot_sup.urdf.xacro --inorder" />
+
+    <node name="robot_state_publisher_pix" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true">
+        <!-- <param name="tf_prefix" value="$(env ROS_HOSTNAME)"/> -->
+    </node>
+  
+</launch>

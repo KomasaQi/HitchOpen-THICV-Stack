@@ -17,6 +17,7 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include <pcl/octree/octree_search.h>
 
 using namespace gtsam;
 
@@ -24,6 +25,7 @@ using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
 using symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::G; // GPS pose
+
 /*
     * A point cloud type that has 6D pose info ([x,y,z,roll,pitch,yaw] intensity is time stamp)
     */
@@ -49,6 +51,9 @@ typedef PointXYZIRPYT  PointTypePose;
 
 class mapOptimization : public ParamServer
 {
+private:
+    // 新增成员变量：控制启动时发送whole map
+    bool initial_whole_map_published = false;
 
 public:
 
@@ -151,6 +156,14 @@ public:
     bool system_initialized = false;
     float initialize_pose[6];
 
+    // 用于whole map管理
+    pcl::PointCloud<PointType>::Ptr whole_map;
+    pcl::octree::OctreePointCloudSearch<PointType>::Ptr octree_whole_map;
+    double last_global_map_update_time;
+    const double global_map_update_interval = 2.0; // 2秒更新一次
+    const double search_cube_size = 500.0; // 立方体边长500m
+    const double initial_down_sample_resolution = 0.6; // 0.6m 降采样
+
     mapOptimization()
     {
         ISAM2Params parameters;
@@ -170,7 +183,7 @@ public:
 
         // srvSaveMap  = nh.advertiseService("liorf_localization/save_map", &mapOptimization::saveMapService, this);
 
-        pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mapping/icp_loop_closure_history_cloud", 1);
+        pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mappinitialposeing/icp_loop_closure_history_cloud", 1);
         pubIcpKeyFrames       = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mapping/icp_loop_closure_corrected_cloud", 1);
         pubLoopConstraintEdge = nh.advertise<visualization_msgs::MarkerArray>("/liorf_localization/mapping/loop_closure_constraints", 1);
 
@@ -189,7 +202,7 @@ public:
         downSizeFilterSurroundingKeyPoses.setLeafSize(surroundingKeyframeDensity, surroundingKeyframeDensity, surroundingKeyframeDensity); // for surrounding key poses of scan-to-map optimization
 
         allocateMemory();
-        loadGlobalMap();
+        loadWholeMap();
     }
 
     void allocateMemory()
@@ -224,29 +237,165 @@ public:
         }
 
         matP = cv::Mat(6, 6, CV_32F, cv::Scalar::all(0));
+
+        // 初始化whole map相关变量
+        whole_map.reset(new pcl::PointCloud<PointType>());
+        octree_whole_map.reset(new pcl::octree::OctreePointCloudSearch<PointType>(1.0)); // 1m分辨率
+        last_global_map_update_time = 0.0;
+
+        initial_whole_map_published = false;
     }
 
-    // add by yjz_lucky_boy
     void loadGlobalMap()
     {
-        std::string global_map = std::getenv("HOME") + savePCDDirectory;
-        pcl::io::loadPCDFile<PointType>(global_map + "GlobalMap.pcd", *laserCloudSurfFromMap);
-        downSizeFilterLocalMapSurf.setInputCloud(laserCloudSurfFromMap);
-        downSizeFilterLocalMapSurf.filter(*laserCloudSurfFromMapDS);
-        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
-        std::cout << "global map size: " << laserCloudSurfFromMapDSNum << std::endl;
+        // 如果没有whole map，尝试加载原来的GlobalMap.pcd
+        if (!has_global_map)
+        {
+            std::string global_map = std::getenv("HOME") + savePCDDirectory;
+            if (pcl::io::loadPCDFile<PointType>(global_map + "GlobalMap.pcd", *laserCloudSurfFromMap) != -1)
+            {
+                downSizeFilterLocalMapSurf.setInputCloud(laserCloudSurfFromMap);
+                downSizeFilterLocalMapSurf.filter(*laserCloudSurfFromMapDS);
+                laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+                std::cout << "fallback global map size: " << laserCloudSurfFromMapDSNum << std::endl;
 
-        if (laserCloudSurfFromMapDSNum < 1000)
-          return;
-        
-        has_global_map = true;
-
-        kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
-        sleep(3);
-        publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);   
+                if (laserCloudSurfFromMapDSNum >= 1000)
+                {
+                    has_global_map = true;
+                    kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+                    sleep(3);
+                    publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);   
+                }
+            }
+        }
     }
 
+    // 新增函数：发送降采样后的whole map
+    void publishInitialWholeMap()
+    {
+        if (initial_whole_map_published || !has_global_map || whole_map->empty())
+            return;
+            
+        ROS_INFO("Publishing initial whole map for visualization...");
+        
+        // 对whole map进行1m降采样
+        pcl::PointCloud<PointType>::Ptr whole_map_downsampled(new pcl::PointCloud<PointType>());
+        pcl::VoxelGrid<PointType> downsample_filter;
+        downsample_filter.setLeafSize(initial_down_sample_resolution, initial_down_sample_resolution, initial_down_sample_resolution); //降采样用于显示
+        downsample_filter.setInputCloud(whole_map);
+        downsample_filter.filter(*whole_map_downsampled);
+        
+        // 发布降采样后的whole map
+        publishCloud(pubGlobalMap, whole_map_downsampled, ros::Time::now(), mapFrame);
+        
+        ROS_INFO("Published initial whole map with %zu points (downsampled from %zu)", 
+                 whole_map_downsampled->size(), whole_map->size());
+        
+        initial_whole_map_published = true;
+    }
+
+    // 新增函数：加载完整地图
+    void loadWholeMap()
+    {
+        // std::string global_map = std::getenv("HOME") + savePCDDirectory;
+        // std::string whole_map_path = global_map + "GlobalMap.pcd";
+        std::string global_map = std::getenv("HOME") + savePCDDirectory;
+        std::string whole_map_path = global_map + "GlobalMap.pcd";
+        
+        if (pcl::io::loadPCDFile<PointType>(whole_map_path, *whole_map) == -1)
+        {
+            ROS_ERROR("Failed to load whole map from: %s", whole_map_path.c_str());
+            return;
+        }
+        
+        std::cout << "whole map size: " << whole_map->size() << std::endl;
+        
+        if (whole_map->size() < 1000)
+        {
+            ROS_WARN("Whole map too small: %zu points", whole_map->size());
+            return;
+        }
+        
+        // 构建八叉树
+        octree_whole_map->setInputCloud(whole_map);
+        octree_whole_map->addPointsFromInputCloud();
+        
+        has_global_map = true;
+        
+        std::cout << "Whole map loaded successfully with " << whole_map->size() << " points" << std::endl;
+    
+        ROS_INFO("Whole map loaded, waiting for initial pose to extract local map...");
+    
+        // 添加：启动时发送降采样的whole map
+        ros::Duration(1.0).sleep(); // 等待1秒确保发布者准备就绪
+        publishInitialWholeMap();    
+    }
+
+    // 从whole map中提取当前位置附近的点云
+    void updateGlobalMapFromWholeMap()
+    {
+        if (!has_global_map || whole_map->empty())
+            return;
+            
+        double current_time = ros::Time::now().toSec();
+        if (current_time - last_global_map_update_time < global_map_update_interval)
+            return;
+            
+        last_global_map_update_time = current_time;
+        
+        // 获取当前位置
+        PointType current_pos;
+        current_pos.x = transformTobeMapped[3];
+        current_pos.y = transformTobeMapped[4];
+        current_pos.z = transformTobeMapped[5];
+        
+        // 定义搜索立方体的边界
+        double half_size = search_cube_size / 2.0;
+        Eigen::Vector3f min_pt(current_pos.x - half_size, 
+                              current_pos.y - half_size, 
+                              current_pos.z - half_size);
+        Eigen::Vector3f max_pt(current_pos.x + half_size, 
+                              current_pos.y + half_size, 
+                              current_pos.z + half_size);
+        
+        // 使用八叉树搜索立方体范围内的点
+        std::vector<int> point_indices;
+        octree_whole_map->boxSearch(min_pt, max_pt, point_indices);
+        
+        if (point_indices.empty())
+        {
+            ROS_WARN("No points found in search cube around current position");
+            return;
+        }
+        
+        // 构建新的global map
+        pcl::PointCloud<PointType>::Ptr new_global_map(new pcl::PointCloud<PointType>());
+        new_global_map->reserve(point_indices.size());
+        
+        for (int idx : point_indices)
+        {
+            new_global_map->push_back(whole_map->points[idx]);
+        }
+        
+        // 下采样
+        downSizeFilterLocalMapSurf.setInputCloud(new_global_map);
+        downSizeFilterLocalMapSurf.filter(*laserCloudSurfFromMapDS);
+        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+        
+        if (laserCloudSurfFromMapDSNum > 1000)
+        {
+            kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+            ROS_INFO("Updated global map with %d points from whole map", laserCloudSurfFromMapDSNum);
+            
+            // 发布全局地图
+            publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);
+        }
+        else
+        {
+            ROS_WARN("Updated global map too small: %d points", laserCloudSurfFromMapDSNum);
+        }
+    }
+    
     // add by yjz_lucky_boy
     void initialposeHandler(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &msgIn) 
     {
@@ -268,7 +417,23 @@ public:
         std::cout << "manual initialize pose: \n" << initialize_pose[3] << "\n" << initialize_pose[4] << "\n" << initialize_pose[5] << "\n" 
                   << initialize_pose[0] << "\n" << initialize_pose[1] << "\n" << initialize_pose[2] << std::endl;
 
+        // 设置初始位置到transformTobeMapped，用于提取初始地图
+        transformTobeMapped[0] = roll;
+        transformTobeMapped[1] = pitch;
+        transformTobeMapped[2] = yaw;
+        transformTobeMapped[3] = msgIn->pose.pose.position.x;
+        transformTobeMapped[4] = msgIn->pose.pose.position.y;
+        transformTobeMapped[5] = msgIn->pose.pose.position.z;
+
         has_initialize_pose = true;
+
+        // 如果有whole map，立即提取并发布初始全局地图
+        if (has_global_map && !whole_map->empty())
+        {
+            last_global_map_update_time = 0.0; // 强制更新
+            updateGlobalMapFromWholeMap();
+            ROS_INFO("Published initial global map after receiving initial pose");
+        }
     }
 
     void laserCloudInfoHandler(const liorf_localization::cloud_infoConstPtr& msgIn)
@@ -292,6 +457,11 @@ public:
               if(!systemInitialize())
                 return;
 
+            if (system_initialized && has_global_map && !whole_map->empty())
+            {
+                updateGlobalMapFromWholeMap();
+            }
+
             updateInitialGuess();
 
             extractSurroundingKeyFrames();
@@ -313,7 +483,22 @@ public:
     bool systemInitialize()
     {
         if (!has_global_map)
-          return false;
+        {
+            // 如果没有global map但有whole map，先更新一次global map
+            if (!whole_map->empty())
+            {
+                // 使用初始位置更新global map
+                double current_time = ros::Time::now().toSec();
+                last_global_map_update_time = current_time - global_map_update_interval; // 强制更新
+                updateGlobalMapFromWholeMap();
+            }
+            
+            if (laserCloudSurfFromMapDSNum < 1000)
+            {
+                ROS_WARN("Global map too small for initialization: %d points", laserCloudSurfFromMapDSNum);
+                return false;
+            }
+        }
 
         if(!has_initialize_pose)
         {
@@ -360,6 +545,14 @@ public:
         {
             ROS_INFO("initialize pose sucessful");
             system_initialized = true;
+            
+            // 系统初始化成功后发布一次全局地图
+            if (laserCloudSurfFromMapDSNum > 1000)
+            {
+                publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);
+                ROS_INFO("Published initial global map with %d points", laserCloudSurfFromMapDSNum);
+            }
+            
             return true;
         } 
         else
@@ -370,7 +563,7 @@ public:
             return false;
         }
     }
-
+    
     void gpsHandler(const nav_msgs::Odometry::ConstPtr& gpsMsg)
     {
         gpsQueue.push_back(*gpsMsg);
@@ -1614,9 +1807,8 @@ public:
         static tf::TransformBroadcaster br;
         tf::Transform t_odom_to_lidar = tf::Transform(tf::createQuaternionFromRPY(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]),
                                                       tf::Vector3(transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]));
-        tf::StampedTransform trans_odom_to_lidar = tf::StampedTransform(t_odom_to_lidar, timeLaserInfoStamp, odometryFrame, "ego_vehicle");
+        tf::StampedTransform trans_odom_to_lidar = tf::StampedTransform(t_odom_to_lidar, timeLaserInfoStamp, odometryFrame, "lidar_link");
         br.sendTransform(trans_odom_to_lidar);
-
 
         // Publish odometry for ROS (incremental)
         static bool lastIncreOdomPubFlag = false;

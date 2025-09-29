@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<robot name="liorf_pix" xmlns:xacro="http://KomasaQi.github.io/">
+  <xacro:property name="PI" value="3.1415926535897931" />
+
+  <!-- Root link for the ego vehicle -->
+  <link name="base_link"></link>
+
+  <!-- Sensor: gnss -->
+  <link name="gps_link"></link>
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="gps_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+
+
+
+
+
+</robot>
