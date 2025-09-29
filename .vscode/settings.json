@@ -126,6 +126,7 @@
         "*.def": "cpp",
         "ranges": "cpp",
         "span": "cpp",
-        "dense": "cpp"
+        "dense": "cpp",
+        "charconv": "cpp"
     }
 }

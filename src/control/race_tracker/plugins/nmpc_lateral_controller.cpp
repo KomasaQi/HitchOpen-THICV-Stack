@@ -186,14 +186,10 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
         // 提取最近路点的参考信息
         casadi::MX ref_theta = waypoints_(2, min_idx);  // 参考航向角
 
-
         // 状态跟踪代价
         cost += w_pos_ * dist_sq(min_idx);
         cost += w_theta_ * casadi::MX::sumsqr(X_(2, k) - ref_theta - X_(2, 0));
 
-
-        // 控制量平滑代价
-        cost += w_ax_ * casadi::MX::sumsqr(U_full(0, k));
         // 前轴转向角指令代价
         cost += w_delta_cmd1_ * casadi::MX::sumsqr(U_full(0, k));
         cost += w_delta_cmd2_ * casadi::MX::sumsqr(U_full(1, k));

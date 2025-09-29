@@ -1,0 +1,6 @@
+<launch>
+  <node name="state_converter_node" pkg="carla_race_state_converter" type="state_converter_semi_trailer_node" output="screen">
+    <!-- 可以在这里设置参数，例如车轮半径 -->
+    <param name="wheel_radius" value="0.37" type="double"/>
+  </node>
+</launch>

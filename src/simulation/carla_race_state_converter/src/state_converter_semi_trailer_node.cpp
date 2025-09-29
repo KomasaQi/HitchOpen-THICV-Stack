@@ -16,6 +16,7 @@
 #include <race_msgs/LateralLoadTransferStamped.h>
 #include <race_msgs/LateralLoadTransfer.h>
 #include <race_msgs/Path.h>
+#include <geometry_msgs/Quaternion.h>
 
 class StateConverter {
 private:
@@ -48,6 +49,13 @@ private:
     bool vehicle_status_received_;
     bool ltr_received_;
     bool path_received_;
+
+    // 半挂车仿真参数
+    bool trailer_state_initialized_;
+    double trailer_length_;
+
+    // 挂车状态量
+    double trailer_hinge_angle_; // 挂车铰接角
     
     // 车辆参数（可能需要根据实际车辆调整）
     double wheel_radius_;
@@ -57,7 +65,8 @@ private:
 
     ros::Timer track_timer_;       // 新增：跟踪误差计算计时器
     ros::Timer publish_timer_;     // 新增：状态发布计时器
-
+    double tracker_pub_freq_;      // 新增：跟踪误差计算频率
+    double state_pub_freq_;        // 新增：状态发布频率
     
 public:
     StateConverter() : private_nh_("~"), 
@@ -66,24 +75,29 @@ public:
                        ltr_received_(false),
                        speedometer_received_(false),
                        path_received_(false),
+                       trailer_hinge_angle_(0.0),
+                       trailer_state_initialized_(false),
                        vehicle_status_received_(false) {
         // 获取车辆参数
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.37);
+        private_nh_.param<double>("trailer_length", trailer_length_, 11.5);
+        private_nh_.param<double>("tracker_pub_freq", tracker_pub_freq_, 20.0);
+        private_nh_.param<double>("state_pub_freq", state_pub_freq_, 100.0);
         
         // 初始化订阅者
-        imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
-        odom_sub_ = nh_.subscribe("/carla/ego_vehicle/odometry", 10, &StateConverter::odomCallback, this);
-        speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 10, &StateConverter::speedometerCallback, this);
-        vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 10, &StateConverter::vehicleStatusCallback, this);
+        imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 1, &StateConverter::imuCallback, this);
+        odom_sub_ = nh_.subscribe("/carla/ego_vehicle/odometry", 1, &StateConverter::odomCallback, this);
+        speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 1, &StateConverter::speedometerCallback, this);
+        vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 1, &StateConverter::vehicleStatusCallback, this);
         ltr_sub_ = nh_.subscribe("/race/ltr", 10, &StateConverter::ltrCallback, this);
         path_sub_ = nh_.subscribe("/race/local_path", 10, &StateConverter::pathCallback, this);
         
         // 初始化发布者
-        vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 10);
+        vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 1);
         
         // 修复：计时器赋值给类成员变量（生命周期与类一致）
-        track_timer_ = nh_.createTimer(ros::Duration(0.05), &StateConverter::trackCallback, this);
-        publish_timer_ = nh_.createTimer(ros::Duration(0.01), &StateConverter::publishVehicleState, this);
+        track_timer_ = nh_.createTimer(ros::Duration(1.0/tracker_pub_freq_), &StateConverter::trackCallback, this);
+        publish_timer_ = nh_.createTimer(ros::Duration(1.0/state_pub_freq_), &StateConverter::publishVehicleState, this);
 
 
 
@@ -201,6 +215,24 @@ public:
     }
 
     // 回调函数
+    /**
+     * @brief 将欧拉角(roll, pitch, yaw)转换为四元数
+     * @param euler 包含roll, pitch, yaw的自定义消息
+     * @return geometry_msgs::Quaternion 四元数
+     */
+    geometry_msgs::Quaternion eulerToQuaternion(const race_msgs::Euler& euler) {
+        tf2::Quaternion q;
+        // setRPY(roll, pitch, yaw)，单位为弧度
+        q.setRPY(euler.roll, euler.pitch, euler.yaw);
+
+        geometry_msgs::Quaternion quat_msg;
+        quat_msg.x = q.x();
+        quat_msg.y = q.y();
+        quat_msg.z = q.z();
+        quat_msg.w = q.w();
+        return quat_msg;
+    }
+
     void ltrCallback(const race_msgs::LateralLoadTransferStamped::ConstPtr& msg) {
         ltr_msg_.ltr = msg->ltr;
         ltr_msg_.ltr_rate = msg->ltr_rate;
@@ -232,6 +264,10 @@ public:
         vehicle_status_received_ = true;
     }
     
+ 
+
+
+
     // 发布转换后的消息
     void publishVehicleState(const ros::TimerEvent& event) {
         // 等待所有必要的消息都被接收
@@ -304,8 +340,61 @@ public:
             state_msg_.ltr_state.ltr = ltr_msg_.ltr;
             state_msg_.ltr_state.ltr_rate = ltr_msg_.ltr_rate;
         }
-        // 挂车状态：暂时让挂车状态与 tractor 相同
-        state_msg_.trailer.euler = state_msg_.euler;
+        if (!trailer_state_initialized_) {
+            // 初始化挂车状态
+            state_msg_.trailer.pose = state_msg_.pose;
+            state_msg_.trailer.euler = state_msg_.euler;
+            state_msg_.trailer.acc = state_msg_.acc;
+            state_msg_.trailer.vel = state_msg_.vel;
+            trailer_state_initialized_ = true;
+            // 修正挂车位置:利用挂车长度与牵引车的朝向计算
+            state_msg_.trailer.pose.position.x = state_msg_.pose.position.x - trailer_length_ * cos(state_msg_.trailer.euler.yaw);
+            state_msg_.trailer.pose.position.y = state_msg_.pose.position.y - trailer_length_ * sin(state_msg_.trailer.euler.yaw);
+        }else{
+            // 更新挂车状态
+            double dt_state_pub = 1.0 / state_pub_freq_;
+            double vx = state_msg_.vel.linear.x;          // 牵引车纵向速度（x轴向前，确保正确）
+            double theta_dot = state_msg_.vel.angular.z;  // 牵引车偏航角速度（θ_dot）
+            double theta = state_msg_.euler.yaw;          // 牵引车偏航角（θ，实时来自odom）
+
+            // 步骤1：计算铰接角变化率 γ_dot（核心动力学公式）
+            // ψ_dot = (vx / L2) * sin(γ) （挂车偏航角速度）
+            // γ_dot = θ_dot - ψ_dot （铰接角变化率 = 牵引车偏航角速度 - 挂车偏航角速度）
+            double gamma = trailer_hinge_angle_;
+            double psi_dot = (vx / trailer_length_) * sin(gamma);  // ψ_dot：挂车偏航角速度
+            double gamma_dot = theta_dot - psi_dot;                // γ_dot：铰接角变化率
+
+            // 步骤2：积分更新铰接角 γ，并归一化到 [-π, π]（防止发散）
+            gamma += gamma_dot * dt_state_pub;
+            // 归一化：确保 γ 在 [-π, π] 范围内
+            if (gamma > M_PI) {
+                gamma -= 2 * M_PI;
+            } else if (gamma < -M_PI) {
+                gamma += 2 * M_PI;
+            }
+            trailer_hinge_angle_ = gamma;  // 更新铰接角
+
+            // 步骤3：通过几何约束推导挂车偏航角 ψ = θ - γ（关键！消除漂移）
+            double psi = theta - gamma;
+            // 归一化 ψ 到 [-π, π]
+            if (psi > M_PI) {
+                psi -= 2 * M_PI;
+            } else if (psi < -M_PI) {
+                psi += 2 * M_PI;
+            }
+
+            // 步骤4：更新挂车偏航角和姿态
+            race_msgs::Euler trailer_euler = state_msg_.trailer.euler;
+            trailer_euler.yaw = psi;  // 直接用约束推导的 ψ，而非独立积分
+            state_msg_.trailer.euler = trailer_euler;
+            // 转换为四元数
+            state_msg_.trailer.pose.orientation = eulerToQuaternion(trailer_euler);
+
+            // 步骤5：更新挂车位置（基于挂车偏航角 ψ，正确）
+            state_msg_.trailer.pose.position.z = state_msg_.pose.position.z;
+            state_msg_.trailer.pose.position.x = state_msg_.pose.position.x - trailer_length_ * cos(psi);
+            state_msg_.trailer.pose.position.y = state_msg_.pose.position.y - trailer_length_ * sin(psi);
+        }
         
         // 转向模式（默认设为前轮转向）
         state_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
@@ -316,7 +405,7 @@ public:
 };
 
 int main(int argc, char**argv) {
-    ros::init(argc, argv, "state_converter_node");
+    ros::init(argc, argv, "state_converter_semi_trailer_node");
     StateConverter converter;
     ros::spin();
     return 0;

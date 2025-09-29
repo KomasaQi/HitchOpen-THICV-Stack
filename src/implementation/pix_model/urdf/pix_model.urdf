@@ -5,7 +5,7 @@
 <robot
   name="pix_model">
   <link
-    name="base_link">
+    name="ego_vehicle">
     <inertial>
       <origin
         xyz="0.106103092514261 -0.0660548565177884 0.38026650655333"
@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://pix_model/meshes/base_link.STL" />
+          filename="package://pix_model/meshes/ego_vehicle.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://pix_model/meshes/base_link.STL" />
+          filename="package://pix_model/meshes/ego_vehicle.STL" />
       </geometry>
     </collision>
   </link>
@@ -91,7 +91,7 @@
       xyz="0.00836000535046235 -0.0686135902865697 0.207673724848016"
       rpy="0 0 0" />
     <parent
-      link="base_link" />
+      link="ego_vehicle" />
     <child
       link="imu_link" />
     <axis
@@ -144,7 +144,7 @@
       xyz="0.00836000535045458 -0.0688872059195504 1.05681749492016"
       rpy="0 0 0" />
     <parent
-      link="base_link" />
+      link="ego_vehicle" />
     <child
       link="laser" />
     <axis

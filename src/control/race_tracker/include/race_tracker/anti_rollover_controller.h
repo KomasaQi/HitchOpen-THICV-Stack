@@ -38,46 +38,55 @@ private:
                                          const std::vector<double>& s_target);
     casadi::DM interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
                                       int start_idx, int end_idx, int n_waypoints, double yaw0);
-    casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state);
-
+    casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state, double vx0);
+    double vehicleStateToVx(const race_msgs::VehicleStatus& status);
     // NMPC求解函数
     bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
-                  std::vector<double>& control_output);
+                  std::vector<double>& control_output, double vx0);
 
     // 车辆状态转换
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
     // 控制器参数
-    int nx_;                // 状态维度 [x, y, vx, theta, delta1, delta2]
-    int nu_;                // 控制量维度 [delta1_des, delta2_des]
+    int nx_;                // 状态维度 [x, y, theta, gamma, ltr, dltr]
+    int nu_;                // 控制量维度 [delta]
     int N_;                 // NMPC预测步长
     int Nc_;                // 稀疏控制量步数
-    double T_d1_;           // 前轴转向动态时间常数
-    double T_d2_;           // 后轴转向动态时间常数
     double dt_;             // 采样时间 (s)
-    double L_;              // 车辆轴距 (m)
+    double L1_;             // 牵引车轴距 (m)
+    double L2_;             // 挂车轴距 (m)
     double g_;              // 重力加速度 (m/s²)
     double a_max_;          // 预设最大加速度 (m/s²)
     int n_waypoints_;       // 目标参考路点数量
 
+
+    // 动力学参数
+    // x_dot = vx * cos(theta)
+    // y_dot = vx * sin(theta)
+    // theta_dot = vx * tan(delta) / L1
+    // gamma_dot = theta_dot - vx * tan(delta) / L2
+    // ltr_dot = dltr 
+    // dltr_dot = a1*ltr + a2*dltr + b1*vx*theta*gamma
+    double a1_;             // ltr对dltr的影响
+    double a2_;             // dltr对自身的影响
+    double b1_;             // 侧向加速度对dltr的影响
+
     // 控制量边界
-    double delta1_min_;     // 前轴最小转向角
-    double delta1_max_;     // 前轴最大转向角
-    double delta2_min_;     // 后轴最小转向角
-    double delta2_max_;     // 后轴最大转向角
+    double delta_limit_;     // 转向角极限
+
+    // 状态量边界
+    double ltr_limit_;      // 侧向载荷转移率限制
+
+
 
     // 代价函数权重
     double w_pos_;          // 位置跟踪权重
     double w_theta_;        // 航向跟踪权重
-    double w_v_;            // 速度跟踪权重
-    double w_ax_;           // 加速度平滑权重
-    double w_delta1_;       // 前轴转向角平滑权重
-    double w_delta2_;       // 后轴转向角平滑权重
+    double w_delta_;       // 前轴转向角平滑权重
     double w_term_pos_;     // 终端位置权重
     double w_term_theta_;   // 终端航向权重
-    double w_term_v_;       // 终端速度权重
-    double w_delta_cmd1_;   // 前轴转向角指令权重
-    double w_delta_cmd2_;   // 后轴转向角指令权重
+    double w_ltr_constraint_; // 侧向载荷转移率约束权重
+
 
 
     // NMPC求解器相关
@@ -85,6 +94,8 @@ private:
     casadi::MX X_;          // 状态序列
     casadi::MX U_sparse_;   // 稀疏控制量
     casadi::MX x0_;         // 初始状态参数
+    casadi::MX vx_;         // 速度参数
+    casadi::MX epsilon_;    // 松弛变量
     casadi::MX waypoints_;  // 参考路点参数
     casadi::Function f_func_; // 动力学模型函数
     casadi::Opti opti_;     // NMPC优化器

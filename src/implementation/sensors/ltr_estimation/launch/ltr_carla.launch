@@ -1,0 +1,5 @@
+<launch>
+  <node name="ltr_sensor" pkg="ltr_estimation" type="ltr_sensor" output="screen">
+    <rosparam file="$(find ltr_estimation)/config/ltr_carla.yaml" command="load" />
+  </node>
+</launch>

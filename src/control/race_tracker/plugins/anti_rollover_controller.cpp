@@ -15,69 +15,60 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     ROS_INFO("[AntiRolloverController] 插件专属NodeHandle命名空间: %s", nh_nmpc.getNamespace().c_str());
 
     // 加载核心参数
-    nh_nmpc.param("nx", nx_, 6);
-    nh_nmpc.param("nu", nu_, 2);
+    nh_nmpc.param("nx", nx_, 6); // 状态：[x, y, theta, gamma, ltr, dltr]
+    nh_nmpc.param("nu", nu_, 1); // 输入：[delta]
     nh_nmpc.param("prediction_step", N_, 15);
     nh_nmpc.param("sparse_control_step", Nc_, 4);
-    nh_nmpc.param("front_steer_time_constant", T_d1_, 0.2);
-    nh_nmpc.param("rear_steer_time_constant", T_d2_, 0.2);
     nh_nmpc.param("sampling_time", dt_, 0.1);
-    nh_nmpc.param("wheelbase", L_, 2.8);
+    nh_nmpc.param("tractor_wheelbase", L1_, 2.8);
+    nh_nmpc.param("trailer_wheelbase", L2_, 11.5);
     nh_nmpc.param("gravity", g_, 9.806);
     nh_nmpc.param("max_acceleration", a_max_, 3.0);
     nh_nmpc.param("num_waypoints", n_waypoints_, 30);
-
     // 加载控制量边界
-    nh_nmpc.param("min_front_steer", delta1_min_, -0.4);
-    nh_nmpc.param("max_front_steer", delta1_max_, 0.4);
-    nh_nmpc.param("min_rear_steer", delta2_min_, -0.4);
-    nh_nmpc.param("max_rear_steer", delta2_max_, 0.4);
-
-
+    nh_nmpc.param("steer_limit", delta_limit_, 0.4);
+    // 加载状态量边界
+    nh_nmpc.param("ltr_limit", ltr_limit_, 0.6);
     // 加载代价函数权重
     nh_nmpc.param("weight_position", w_pos_, 5.0);
     nh_nmpc.param("weight_heading", w_theta_, 3.0);
-    nh_nmpc.param("weight_velocity", w_v_, 5.0);
-    nh_nmpc.param("weight_acceleration", w_ax_, 5.0);
-    nh_nmpc.param("weight_front_steer", w_delta1_, 500.0);
-    nh_nmpc.param("weight_front_steer_control", w_delta_cmd1_, 1.0);
-    nh_nmpc.param("weight_rear_steer", w_delta2_, 500.0);
-    nh_nmpc.param("weight_rear_steer_control", w_delta_cmd2_, 1.0);
+    nh_nmpc.param("weight_front_steer", w_delta_, 500.0);
     nh_nmpc.param("weight_terminal_position", w_term_pos_, 10.0);
     nh_nmpc.param("weight_terminal_heading", w_term_theta_, 5.0);
-    nh_nmpc.param("weight_terminal_velocity", w_term_v_, 5.0);
+    nh_nmpc.param("weight_ltr_constraint", w_ltr_constraint_, 10000.0);
+    // 加载动力学参数
+    nh_nmpc.param("a1", a1_, -1.5);  // 示例默认值，需根据实际车型调整
+    nh_nmpc.param("a2", a2_, -1.5); // 示例默认值
+    nh_nmpc.param("b1", b1_, 0.05); // 关键：加载 b1_，设默认值避免随机
 
-
-
+    // 打印验证
+    printf("==========加载动力学参数==========\n");
+    logParamLoad("a1", a1_, -1.5);
+    logParamLoad("a2", a2_, -1.5);
+    logParamLoad("b1", b1_, 0.05);
     // 打印加载的参数
     printf("==========加载核心参数==========\n");
     logParamLoad("nx", nx_, 6);
-    logParamLoad("nu", nu_, 2);
+    logParamLoad("nu", nu_, 1);
     logParamLoad("prediction_step", N_, 15);
     logParamLoad("sparse_control_step", Nc_, 4);
-    logParamLoad("front_steer_time_constant", T_d1_, 0.2);
-    logParamLoad("rear_steer_time_constant", T_d2_, 0.2);
     logParamLoad("sampling_time", dt_, 0.1);
-    logParamLoad("wheelbase", L_, 2.8);
+    logParamLoad("tractor_wheelbase", L1_, 2.8);
+    logParamLoad("trailer_wheelbase", L2_, 11.5);
     logParamLoad("gravity", g_, 9.806);
     logParamLoad("max_acceleration", a_max_, 3.0);
     logParamLoad("num_waypoints", n_waypoints_, 30);
     printf("==========加载控制量边界参数==========\n");
-    logParamLoad("min_front_steer", delta1_min_, -0.4);
-    logParamLoad("max_front_steer", delta1_max_, 0.4);
-    logParamLoad("min_rear_steer", delta2_min_, -0.4);
-    logParamLoad("max_rear_steer", delta2_max_, 0.4);
+    logParamLoad("steer_limit", delta_limit_, 0.4);
+    printf("==========加载状态量边界参数==========\n");
+    logParamLoad("ltr_limit", ltr_limit_, 0.6);
     printf("==========加载权重参数==========\n");
     logParamLoad("weight_position", w_pos_, 5.0);
     logParamLoad("weight_heading", w_theta_, 3.0);
-    logParamLoad("weight_acceleration", w_ax_, 5.0);
-    logParamLoad("weight_front_steer", w_delta1_, 500.0);
-    logParamLoad("weight_front_steer_control", w_delta_cmd1_, 1.0);
-    logParamLoad("weight_rear_steer", w_delta2_, 500.0);
-    logParamLoad("weight_rear_steer_control", w_delta_cmd2_, 1.0);
+    logParamLoad("weight_front_steer", w_delta_, 500.0);
     logParamLoad("weight_terminal_position", w_term_pos_, 10.0);
     logParamLoad("weight_terminal_heading", w_term_theta_, 5.0);
-
+    logParamLoad("weight_ltr_constraint", w_ltr_constraint_, 10000.0);
 
 
     // 初始化稀疏控制量分布
@@ -101,36 +92,41 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     }
 
     // 定义符号变量与动力学模型
-    casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,vx,delta1,delta2]
-    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta1_des, delta2_des]
+    casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,gamma,ltr,dltr]
+    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta]
+    casadi::MX vx_sym = casadi::MX::sym("vx", 1);  // 速度参数 [vx]
+    casadi::MX theta_sym = vx_sym * casadi::MX::tan(U_sym(0)) / L1_;
     
-    // 计算侧向速度vy（双轴转向车辆简化模型）
-    casadi::MX vy = X_sym(3) * (casadi::MX::tan(X_sym(4)) + casadi::MX::tan(X_sym(5))) / 2;
 
     // 动力学方程（连续时间）
+    // x_dot = vx * cos(theta)
+    // y_dot = vx * sin(theta)
+    // theta_dot = vx * tan(delta) / L1
+    // gamma_dot = theta_dot - vx * tan(delta) / L2
+    // ltr_dot = dltr 
+    // dltr_dot = a1*ltr + a2*dltr + b1*vx*theta*gamma
     casadi::MX f_expr = casadi::MX::vertcat({
-        X_sym(3) * casadi::MX::cos(X_sym(2)) - vy * casadi::MX::sin(X_sym(2)),  // x_dot
-        X_sym(3) * casadi::MX::sin(X_sym(2)) + vy * casadi::MX::cos(X_sym(2)),  // y_dot
-        X_sym(3) * (casadi::MX::tan(X_sym(4)) - casadi::MX::tan(X_sym(5))) / L_,  // theta_dot
-        // 纵向加速度模型（驱动/制动效率差异）
-        0,
-        (U_sym(0) - X_sym(4)) / T_d1_,  // delta1_dot
-        (U_sym(1) - X_sym(5)) / T_d2_   // delta2_dot
+        vx_sym * casadi::MX::cos(X_sym(2)),  // x_dot
+        vx_sym * casadi::MX::sin(X_sym(2)),  // y_dot
+        theta_sym,  // theta_dot
+        theta_sym - vx_sym/L2_ * casadi::MX::sin(X_sym(3)), // gamma_dot
+        X_sym(5) ,  // ltr_dot
+        a1_ * X_sym(4) + a2_ * X_sym(5) + b1_*vx_sym* X_sym(2)*X_sym(3)  // dltr_dot
     });
-    f_func_ = casadi::Function("f_dynamics", {X_sym, U_sym}, {f_expr});
+    f_func_ = casadi::Function("f_dynamics", {X_sym, U_sym, vx_sym}, {f_expr});
 
     // RK4离散化（数值积分）
-    auto rk4_integrate = [&](casadi::MX x, casadi::MX u, double dt) {
-        std::vector<casadi::MX> args_k1 = {x, u};
+    auto rk4_integrate = [&](casadi::MX x, casadi::MX u, casadi::MX v, double dt) {
+        std::vector<casadi::MX> args_k1 = {x, u, v};
         casadi::MX k1 = f_func_(args_k1)[0];
 
-        std::vector<casadi::MX> args_k2 = {x + dt/2*k1, u};
+        std::vector<casadi::MX> args_k2 = {x + dt/2*k1, u, v};
         casadi::MX k2 = f_func_(args_k2)[0];
 
-        std::vector<casadi::MX> args_k3 = {x + dt/2*k2, u};
+        std::vector<casadi::MX> args_k3 = {x + dt/2*k2, u, v};
         casadi::MX k3 = f_func_(args_k3)[0];
 
-        std::vector<casadi::MX> args_k4 = {x + dt*k3, u};
+        std::vector<casadi::MX> args_k4 = {x + dt*k3, u, v};
         casadi::MX k4 = f_func_(args_k4)[0];
 
         return x + dt/6 * (k1 + 2*k2 + 2*k3 + k4);
@@ -140,11 +136,13 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     opti_ = casadi::Opti();
     X_ = opti_.variable(nx_, N_+1);      // 状态序列（N+1个点：0→N）
     U_sparse_ = opti_.variable(nu_, Nc_); // 稀疏控制量（Nc个控制量）
+    epsilon_ = opti_.variable(1);        // 松弛变量
     x0_ = opti_.parameter(nx_);         // 初始状态参数
+    vx_ = opti_.parameter(1);          // 初始速度参数
     waypoints_ = opti_.parameter(4, n_waypoints_); // 参考路点参数
 
     // 生成完整控制序列（稀疏控制量扩展到N步）
-    casadi::MX U_full = casadi::MX::zeros(nu_, N_);
+    casadi::MX U_full = casadi::MX::zeros(nu_, N_); 
     int time_step = 0;
     for(int i = 0; i < Nc_; ++i) {
         int end_step = time_step + steps_per_control_[i];
@@ -155,17 +153,21 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
         if(time_step >= N_) break;
     }
 
+
     // 动力学约束（状态递推）
     for(int k = 0; k < N_; ++k) {
-        opti_.subject_to(X_(casadi::Slice(), k+1) == rk4_integrate(X_(casadi::Slice(), k), U_full(casadi::Slice(), k), dt_));
+        opti_.subject_to(X_(casadi::Slice(), k+1) == rk4_integrate(X_(casadi::Slice(), k), U_full(casadi::Slice(), k), vx_, dt_));
     }
 
     // 初始状态约束
     opti_.subject_to(X_(casadi::Slice(), 0) == x0_);
 
     // 控制量边界约束
-    opti_.subject_to(opti_.bounded(delta1_min_, U_sparse_(0, casadi::Slice()), delta1_max_));
-    opti_.subject_to(opti_.bounded(delta2_min_, U_sparse_(1, casadi::Slice()), delta2_max_));
+    opti_.subject_to(opti_.bounded(-delta_limit_, U_sparse_(0, casadi::Slice()), delta_limit_));
+    // 状态量边界软约束
+    opti_.subject_to(opti_.bounded(-ltr_limit_ - epsilon_, X_(4, casadi::Slice()), ltr_limit_ + epsilon_));
+    opti_.subject_to(opti_.bounded(0.0, epsilon_, 1000));
+
 
     // 代价函数（状态跟踪+控制平滑）
     casadi::MX cost = 0;
@@ -185,20 +187,13 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
 
         // 提取最近路点的参考信息
         casadi::MX ref_theta = waypoints_(2, min_idx);  // 参考航向角
-
-
         // 状态跟踪代价
         cost += w_pos_ * dist_sq(min_idx);
         cost += w_theta_ * casadi::MX::sumsqr(X_(2, k) - ref_theta - X_(2, 0));
 
+        // 前轴转向角代价
+        cost += w_delta_ * casadi::MX::sumsqr(U_full(0, k));
 
-        // 控制量平滑代价
-        cost += w_ax_ * casadi::MX::sumsqr(U_full(0, k));
-        // 前轴转向角指令代价
-        cost += w_delta_cmd1_ * casadi::MX::sumsqr(U_full(0, k));
-        cost += w_delta_cmd2_ * casadi::MX::sumsqr(U_full(1, k));
-        cost += w_delta1_ * casadi::MX::sumsqr(X_(4, k));
-        cost += w_delta2_ * casadi::MX::sumsqr(X_(5, k));
     }
 
     // 终端代价
@@ -215,6 +210,8 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     cost += w_term_pos_ * final_dist_sq(final_min_idx);
     cost += w_term_theta_ * casadi::MX::sumsqr(X_(2, N_) - final_ref_theta);
 
+    // 松弛变量代价
+    cost += w_ltr_constraint_* N_ * casadi::MX::sumsqr(epsilon_);
 
     // 最小化总代价
     opti_.minimize(cost);
@@ -262,13 +259,16 @@ void AntiRolloverController::computeControl(
     // 将车辆状态转换为状态向量
     std::vector<double> current_state = vehicleStatusToStateVector(*vehicle_status);
 
+    // 提取当前速度
+    double vx = vehicleStateToVx(*vehicle_status);
+
     // 处理路径生成参考路点
-    casadi::DM waypoints_dm = process_race_path(*path, current_state);
+    casadi::DM waypoints_dm = process_race_path(*path, current_state, vx);
 
     // 求解NMPC
-    std::vector<double> control_output(2); // [delta1_des, delta2_des]
-    if (!solveNMPC(current_state, waypoints_dm, control_output)) {
-        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: control_output = [%f, %f]", getName().c_str(), last_control_output_[0], last_control_output_[1]);
+    std::vector<double> control_output(1); // [delta]
+    if (!solveNMPC(current_state, waypoints_dm, control_output, vx)) {
+        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: delta = %f", getName().c_str(), last_control_output_[0]);
 
         // 如果求解失败，使用上一次的控制量
         if (!last_control_output_.empty()) {
@@ -276,7 +276,7 @@ void AntiRolloverController::computeControl(
         }
         else {
             // 如果没有上一次的控制量，使用默认值
-            control_output = {0.0, 0.0};
+            control_output = {0.0};
         }
 
     } else {
@@ -286,13 +286,12 @@ void AntiRolloverController::computeControl(
 
     // 将求解结果转换为控制消息
     control_msg->lateral.steering_angle = control_output[0];
-    control_msg->lateral.rear_wheel_angle = control_output[1];
     
     // 设置双轴转向模式
-    control_msg->steering_mode = race_msgs::Control::DUAL_STEERING_MODE;
+    control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     
     // 控制模式设置为加速度模式
-    control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
+    control_msg->control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY;
 }
 
 double AntiRolloverController::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
@@ -439,11 +438,10 @@ casadi::DM AntiRolloverController::interpolate_path_segment(const race_msgs::Pat
     return waypoints;
 }
 
-casadi::DM AntiRolloverController::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
+casadi::DM AntiRolloverController::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state, double vx0) {
     double x0 = current_state[0];
     double y0 = current_state[1];
     double yaw0 = current_state[2];
-    double vx0 = current_state[3];
 
     int nearest_idx = find_nearest_path_point(x0, y0, input_path);
     if (nearest_idx == -1) {
@@ -482,7 +480,7 @@ casadi::DM AntiRolloverController::process_race_path(const race_msgs::Path& inpu
 }
 
 bool AntiRolloverController::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
-                              std::vector<double>& control_output) {
+                              std::vector<double>& control_output, double vx0) {
     if (current_state.size() != nx_) {
         ROS_ERROR("[%s] 状态向量维度不匹配: 期望%d, 实际%d", 
                  getName().c_str(), nx_, static_cast<int>(current_state.size()));
@@ -493,6 +491,7 @@ bool AntiRolloverController::solveNMPC(const std::vector<double>& current_state,
         // 设置参数
         opti_.set_value(x0_, current_state);
         opti_.set_value(waypoints_, waypoints);
+        opti_.set_value(vx_, vx0);
 
         // 热启动
         if (has_prev_sol_) {
@@ -508,8 +507,15 @@ bool AntiRolloverController::solveNMPC(const std::vector<double>& current_state,
         // 提取第一个控制量
         casadi::DM u0 = sol_curr.value(U_sparse_(casadi::Slice(), 0));
         control_output[0] = static_cast<double>(u0(0));  // 前轴转向角
-        control_output[1] = static_cast<double>(u0(1));  // 后轴转向角
 
+        // 提取松弛变量
+        casadi::DM slack = sol_curr.value(epsilon_);
+        double rollover_slack = static_cast<double>(slack(0));
+        if (rollover_slack > 0.01) {
+            ROS_WARN("[%s] 检测到 Rollover 风险，松弛变量值: %.4f", getName().c_str(), rollover_slack);
+        } else {
+            ROS_INFO("[%s] 暂无 Rollover 风险，松弛变量值: %.4f", getName().c_str(), rollover_slack);
+        }
         return true;
     } catch (std::exception& e) {
         ROS_WARN("[%s] NMPC求解失败: %s", getName().c_str(), e.what());
@@ -518,17 +524,30 @@ bool AntiRolloverController::solveNMPC(const std::vector<double>& current_state,
 }
 
 std::vector<double> AntiRolloverController::vehicleStatusToStateVector(const race_msgs::VehicleStatus& status) {
-    // 状态向量: [x, y, theta, vx, delta1, delta2]
+    // 状态向量: [x, y, theta, gamma, ltr, dltr]
     std::vector<double> state(nx_, 0.0);
     
     state[0] = status.pose.position.x;               // x
     state[1] = status.pose.position.y;               // y
     state[2] = status.euler.yaw;                     // theta (偏航角)
-    state[3] = status.vel.linear.x;                  // vx (纵向速度)
-    state[4] = status.lateral.steering_angle;        // delta1 (前轴转向角)
-    state[5] = status.lateral.rear_wheel_angle;      // delta2 (后轴转向角)
+    double gamma = status.euler.yaw - status.trailer.euler.yaw;
+    if (gamma > M_PI){
+        gamma -= 2 * M_PI;
+    } else if (gamma < -M_PI){
+        gamma += 2 * M_PI;
+    }
+    state[3] = gamma; // gamma (铰接角)
+    state[4] = status.ltr_state.ltr;                // ltr
+    state[5] = status.ltr_state.ltr_rate;           // dltr
+    // 打印状态向量
+    printf("状态向量: [x:%.4f, y:%.4f, theta:%.4f, gamma:%.4f, ltr:%.4f, dltr:%.4f]\n", 
+           state[0], state[1], state[2], state[3], state[4], state[5]);
     
     return state;
+}
+
+double AntiRolloverController::vehicleStateToVx(const race_msgs::VehicleStatus& status) {
+    return status.vel.linear.x;
 }
 
 } // namespace race_tracker
