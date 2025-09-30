@@ -29,7 +29,7 @@ liorf_localization:
   downsampleRate: 1                           # default: 1. Downsample your data if too many points(line). i.e., 16 = 64 / 4, 16 = 16 / 1
   point_filter_num: 8                         # default: 3. Downsample your data if too many points(point). e.g., 16: 1, 32: 5, 64: 8
   lidarMinRange: 2.0                          # default: 1.0, minimum lidar range to be used
-  lidarMaxRange: 200.0                       # default: 1000.0, maximum lidar range to be used
+  lidarMaxRange: 125.0                       # default: 1000.0, maximum lidar range to be used
 
   # IMU Settings
   imuType: 1                                  # 0: 6-axis  1: 9-axis
@@ -87,7 +87,8 @@ liorf_localization:
   surroundingKeyframeDensity: 1.0               # meters, downsample surrounding keyframe poses   
   surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
   surroundingKeyframeMapLeafSize: 0.5           # downsample local map point cloud
-
+  ValidCubeSize: 230.0                         # meters, valid cube size for map research
+  
   # Loop closure
   loopClosureEnableFlag: true
   loopClosureFrequency: 1.0                     # Hz, regulate loop closure constraint add frequency

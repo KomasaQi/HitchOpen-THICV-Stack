@@ -12,7 +12,8 @@
 
 
 
-
+    <node pkg="tf2_ros" type="static_transform_publisher" name="lidar_link_to_ego_vehicle" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /lidar_link /ego_vehicle"/>
 
 
 </launch>

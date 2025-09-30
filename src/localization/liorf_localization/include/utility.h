@@ -32,12 +32,18 @@
 #include <pcl/filters/crop_box.h> 
 #include <pcl_conversions/pcl_conversions.h>
 
+// 添加八叉树支持
+#include <pcl/octree/octree_search.h>
+
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/transform_listener.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
  
 #include <opencv2/opencv.hpp>
+
+// 添加chrono支持用于时间测量
+#include <chrono>
  
 #include <vector>
 #include <cmath>
@@ -92,9 +98,12 @@ public:
     float gpsCovThreshold;
     float poseCovThreshold;
 
+    vector<double> gpsBias; //
+
     // Save pcd
     bool savePCD;
     string savePCDDirectory;
+    string mapname;
 
     // Lidar Sensor Configuration
     SensorType sensor;
@@ -104,6 +113,7 @@ public:
     int point_filter_num;
     float lidarMinRange;
     float lidarMaxRange;
+    int ValidCubeSize;
 
     // IMU
     int imuType;
@@ -173,11 +183,14 @@ public:
         nh.param<float>("liorf_localization/gpsCovThreshold", gpsCovThreshold, 2.0);
         nh.param<float>("liorf_localization/poseCovThreshold", poseCovThreshold, 25.0);
 
+        nh.param<vector<double>>("liorf_localization/gpsBias", gpsBias, vector<double>(3, 0.0));
+
         nh.param<bool>("liorf_localization/savePCD", savePCD, false);
-        nh.param<std::string>("liorf_localization/savePCDDirectory", savePCDDirectory, "/Downloads/LOAM/");
+        nh.param<std::string>("liorf_localization/savePCDDirectory", savePCDDirectory, "/tmp/");
+        nh.param<std::string>("liorf_localization/mapname", mapname, "GlobalMap.pcd");
 
         std::string sensorStr;
-        nh.param<std::string>("liorf_localization/sensor", sensorStr, "");
+        nh.param<std::string>("liorf_localization/sensor", sensorStr, "velodyne");
         if (sensorStr == "velodyne")
         {
             sensor = SensorType::VELODYNE;
@@ -207,6 +220,7 @@ public:
         nh.param<int>("liorf_localization/point_filter_num", point_filter_num, 3);
         nh.param<float>("liorf_localization/lidarMinRange", lidarMinRange, 1.0);
         nh.param<float>("liorf_localization/lidarMaxRange", lidarMaxRange, 1000.0);
+        nh.param<int>("liorf_localization/ValidCubeSize", ValidCubeSize, 200);
 
         nh.param<int>("liorf_localization/imuType", imuType, 0);
         nh.param<float>("liorf_localization/imuRate", imuRate, 500.0);
@@ -225,7 +239,7 @@ public:
         extQRPY = Eigen::Quaterniond(extRPY).inverse();
 
         nh.param<float>("liorf_localization/mappingSurfLeafSize", mappingSurfLeafSize, 0.2);
-        nh.param<float>("liorf_localization/surroundingKeyframeMapLeafSize", surroundingKeyframeMapLeafSize, 0.2);
+        nh.param<float>("liorf_localization/surroundingKeyframeMapLeafSize", surroundingKeyframeMapLeafSize, 0.4);
 
         nh.param<float>("liorf_localization/z_tollerance", z_tollerance, FLT_MAX);
         nh.param<float>("liorf_localization/rotation_tollerance", rotation_tollerance, FLT_MAX);
@@ -250,6 +264,8 @@ public:
         nh.param<float>("liorf_localization/globalMapVisualizationSearchRadius", globalMapVisualizationSearchRadius, 1e3);
         nh.param<float>("liorf_localization/globalMapVisualizationPoseDensity", globalMapVisualizationPoseDensity, 10.0);
         nh.param<float>("liorf_localization/globalMapVisualizationLeafSize", globalMapVisualizationLeafSize, 1.0);
+
+        ROS_INFO("GPS Bias loaded: [%.8f, %.8f, %.3f]", gpsBias[0], gpsBias[1], gpsBias[2]);
 
         usleep(100);
     }

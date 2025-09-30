@@ -14,6 +14,14 @@
         <param name="topic/flag" type="string" value="/race/flag" />
         <param name="ego_frame_id" type="string" value="ego_vehicle" />
         <param name="dual_steer_enable" type="bool" value="true" />
+        <!-- 横向误差和航向误差开始降速的阈值 -->
+        <param name="lateral_error_threshold" type="double" value="0.6" />
+        <param name="heading_error_threshold" type="double" value="0.3" />
+        <!-- 在各种绿色旗帜下因航向误差或横向误差而降低到的最小目标速度（km/h） -->
+        <param name="default_min_target_speed" type="double" value="10.0" />
+        <!-- 横向误差和航向误差超出阈值时，目标速度的降低比例 -->
+        <param name="lateral_error_decrease_ratio" type="double" value="0.8" />
+        <param name="heading_error_decrease_ratio" type="double" value="1.0" /> -->
         
 
         <!-- 2. 仅使用NMPC插件 -->

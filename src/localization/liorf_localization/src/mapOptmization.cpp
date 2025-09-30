@@ -14,9 +14,12 @@
 #include <gtsam/nonlinear/Marginals.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/inference/Symbol.h>
-
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include <sensor_msgs/NavSatFix.h>  //
+// #include <geodesy/utm.h>            //
+
+#include <pcl/octree/octree_search.h>
 
 using namespace gtsam;
 
@@ -24,6 +27,7 @@ using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
 using symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::G; // GPS pose
+
 /*
     * A point cloud type that has 6D pose info ([x,y,z,roll,pitch,yaw] intensity is time stamp)
     */
@@ -49,6 +53,41 @@ typedef PointXYZIRPYT  PointTypePose;
 
 class mapOptimization : public ParamServer
 {
+private:
+    bool initial_whole_map_published = false;
+
+    ros::Subscriber subLocalMap;
+
+void RelativeGps2XYZ(double relative_lat, double relative_lon, double relative_alt, 
+                      double& x, double& y, double& z)
+{
+    // 地球半径（米）
+    const double EARTH_RADIUS = 6378137.0; 
+    
+    // 参考纬度（用于计算经度的米制转换，使用gpsBias中的纬度）
+    double ref_lat_rad = gpsBias[0] * M_PI / 180.0;
+    
+    // 将相对经纬度差转换为米制坐标
+    // 纬度差转Y坐标（北向为正）
+    y = relative_lat * M_PI / 180.0 * EARTH_RADIUS;
+    
+    // 经度差转X坐标（东向为正，考虑纬度修正）
+    x = relative_lon * M_PI / 180.0 * EARTH_RADIUS * cos(ref_lat_rad);
+    
+    // 高度差直接使用
+    z = relative_alt;
+    
+    // 修改调试输出，显示更多信息
+    // ROS_INFO("GPS conversion: lat_diff=%.8f(%.3fm), lon_diff=%.8f(%.3fm), alt_diff=%.3f -> x=%.3f, y=%.3f, z=%.3f", 
+            //  relative_lat, y, relative_lon, x, relative_alt, x, y, z);
+    
+    // 检查异常值
+    if (fabs(x) > 100000 || fabs(y) > 100000) {
+        ROS_WARN("GPS conversion result seems abnormal: x=%.3f, y=%.3f", x, y);
+        ROS_INFO("gpsBias: [%.8f, %.8f, %.3f]", gpsBias[0], gpsBias[1], gpsBias[2]);
+        ROS_INFO("ref_lat_rad=%.8f, cos(ref_lat_rad)=%.8f", ref_lat_rad, cos(ref_lat_rad));
+    }
+}
 
 public:
 
@@ -151,6 +190,13 @@ public:
     bool system_initialized = false;
     float initialize_pose[6];
 
+    // 用于whole map管理
+    pcl::PointCloud<PointType>::Ptr whole_map;
+    pcl::octree::OctreePointCloudSearch<PointType>::Ptr octree_whole_map;
+    double last_global_map_update_time;
+    const double global_map_update_interval = 2.0; // 2秒更新一次
+    const double search_cube_size = ValidCubeSize; // 立方体边长
+
     mapOptimization()
     {
         ISAM2Params parameters;
@@ -165,12 +211,15 @@ public:
         pubPath                     = nh.advertise<nav_msgs::Path>("liorf_localization/mapping/path", 1);
 
         subCloud = nh.subscribe<liorf_localization::cloud_info>("liorf_localization/deskew/cloud_info", 1, &mapOptimization::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
-        subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        // subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        subGPS   = nh.subscribe<sensor_msgs::NavSatFix> (gpsTopic, 200, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
         subLoop  = nh.subscribe<std_msgs::Float64MultiArray>("lio_loop/loop_closure_detection", 1, &mapOptimization::loopInfoHandler, this, ros::TransportHints().tcpNoDelay());
+
+        subLocalMap = nh.subscribe<sensor_msgs::PointCloud2>("liorf_localization/map_research/local_map", 1, &mapOptimization::localMapHandler, this, ros::TransportHints().tcpNoDelay());
 
         // srvSaveMap  = nh.advertiseService("liorf_localization/save_map", &mapOptimization::saveMapService, this);
 
-        pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mapping/icp_loop_closure_history_cloud", 1);
+        pubHistoryKeyFrames   = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mappinitialposeing/icp_loop_closure_history_cloud", 1);
         pubIcpKeyFrames       = nh.advertise<sensor_msgs::PointCloud2>("liorf_localization/mapping/icp_loop_closure_corrected_cloud", 1);
         pubLoopConstraintEdge = nh.advertise<visualization_msgs::MarkerArray>("/liorf_localization/mapping/loop_closure_constraints", 1);
 
@@ -189,7 +238,6 @@ public:
         downSizeFilterSurroundingKeyPoses.setLeafSize(surroundingKeyframeDensity, surroundingKeyframeDensity, surroundingKeyframeDensity); // for surrounding key poses of scan-to-map optimization
 
         allocateMemory();
-        loadGlobalMap();
     }
 
     void allocateMemory()
@@ -224,27 +272,62 @@ public:
         }
 
         matP = cv::Mat(6, 6, CV_32F, cv::Scalar::all(0));
+
+        // 初始化whole map相关变量
+        whole_map.reset(new pcl::PointCloud<PointType>());
+        octree_whole_map.reset(new pcl::octree::OctreePointCloudSearch<PointType>(1.0)); // 1m分辨率
+        last_global_map_update_time = 0.0;
     }
 
-    // add by yjz_lucky_boy
+    // 接收局部地图的回调函数
+    void localMapHandler(const sensor_msgs::PointCloud2::ConstPtr& mapMsg)
+    {
+        pcl::PointCloud<PointType>::Ptr new_local_map(new pcl::PointCloud<PointType>());
+        pcl::fromROSMsg(*mapMsg, *new_local_map);
+        
+        if (new_local_map->size() < 1000) {
+            ROS_WARN("Received local map too small: %zu points", new_local_map->size());
+            return;
+        }
+        
+        // 更新全局地图
+        *laserCloudSurfFromMapDS = *new_local_map;
+        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+        
+        // 更新KD树
+        kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+        
+        // 标记有全局地图可用
+        has_global_map = true;
+        
+        // 发布全局地图用于可视化
+        publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);
+        
+        ROS_DEBUG("Updated local map with %zu points", laserCloudSurfFromMapDS->size());
+    }
+
     void loadGlobalMap()
     {
-        std::string global_map = std::getenv("HOME") + savePCDDirectory;
-        pcl::io::loadPCDFile<PointType>(global_map + "GlobalMap.pcd", *laserCloudSurfFromMap);
-        downSizeFilterLocalMapSurf.setInputCloud(laserCloudSurfFromMap);
-        downSizeFilterLocalMapSurf.filter(*laserCloudSurfFromMapDS);
-        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
-        std::cout << "global map size: " << laserCloudSurfFromMapDSNum << std::endl;
+        // 如果没有whole map，尝试加载原来的GlobalMap.pcd
+        if (!has_global_map)
+        {
+            std::string global_map = std::getenv("HOME") + savePCDDirectory;
+            if (pcl::io::loadPCDFile<PointType>(global_map + "GlobalMap.pcd", *laserCloudSurfFromMap) != -1)
+            {
+                downSizeFilterLocalMapSurf.setInputCloud(laserCloudSurfFromMap);
+                downSizeFilterLocalMapSurf.filter(*laserCloudSurfFromMapDS);
+                laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+                std::cout << "fallback global map size: " << laserCloudSurfFromMapDSNum << std::endl;
 
-        if (laserCloudSurfFromMapDSNum < 1000)
-          return;
-        
-        has_global_map = true;
-
-        kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
-        sleep(3);
-        publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);   
+                if (laserCloudSurfFromMapDSNum >= 1000)
+                {
+                    has_global_map = true;
+                    kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+                    sleep(3);
+                    publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);   
+                }
+            }
+        }
     }
 
     // add by yjz_lucky_boy
@@ -268,7 +351,17 @@ public:
         std::cout << "manual initialize pose: \n" << initialize_pose[3] << "\n" << initialize_pose[4] << "\n" << initialize_pose[5] << "\n" 
                   << initialize_pose[0] << "\n" << initialize_pose[1] << "\n" << initialize_pose[2] << std::endl;
 
+        // 设置初始位置到transformTobeMapped，用于提取初始地图
+        transformTobeMapped[0] = roll;
+        transformTobeMapped[1] = pitch;
+        transformTobeMapped[2] = yaw;
+        transformTobeMapped[3] = msgIn->pose.pose.position.x;
+        transformTobeMapped[4] = msgIn->pose.pose.position.y;
+        transformTobeMapped[5] = msgIn->pose.pose.position.z;
+
         has_initialize_pose = true;
+
+        ROS_INFO("Initial pose set, waiting for local map from mapResearch node");
     }
 
     void laserCloudInfoHandler(const liorf_localization::cloud_infoConstPtr& msgIn)
@@ -313,7 +406,10 @@ public:
     bool systemInitialize()
     {
         if (!has_global_map)
-          return false;
+        {
+            ROS_WARN("Waiting for local map from mapResearch node...");
+            return false;
+        }
 
         if(!has_initialize_pose)
         {
@@ -333,6 +429,7 @@ public:
         pcl::PointCloud<PointType>::Ptr out_cloud(new pcl::PointCloud<PointType>());
         pcl::PointCloud<PointType>::Ptr result(new pcl::PointCloud<PointType>());
         pcl::transformPointCloud(*laserCloudSurfLast, *out_cloud, initialize_affine);
+        
         // Align clouds
         icp.setInputSource(out_cloud);
         icp.setInputTarget(laserCloudSurfFromMapDS);
@@ -360,6 +457,14 @@ public:
         {
             ROS_INFO("initialize pose sucessful");
             system_initialized = true;
+            
+            // 系统初始化成功后发布一次全局地图
+            if (laserCloudSurfFromMapDSNum > 1000)
+            {
+                publishCloud(pubGlobalMap, laserCloudSurfFromMapDS, ros::Time::now(), mapFrame);
+                ROS_INFO("Published initial global map with %d points", laserCloudSurfFromMapDSNum);
+            }
+            
             return true;
         } 
         else
@@ -370,10 +475,98 @@ public:
             return false;
         }
     }
+    
+    // void gpsHandler(const nav_msgs::Odometry::ConstPtr& gpsMsg)
+    // void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
+    // {
+    //     gpsQueue.push_back(*gpsMsg);
+    // }
 
-    void gpsHandler(const nav_msgs::Odometry::ConstPtr& gpsMsg)
+    void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
     {
-        gpsQueue.push_back(*gpsMsg);
+        // 检查GPS状态
+        if (gpsMsg->status.status < sensor_msgs::NavSatStatus::STATUS_FIX)
+        {
+            ROS_DEBUG("GPS fix not available, status: %d", gpsMsg->status.status);
+            return;
+        }
+        
+        // 检查GPS坐标是否有效
+        if (std::isnan(gpsMsg->latitude) || std::isnan(gpsMsg->longitude) || std::isnan(gpsMsg->altitude))
+        {
+            ROS_WARN("GPS coordinates contain NaN values");
+            return;
+        }
+        
+        // 检查GPS坐标是否为零
+        if (fabs(gpsMsg->latitude) < 1e-6 && fabs(gpsMsg->longitude) < 1e-6)
+        {
+            ROS_DEBUG("GPS coordinates are zero or invalid");
+            return;
+        }
+        
+        // 使用gpsBias进行平移，转换为相对位置
+        double relative_lat = gpsMsg->latitude - gpsBias[0];  // 纬度差
+        double relative_lon = gpsMsg->longitude - gpsBias[1]; // 经度差  
+        double relative_alt = gpsMsg->altitude - gpsBias[2];  // 高度差
+        
+        // 将相对GPS坐标转换为绝对XYZ坐标（米制）
+        double gps_x, gps_y, gps_z;
+        RelativeGps2XYZ(relative_lat, relative_lon, relative_alt, gps_x, gps_y, gps_z);
+
+        // 创建Odometry消息
+        nav_msgs::Odometry gpsOdom;
+        gpsOdom.header = gpsMsg->header;
+        gpsOdom.header.frame_id = "map";  // 设置为地图坐标系
+        
+        // 使用转换后的绝对坐标
+        gpsOdom.pose.pose.position.x = gps_x;
+        gpsOdom.pose.pose.position.y = gps_y;
+        gpsOdom.pose.pose.position.z = gps_z;
+        
+        // 设置方向为单位四元数
+        gpsOdom.pose.pose.orientation.w = 1.0;
+        gpsOdom.pose.pose.orientation.x = 0.0;
+        gpsOdom.pose.pose.orientation.y = 0.0;
+        gpsOdom.pose.pose.orientation.z = 0.0;
+        
+        // 处理协方差
+        if (gpsMsg->position_covariance_type != sensor_msgs::NavSatFix::COVARIANCE_TYPE_UNKNOWN && 
+            gpsMsg->position_covariance_type != sensor_msgs::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN)
+        {
+            // 如果有协方差信息，复制到Odometry消息中
+            for (int i = 0; i < 9; i++) {
+                gpsOdom.pose.covariance[i] = gpsMsg->position_covariance[i];
+            }
+        }
+        else 
+        {
+            // 设置默认协方差值
+            gpsOdom.pose.covariance[0] = 1.0;   // x方向协方差
+            gpsOdom.pose.covariance[7] = 1.0;   // y方向协方差  
+            gpsOdom.pose.covariance[14] = 2.0;  // z方向协方差（高度通常精度较低）
+            
+            // 其他元素保持为0
+            for (int i = 0; i < 36; i++) {
+                if (i != 0 && i != 7 && i != 14) {
+                    gpsOdom.pose.covariance[i] = 0.0;
+                }
+            }
+        }
+        
+        // 设置速度信息为0（NavSatFix不包含速度信息）
+        gpsOdom.twist.twist.linear.x = 0.0;
+        gpsOdom.twist.twist.linear.y = 0.0;
+        gpsOdom.twist.twist.linear.z = 0.0;
+        gpsOdom.twist.twist.angular.x = 0.0;
+        gpsOdom.twist.twist.angular.y = 0.0;
+        gpsOdom.twist.twist.angular.z = 0.0;
+        
+        // 将转换后的消息添加到队列
+        gpsQueue.push_back(gpsOdom);
+        
+        ROS_DEBUG("GPS converted: relative(%.8f,%.8f,%.3f) -> xyz(%.3f,%.3f,%.3f)", 
+                relative_lat, relative_lon, relative_alt, gps_x, gps_y, gps_z);
     }
 
     void pointAssociateToMap(PointType const * const pi, PointType * const po)
@@ -1607,6 +1800,8 @@ public:
         laserOdometryROS.pose.pose.position.x = transformTobeMapped[3];
         laserOdometryROS.pose.pose.position.y = transformTobeMapped[4];
         laserOdometryROS.pose.pose.position.z = transformTobeMapped[5];
+        // ROS_INFO("Position x: %f, y: %f, z: %f", 
+        //     transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);    ///
         laserOdometryROS.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
         pubLaserOdometryGlobal.publish(laserOdometryROS);
         
@@ -1614,9 +1809,8 @@ public:
         static tf::TransformBroadcaster br;
         tf::Transform t_odom_to_lidar = tf::Transform(tf::createQuaternionFromRPY(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]),
                                                       tf::Vector3(transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]));
-        tf::StampedTransform trans_odom_to_lidar = tf::StampedTransform(t_odom_to_lidar, timeLaserInfoStamp, odometryFrame, "ego_vehicle");
+        tf::StampedTransform trans_odom_to_lidar = tf::StampedTransform(t_odom_to_lidar, timeLaserInfoStamp, odometryFrame, "lidar_link");
         br.sendTransform(trans_odom_to_lidar);
-
 
         // Publish odometry for ROS (incremental)
         static bool lastIncreOdomPubFlag = false;
@@ -1703,7 +1897,8 @@ public:
         }
         // publish SLAM infomation for 3rd-party usage
         static int lastSLAMInfoPubSize = -1;
-        if (pubSLAMInfo.getNumSubscribers() != 0)
+        // if (pubSLAMInfo.getNumSubscribers() != 0)
+        if (lastSLAMInfoPubSize != static_cast<int>(cloudKeyPoses6D->size()))
         {
             if (lastSLAMInfoPubSize != cloudKeyPoses6D->size())
             {

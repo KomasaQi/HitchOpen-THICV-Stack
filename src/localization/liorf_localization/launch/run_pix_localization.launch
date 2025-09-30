@@ -11,6 +11,10 @@
     <include file="$(find liorf_localization)/launch/include/module_pix_rviz.launch" />
 
 
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ego_vehicle_to_gps_link_tf" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /ego_vehicle /gps_link"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="lidar_link_to_ego_vehicle" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /lidar_link /ego_vehicle"/>
 
 
 
