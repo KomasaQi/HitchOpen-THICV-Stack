@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(liorf_localization)
 
 set(CMAKE_BUILD_TYPE "Release")
-# set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
 
@@ -21,10 +21,7 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   message_generation
   visualization_msgs
-  tf2_ros
-  tf2_geometry_msgs
 )
-
 
 find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED QUIET)
@@ -55,6 +52,7 @@ generate_messages(
 catkin_package(
   INCLUDE_DIRS include
   DEPENDS PCL GTSAM
+  # DEPENDS PCL
 
   CATKIN_DEPENDS
   std_msgs
@@ -103,3 +101,7 @@ target_link_libraries(${PROJECT_NAME}_mapOptmization libCommonLib.so Boost::time
 # IMU Preintegration
 add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
 target_link_libraries(${PROJECT_NAME}_imuPreintegration libCommonLib.so Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
+
+# Map Research
+add_executable(${PROJECT_NAME}_mapResearch src/mapResearch.cpp)
+target_link_libraries(${PROJECT_NAME}_mapResearch ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})

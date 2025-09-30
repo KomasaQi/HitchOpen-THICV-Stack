@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<robot name="lio" xmlns:xacro="http://KomasaQi.github.io/">
+  <xacro:property name="PI" value="3.1415926535897931" />
+
+  <!-- Root link for the ego vehicle -->
+  <link name="base_link"></link>
+
+
+  <!-- Sensor: lidar -->
+  <link name="lidar_top"></link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="lidar_top" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+  <!-- Sensor: gnss -->
+  <link name="gps_link"></link>
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="gps_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: gnss -->
+  <link name="ego_vehicle/gps"></link>
+  <joint name="gnss_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="ego_vehicle/gps" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: imu -->
+  <link name="ego_vehicle/imu"></link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="ego_vehicle/imu" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- Sensor: imu -->
+  <link name="imu_link"></link>
+  <joint name="imu_pix_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="imu_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+
+
+
+
+
+
+</robot>

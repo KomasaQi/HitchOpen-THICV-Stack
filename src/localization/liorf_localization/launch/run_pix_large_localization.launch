@@ -1,0 +1,36 @@
+<launch>
+
+    <arg name="project" default="liorf_localization"/>
+    <!-- Parameters -->
+    <rosparam file="$(find liorf_localization)/config/localization_pix_large.yaml" command="load" /> 
+
+    <!--- 启动GPS转换监听器 -->
+    <node pkg="liorf_localization" name="gps_converter_node" type="gps_converter_node.py" output="screen"/>
+
+
+
+    <!--- LOAM -->
+    <include file="$(find liorf_localization)/launch/include/module_loam_pix.launch" />
+
+    <!--- Navsat Transform-->
+    <include file="$(find liorf_localization)/launch/include/module_navsat_pix.launch" />  
+
+    <!--- Run Rviz-->
+    <include file="$(find liorf_localization)/launch/include/module_pix_rviz_large.launch" /> 
+
+    <!-- Robot State Publisher -->
+    <!-- <include file="$(find liorf_localization)/launch/include/module_robot_state_publisher_pix.launch" />  -->
+
+
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ego_vehicle_to_gps_link_tf" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /ego_vehicle /gps_link"/>
+
+
+    <!-- 下面可以根据具体tf树的情况来决定是否加上 -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ego_vehicle_to_imu_link_tf" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /ego_vehicle /imu_link"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="lidar_link_to_ego_vehicle" 
+          args="0.0 0.0 0.0 0.0 0.0 0.0 /lidar_link /ego_vehicle"/>
+
+
+</launch>

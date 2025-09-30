@@ -1,0 +1,18 @@
+<launch>
+
+    <arg name="project" default="liorf_localization"/>
+    <!-- Parameters -->
+    <rosparam file="$(find liorf_localization)/config/localization_pix_garage.yaml" command="load" />
+
+    <!--- LOAM -->
+    <include file="$(find liorf_localization)/launch/include/module_loam_pix.launch" />
+
+    <!--- Run Rviz-->
+    <include file="$(find liorf_localization)/launch/include/module_pix_garage_rviz.launch" />
+
+
+
+
+
+
+</launch>

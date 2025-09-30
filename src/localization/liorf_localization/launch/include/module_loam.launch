@@ -7,5 +7,7 @@
     <node pkg="$(arg project)" type="$(arg project)_imuPreintegration"   name="$(arg project)_imuPreintegration"    output="screen" 	respawn="true"/>
     <node pkg="$(arg project)" type="$(arg project)_imageProjection"     name="$(arg project)_imageProjection"      output="screen"     respawn="true"/>
     <node pkg="$(arg project)" type="$(arg project)_mapOptmization"      name="$(arg project)_mapOptmization"       output="screen"     respawn="true"/>
-    
+    <!--- Map Research Node -->
+    <node pkg="$(arg project)" type="$(arg project)_mapResearch" name="$(arg project)_mapResearch" output="screen"/>
+
 </launch>

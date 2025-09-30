@@ -10,9 +10,4 @@
     <!--- Run Rviz-->
     <include file="$(find liorf_localization)/launch/include/module_cicv_rviz.launch" />
 
-    <!--- Navsat Transform-->
-    <include file="$(find liorf_localization)/launch/include/module_navsat.launch" />
-
-    <!-- Robot State Publisher -->
-    <include file="$(find lio_sam)/launch/include/cicv_robot_state_publisher.launch" />
 </launch>
