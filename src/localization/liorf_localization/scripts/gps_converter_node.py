@@ -15,8 +15,8 @@ class GPSBiaserNode:
         self.lock = Lock()  # 线程安全锁，避免数据竞争
 
         # -------------------------- 1. 可配置参数（通过ROS参数服务器设置） --------------------------
-        self.total_lidar_frames = rospy.get_param('~total_lidar_frames', 50)  # 需收集的雷达帧总数
-        self.avg_lidar_frames = rospy.get_param('~avg_lidar_frames', 15)      # 取平均的最后帧数
+        self.total_lidar_frames = rospy.get_param('~total_lidar_frames', 500)  # 需收集的雷达帧总数
+        self.avg_lidar_frames = rospy.get_param('~avg_lidar_frames', 100)      # 取平均的最后帧数
         self.radar_odom_topic = rospy.get_param('~radar_odom_topic', '/liorf_localization/mapping/odometry')  # 雷达定位话题
         self.gps_odom_topic = rospy.get_param('~gps_odom_topic', '/odometry/gps')  # 原始GPS话题
         self.biased_gps_topic = rospy.get_param('~biased_gps_topic', '/odometry/gps_biased')  # 偏移后GPS话题
