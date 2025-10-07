@@ -66,7 +66,7 @@ public:
             nh.getParam("liorf_localization/ValidCubeSize", search_cube_size);
         }
         
-        search_height_size = 50.0; // 默认300米
+        search_height_size = 50.0; // 默认50米
         if (nh.hasParam("liorf_localization/ValidCubeHeight")) {
             nh.getParam("liorf_localization/ValidCubeHeight", search_height_size);
         }
