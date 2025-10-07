@@ -1,5 +1,5 @@
 pid_controller:
-  kp: 0.5
+  kp: 0.3
   ki: 0.05
   kd: 0.1
   max_throttle: 1.0

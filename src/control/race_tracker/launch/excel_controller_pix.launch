@@ -21,7 +21,7 @@
         <param name="default_min_target_speed" type="double" value="10.0" />
         <!-- 横向误差和航向误差超出阈值时，目标速度的降低比例 -->
         <param name="lateral_error_decrease_ratio" type="double" value="0.8" />
-        <param name="heading_error_decrease_ratio" type="double" value="1.0" /> -->
+        <param name="heading_error_decrease_ratio" type="double" value="1.0" /> 
         
 
         <!-- 2. 仅使用NMPC插件 -->

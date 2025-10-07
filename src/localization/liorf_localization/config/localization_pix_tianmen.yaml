@@ -85,9 +85,10 @@ liorf_localization:
   surroundingkeyframeAddingDistThreshold: 1.0   # meters, regulate keyframe adding threshold
   surroundingkeyframeAddingAngleThreshold: 0.2  # radians, regulate keyframe adding threshold
   surroundingKeyframeDensity: 1.0               # meters, downsample surrounding keyframe poses   
-  surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
-  surroundingKeyframeMapLeafSize: 0.5           # downsample local map point cloud
-  ValidCubeSize: 180.0                         # meters, valid cube size for map research
+  surroundingKeyframeSearchRadius: 70.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
+  surroundingKeyframeMapLeafSize: 0.3           # downsample local map point cloud
+  ValidCubeSize: 200.0                         # meters, valid cube size for map research
+  ValidCubeHeight: 50.0                        # meters, valid cube height for map research
 
   # Loop closure
   loopClosureEnableFlag: true

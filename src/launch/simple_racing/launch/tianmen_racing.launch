@@ -1,0 +1,16 @@
+<launch> 
+
+
+    <include file="$(find automotive)/launch/pix/pix_driver.launch" />
+
+    <include file="$(find gnss_converter)/launch/gnss_converter.launch" />
+
+ 
+    <include file="$(find liorf_localization)/launch/run_pix_tianmen_localization.launch" />
+
+    <!-- 启动机器人显示 -->
+    <include file="$(find pix_model)/launch/pix_model.launch" />
+    <include file="$(find pix_race_bridge)/launch/pix_race_bridge.launch" />
+    <!-- 启动全局规划器 -->
+    <include file="$(find race_global_static_planner)/launch/race_global_pix_tianmen_down.launch" />
+</launch>

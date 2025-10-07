@@ -63,6 +63,7 @@ private:
         // 横向误差和航向误差超出阈值时，目标速度的降低比例
         nh_.param("lateral_error_decrease_ratio", lateral_error_decrease_ratio_, 0.8);
         nh_.param("heading_error_decrease_ratio", heading_error_decrease_ratio_, 1.0);
+        nh_.param("constant_front_steering_bias", constant_front_steering_bias_, 0.01);
         
         // 标志超时时间（s），默认1秒
         nh_.param("flag_timeout", flag_timeout_, 1.0);
@@ -352,6 +353,9 @@ private:
 
         // 5. 设置控制指令时间戳并发布
         control_msg_.header.stamp = current_time;
+
+        // 补偿因为前轮撞歪（向右侧）带来的偏差
+        control_msg_.lateral.steering_angle = control_msg_.lateral.steering_angle + constant_front_steering_bias_;
         control_pub_.publish(control_msg_);
     }
 
@@ -421,6 +425,7 @@ private:
     // 横向误差和航向误差超出阈值时，目标速度的降低比例
     double lateral_error_decrease_ratio_;
     double heading_error_decrease_ratio_;
+    double constant_front_steering_bias_;
 
 
 

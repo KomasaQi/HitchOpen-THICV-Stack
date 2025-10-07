@@ -27,7 +27,8 @@ private:
     
     // Map update settings
     double search_cube_size;
-    const double update_interval = 2.0; // 2秒更新一次
+    double search_height_size;
+    const double update_interval = 2.0; // 2秒更新一次，TODO
     double last_update_time = 0.0;
     
     // Filters
@@ -63,6 +64,11 @@ public:
         search_cube_size = 300.0; // 默认300米
         if (nh.hasParam("liorf_localization/ValidCubeSize")) {
             nh.getParam("liorf_localization/ValidCubeSize", search_cube_size);
+        }
+        
+        search_height_size = 50.0; // 默认300米
+        if (nh.hasParam("liorf_localization/ValidCubeHeight")) {
+            nh.getParam("liorf_localization/ValidCubeHeight", search_height_size);
         }
         
         // Initialize filters - 使用默认值
@@ -325,12 +331,14 @@ private:
         
         // 定义搜索立方体的边界
         double half_size = search_cube_size / 2.0;
+        double hight_size = search_height_size;
         Eigen::Vector3f min_pt(current_pos.x - half_size, 
                               current_pos.y - half_size, 
-                              current_pos.z - half_size);
+                              current_pos.z - hight_size);
         Eigen::Vector3f max_pt(current_pos.x + half_size, 
-                              current_pos.y + half_size, 
-                              current_pos.z + half_size);
+                             current_pos.y + half_size, 
+                           current_pos.z + hight_size);
+    
         
         // 使用八叉树搜索立方体范围内的点
         std::vector<int> point_indices;

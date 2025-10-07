@@ -71,6 +71,9 @@ class FusedFixToGnss:
         # 发布消息
         self.gnss_pub.publish(gnss_msg)
 
+
+
+
     def run(self):
         # 保持节点运行
         rospy.spin()

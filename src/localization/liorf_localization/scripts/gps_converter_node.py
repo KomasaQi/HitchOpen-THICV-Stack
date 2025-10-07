@@ -15,8 +15,8 @@ class GPSBiaserNode:
         self.lock = Lock()  # 线程安全锁，避免数据竞争
 
         # -------------------------- 1. 可配置参数（通过ROS参数服务器设置） --------------------------
-        self.total_lidar_frames = rospy.get_param('~total_lidar_frames', 500)  # 需收集的雷达帧总数
-        self.avg_lidar_frames = rospy.get_param('~avg_lidar_frames', 100)      # 取平均的最后帧数
+        self.total_lidar_frames = rospy.get_param('~total_lidar_frames', 100)  # 需收集的雷达帧总数
+        self.avg_lidar_frames = rospy.get_param('~avg_lidar_frames', 10)      # 取平均的最后帧数
         self.radar_odom_topic = rospy.get_param('~radar_odom_topic', '/liorf_localization/mapping/odometry')  # 雷达定位话题
         self.gps_odom_topic = rospy.get_param('~gps_odom_topic', '/odometry/gps')  # 原始GPS话题
         self.biased_gps_topic = rospy.get_param('~biased_gps_topic', '/odometry/gps_biased')  # 偏移后GPS话题
@@ -36,15 +36,15 @@ class GPSBiaserNode:
         # -------------------------- 3. ROS话题订阅与发布 --------------------------
         # 订阅雷达定位话题（用于计算偏移）
         self.sub_lidar = rospy.Subscriber(
-            self.radar_odom_topic, Odometry, self.lidar_odom_callback, queue_size=10
+            self.radar_odom_topic, Odometry, self.lidar_odom_callback, queue_size=1
         )
         # 订阅原始GPS话题（用于叠加偏移）
         self.sub_gps = rospy.Subscriber(
-            self.gps_odom_topic, Odometry, self.gps_odom_callback, queue_size=10
+            self.gps_odom_topic, Odometry, self.gps_odom_callback, queue_size=1
         )
         # 发布偏移后的GPS话题
         self.pub_biased_gps = rospy.Publisher(
-            self.biased_gps_topic, Odometry, queue_size=10
+            self.biased_gps_topic, Odometry, queue_size=5
         )
 
         rospy.loginfo("【GPS偏移节点启动成功】")
