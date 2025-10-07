@@ -334,7 +334,7 @@ public:
         } else {
             state_msg_.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY;
         }
-        // state_msg.throttle_fb = ;
+        state_msg_.throttle_fb = drive_pix_msg_.throttle/100.0;
         state_msg_.brake_fb = brake_pix_msg_.brake_pedal/100.0;
         
         // 填充手刹状态
