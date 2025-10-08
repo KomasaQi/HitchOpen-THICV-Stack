@@ -475,14 +475,45 @@ roslaunch race_tracker simple_controller_carla.launch
 
 **7. 可以出发**
 
-在新终端窗口手动更改比赛计时器的旗帜状态为G20：
+在新终端窗口手动更改比赛计时器的旗帜状态为G20：# 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G60 G80
 ``` bash
-rosparam set /competition_timer/flag G20 # 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G60 G80
+rosparam set /competition_timer/flag G20 
 ```
 需要急停时用todesk窗口在这个终端中让状态变成`RED`即可，车辆会立即停止。
 ``` bash
 rosparam set /competition_timer/flag RED 
 ```
+
+**※一些小提示※**
+
+如果需要在半路指定明显高度不是地图0高度基准平面的位置，就不能在rviz指定，需要手动发布一个初始位置估计消息：
+``` bash
+rostopic pub -1 /initialpose geometry_msgs/PoseWithCovarianceStamped "header:
+  seq: 0
+  stamp:
+    secs: 0
+    nsecs: 0
+  frame_id: ''
+pose:
+  pose:
+    position: {x: 0.0, y: 0.0, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+  covariance: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0]" 
+```
+需要将`position`和`orientation`的7个位置数据都填写好。一般来说，需要在关闭上一次定位之前，先用如下命令查看位置，记下这7个数
+``` bash
+rostopic echo /liorf_localization/mapping/odometry
+
+```
+另外，随时关注雷达定位频率：
+``` bash
+rostopic hz /liorf_localization/mapping/odometry
+
+```
+需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
+
 
 ---
 ## Contributors:
