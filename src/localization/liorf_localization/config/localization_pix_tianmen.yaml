@@ -88,7 +88,7 @@ liorf_localization:
   surroundingKeyframeSearchRadius: 70.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
   surroundingKeyframeMapLeafSize: 0.3           # downsample local map point cloud
   ValidCubeSize: 200.0                         # meters, valid cube size for map research
-  ValidCubeHeight: 50.0                        # meters, valid cube height for map research
+  ValidCubeHeight: 25.0                        # meters, valid cube height for map research
 
   # Loop closure
   loopClosureEnableFlag: true
