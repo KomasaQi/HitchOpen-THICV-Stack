@@ -59,11 +59,11 @@ int main(int argc, char**argv) {
     cout << "Operating patchwork++..." << endl;
     PatchworkppGroundSeg.reset(new PatchWorkpp<PointType>(&pnh));
 
-    pub_cloud       = pnh.advertise<sensor_msgs::PointCloud2>("cloud", 100, true);
-    pub_ground      = pnh.advertise<sensor_msgs::PointCloud2>("ground", 100, true);
-    pub_non_ground  = pnh.advertise<sensor_msgs::PointCloud2>("nonground", 100, true);
+    pub_cloud       = pnh.advertise<sensor_msgs::PointCloud2>("cloud", 1, true);
+    pub_ground      = pnh.advertise<sensor_msgs::PointCloud2>("ground", 1, true);
+    pub_non_ground  = pnh.advertise<sensor_msgs::PointCloud2>("nonground", 1, true);
 
-    ros::Subscriber sub_cloud = nh.subscribe(cloud_topic, 100, callbackCloud);
+    ros::Subscriber sub_cloud = nh.subscribe(cloud_topic, 1, callbackCloud);
     
     ros::spin();
 
