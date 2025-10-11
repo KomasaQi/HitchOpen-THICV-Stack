@@ -14,5 +14,5 @@ pure_pursuit:
   max_steering_angle: 0.40
   min_path_points: 3.0
   min_lookahead_distance: 3.0
-  lookahead_speed_coeff: 0.5
+  lookahead_speed_coeff: 0.45
   predict_time_horizon: 0.5
