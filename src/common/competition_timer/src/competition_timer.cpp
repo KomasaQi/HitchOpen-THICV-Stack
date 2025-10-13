@@ -64,13 +64,7 @@ void CompetitionTimer::initFlagMappings() {
     flag_name_to_value["G10"] = race_msgs::Flag::G10;
     flag_name_to_value["G15"] = race_msgs::Flag::G15;
     flag_name_to_value["G20"] = race_msgs::Flag::G20;
-    flag_name_to_value["G25"] = race_msgs::Flag::G25;
-    flag_name_to_value["G30"] = race_msgs::Flag::G30;
-    flag_name_to_value["G35"] = race_msgs::Flag::G35;
     flag_name_to_value["G40"] = race_msgs::Flag::G40;
-    flag_name_to_value["G45"] = race_msgs::Flag::G45;
-    flag_name_to_value["G50"] = race_msgs::Flag::G50;
-    flag_name_to_value["G55"] = race_msgs::Flag::G55;
     flag_name_to_value["G60"] = race_msgs::Flag::G60;
     flag_name_to_value["G80"] = race_msgs::Flag::G80;
 
@@ -329,13 +323,7 @@ bool CompetitionTimer::isGreenFlag(uint8_t flag) {
            name == "G10" || 
            name == "G15" || 
            name == "G20" || 
-           name == "G25" || 
-           name == "G30" || 
-           name == "G35" || 
            name == "G40" || 
-           name == "G45" || 
-           name == "G50" || 
-           name == "G55" || 
            name == "G60" || 
            name == "G80";
 }

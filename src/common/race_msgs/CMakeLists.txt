@@ -65,7 +65,6 @@ add_message_files(
   Tracking.msg
   LateralLoadTransfer.msg
   LateralLoadTransferStamped.msg
-  TrailerStatus.msg
 )
 
 ## Generate services in the 'srv' folder
