@@ -64,7 +64,13 @@ void CompetitionTimer::initFlagMappings() {
     flag_name_to_value["G10"] = race_msgs::Flag::G10;
     flag_name_to_value["G15"] = race_msgs::Flag::G15;
     flag_name_to_value["G20"] = race_msgs::Flag::G20;
+    flag_name_to_value["G25"] = race_msgs::Flag::G25;
+    flag_name_to_value["G30"] = race_msgs::Flag::G30;
+    flag_name_to_value["G35"] = race_msgs::Flag::G35;
     flag_name_to_value["G40"] = race_msgs::Flag::G40;
+    flag_name_to_value["G45"] = race_msgs::Flag::G45;
+    flag_name_to_value["G50"] = race_msgs::Flag::G50;
+    flag_name_to_value["G55"] = race_msgs::Flag::G55;
     flag_name_to_value["G60"] = race_msgs::Flag::G60;
     flag_name_to_value["G80"] = race_msgs::Flag::G80;
 
@@ -80,14 +86,16 @@ void CompetitionTimer::loadParameters() {
     private_nh.param<std::string>("flag_topic_name", flag_topic_name, "/competition_flag");
     private_nh.param<std::string>("info_topic_name", info_topic_name, "/competition_info");
     private_nh.param<std::string>("vehicle_status_topic_name", vehicle_status_topic_name, "/vehicle_status");
-
+ 
     // 2. 加载比赛配置参数
     private_nh.param("publish_rate", publish_rate, 10.0);          // 发布频率（Hz）
     private_nh.param("total_laps", total_laps, 3);                // 总圈数
     private_nh.param("is_closed_loop", is_closed_loop, true);     // 是否闭环赛道
     private_nh.param("start_detection_distance", start_detection_distance, 2.0); // 起点检测阈值（m）
     private_nh.param("end_detection_distance", end_detection_distance, 2.0);     // 终点检测阈值（m）
-
+    private_nh.param("emergent_lateral_error_threshold", emergent_lateral_error_threshold, 1.5); // 紧急横向误差阈值（m）
+    private_nh.param("emergent_heading_angle_error_threshold", emergent_heading_angle_error_threshold, 0.6); // 紧急航向角误差阈值（rad）
+    
     // 3. 加载起点坐标（参数为vector<double>，默认(0,0,0)）
     std::vector<double> start_point(3, 0.0);
     private_nh.param("start_point", start_point, start_point);
@@ -126,6 +134,13 @@ void CompetitionTimer::loadParameters() {
 
 // -------------------------- 车辆状态回调实现 --------------------------
 void CompetitionTimer::vehicleStatusCallback(const race_msgs::VehicleStatus::ConstPtr& msg) {
+    // 先检查一下车辆轨迹跟踪状态是否异常，如果有问题就直接给RED
+    if ((std::abs(msg->tracking.lateral_tracking_error) > emergent_lateral_error_threshold) || (std::abs(msg->tracking.heading_angle_error) > emergent_heading_angle_error_threshold)){
+        current_flag = race_msgs::Flag::RED; // 切换为RED旗
+        private_nh.setParam("flag", "RED");
+        ROS_ERROR("车辆轨迹跟踪异常，已切换为RED旗,当前横向误差: %.2f m, 航向角误差: %.2f rad", msg->tracking.lateral_tracking_error, msg->tracking.heading_angle_error);
+        return;
+    }
     if (race_state == FINISHED) return; // 比赛结束后不再处理
 
     // 更新当前车辆位置
@@ -138,7 +153,7 @@ void CompetitionTimer::vehicleStatusCallback(const race_msgs::VehicleStatus::Con
     if (race_state == BEFORE_START && isGreenFlag(current_flag)) {
         double distance_to_start = calculateDistance(current_position_, start_point_);
         
-        if (distance_to_start <= start_detection_distance) {
+        if ((distance_to_start <= start_detection_distance ) ) {
             race_state = IN_START;  // 标记正在起点区域
             current_lap = 1;          // 初始圈数为1
             start_time = ros::Time::now();  // 记录比赛开始时间
@@ -183,7 +198,7 @@ void CompetitionTimer::vehicleStatusCallback(const race_msgs::VehicleStatus::Con
         } else { 
             // 开环赛道：直接检测终点
             double distance_to_end = calculateDistance(current_position_, end_point_);
-            ROS_DEBUG_STREAM("开环赛道 - 距终点: " << distance_to_end << "m (阈值: " << end_detection_distance << "m)");
+            ROS_INFO_STREAM("开环赛道 - 距终点: " << distance_to_end << "m (阈值: " << end_detection_distance << "m)");
             
             if (distance_to_end <= end_detection_distance) {
                 
@@ -306,9 +321,15 @@ void CompetitionTimer::finishRace() {
 double CompetitionTimer::calculateDistance(const geometry_msgs::Point& a, const geometry_msgs::Point& b) {
     double dx = a.x - b.x;
     double dy = a.y - b.y;
-    double dz = a.z - b.z;
-    return std::sqrt(dx*dx + dy*dy + dz*dz);
+    return std::sqrt(dx*dx + dy*dy);
 }
+// double CompetitionTimer::calculateDistance(const geometry_msgs::Point& a, const geometry_msgs::Point& b) {
+//     double dx = a.x - b.x;
+//     double dy = a.y - b.y;
+//     double dz = a.z - b.z;
+//     return std::sqrt(dx*dx + dy*dy + dz*dz);
+// }
+
 
 // -------------------------- 检查旗帜有效性 --------------------------
 bool CompetitionTimer::isValidFlag(uint8_t flag) {
@@ -323,7 +344,13 @@ bool CompetitionTimer::isGreenFlag(uint8_t flag) {
            name == "G10" || 
            name == "G15" || 
            name == "G20" || 
+           name == "G25" || 
+           name == "G30" || 
+           name == "G35" || 
            name == "G40" || 
+           name == "G45" || 
+           name == "G50" || 
+           name == "G55" || 
            name == "G60" || 
            name == "G80";
 }
