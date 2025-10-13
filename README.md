@@ -169,7 +169,7 @@ ASL是Ipopt的一个依赖项，需要先安装ASL，否则后续安装Ipopt会�
 ``` bash
 cd ~/opt # 进入优化库集中存储目录
 git clone https://github.com/coin-or-tools/ThirdParty-ASL.git # 下载ASL库
-cd ThirdParty-ASL 
+cd ThirdParty-ASL
 sudo ./get.ASL
 sudo ./configure
 sudo make -j$(nproc)
@@ -188,6 +188,7 @@ git clone https://github.com/coin-or-tools/ThirdParty-HSL.git
 ```
 这个求解器是一般来说需要在[COIN-HSL](https://link.zhihu.com/?target=https%3A//licences.stfc.ac.uk/product/coin-hsl)购买，但是COIN-HSL是一个商业软件，我们这里只能使用免费的`ma27`求解器。当然也可以申请免费的高级学术版。这里我们将免费版的内容放在[/tutorial/install_casadi_with_ipopt目录下面](/tutorial/install_casadi_with_ipopt/),复制`coinhsl`文件夹到刚刚下载好的`ThirdParty-HSL`目录下，然后进行下一步。(如果是arm架构的话，复制同一个文件夹下的那个压缩包，然后解压到刚刚说的位置，重命名为coinhsl文件夹)
 ``` bash
+cd ~/opt/ThirdParty-HSL # 切换到HSL目录
 sudo ./configure
 sudo make -j$(nproc)
 sudo make install
@@ -234,7 +235,7 @@ sudo make install
 ``` bash
 git clone https://github.com/coin-or/qpOASES.git
 cd qpOASES
-git checkout release/3.2.1 # 具体版本还没确认过，如过还不行可以切换更早版本（比如：releases/3.1.0，releases/3.1.1，releases/3.2.0， stable/3.0， stable/3.1， stable/3.2）
+git checkout releases/3.2.1 # 也可以切换更早版本（比如：releases/3.1.0，releases/3.1.1，releases/3.2.0， stable/3.0， stable/3.1， stable/3.2）
 git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
@@ -324,6 +325,7 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 
 ### 4.4 运行本项目
 下面提供了一些运行的案例可以参考。
+
 ---
 #### 4.4.1 Carla车辆轨迹跟踪仿真
 在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
@@ -365,6 +367,7 @@ rosparam set /competition_timer/flag GREEN # 设置比赛状态，可选：GREEN
 roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 ```
 然后就可以来设置一个GREEN旗帜，车辆就会开始运动了。
+
 ---
 
 #### 4.4.2 Carla车辆定位+轨迹跟踪仿真
@@ -409,6 +412,111 @@ rosbag play pix_moving.bag
 ```
 如果不出意外，定位效果应该会一切正常如下图所示，直到定位到bag包播放结束。
 ![localization result](/tutorial/images/cicv_loc_result.png)
+
+---
+#### 4.4.4 天门山预赛车辆启动流程
+**1. 启动梯子**
+
+打开电脑第一步先启动一个终端并运行下列命令打开clash梯子
+``` bash
+cd ~/下载/clash-for-linux
+sudo bash start.sh
+```
+一般情况下小车上电以后需要稍等一分钟左右，等待网络模块加载完毕才能上网，否则会出现连接超时的情况。**如果超时可以稍等一分钟再尝试。**
+
+如果出现2个`[ok]`一切顺利就可以继续，如果出现无法连接的情况可以考虑是否是订阅链接出现了问题是否需要更换。更换订阅链接的方法是在`~/下载/clash-for-linux`文件夹下打开`.env`文件，如果看不到请确保勾选查看所有隐藏文件的选项。替换**引号内的链接**为你准备好的新链接即可。替换好保存后再重新启动上述命令打开clash，如果全部ok就继续。
+
+**2. 移动车辆**
+
+在启动之前需要确认当前位置，一般我们发车的位置在山顶；也有时开下去后需要从山底定位（当然可以不关闭定位直接切换规划器路径再开上去就行）。比如当前位置在山顶P房，需要准备开始比赛，建议开车到起点线之前，这样确保两件事：
+
+ - **周围特征信息和建图时类似**（否则周围特征变化大定位容易失败）
+ - **GPS信号良好** （否则初始GPS位置会偏移严重，干扰后续定位）
+
+**3. 确保地图文件和路径规划无误**
+
+确保开到位置以后，我们需要确保`点云地图文件`和`全局路径文件`是正确的。
+打开文件管理器，进入`~/HitchOpen-THICV-Stack/src/launch/simple_racing/maps/Tianmen_Map/`文件夹，下面应该会有几个文件：`UpStart.pcd`、`DownStart.pcd`、`GlobalMap.pcd`、`BeforeTunnel.pcd`，区别在于0高度平面的位置不一样。因为初始定位的时候在rviz中指定的初始位置默认是在0高度平面上的，所以需要**保证当前车辆的位置在0高度平面附近**。
+
+- `UpStart.pcd`的基准平面在山顶P房旁的露天小空地上；
+- `DownStart.pcd`的基准平面在山脚下的狐仙剧场；
+- `BeforeTunnel.pcd`基准平面在下了蛋糕弯的第一个S形隧道前（相对山顶-97.35m）。
+- `GlobalMap.pcd`是我们定位节点默认要求的全局点云文件名称。
+
+比如我现在在山顶上，所以我需要将原有的`GlobalMap.pcd`删除掉（如果存在这个文件），并将`UpStart.pcd`复制一份并将文件名仍然修改为`GlobalMap.pcd`。
+
+下一步确保我们的路径规划是从山上往下没问题的：文件管理器进入`~/HitchOpen-THICV-Stack/src/planning/race_global_static_planner/config/tianmen_down_pre_map`文件夹，这里面应该会有几个文件，包含
+- `Tianmen_raceline_Oct_20ok.csv`、`Tianmen_raceline_Oct_autoup.csv`，分别是从山上往下开的，以及自动上山的（从山下往上开）。
+
+我们在山上，需要开始比赛，所以选择从山上往下开的。复制`Tianmen_raceline_Oct_20ok.csv`文件，并将其修改为没有后缀的`Tianmen_raceline_Oct.csv`（如果这个文件存在，请先删除）。
+
+
+**4. 启动驱动并进行定位**
+
+`ctrl + Alt + T`调出终端窗口，右键操作水平、竖直分屏，打开5~6个窗口方便后续操作。
+
+首先启动**总体硬件驱动+定位**：
+``` bash
+roslaunch simple_racing tianmen_racing.launch 
+```
+此时会启动2个rviz界面，我们关注有小车的那个界面。稍等30s左右会加载出点云地图。根据当前位置估计进行初始位置与朝向的赋予。等待1min左右如果顺利的话就会刷新出位姿（如果rviz界面变成黑色，别慌，大概是当前摄像机焦点不在定位的位置，我们手动在视野中寻找一番就可以）
+
+**5. 启动计时器**
+
+在新终端窗口中运行计时器。
+``` bash
+roslaunch competition_timer tianmen_down_pre_timer.launch
+```
+
+
+**6. 打开轨迹跟踪控制器**
+
+在新终端窗口中打开控制器。
+``` bash
+roslaunch race_tracker simple_controller_pix2.launch 
+```
+
+**7. 可以出发**
+
+在新终端窗口手动更改比赛计时器的旗帜状态为G20：# 设置比赛状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G60 G80
+``` bash
+rosparam set /competition_timer/flag G20 
+```
+需要急停时用todesk窗口在这个终端中让状态变成`RED`即可，车辆会立即停止。
+``` bash
+rosparam set /competition_timer/flag RED 
+```
+
+**※一些小提示※**
+
+如果需要在半路指定明显高度不是地图0高度基准平面的位置，就不能在rviz指定，需要手动发布一个初始位置估计消息：
+``` bash
+rostopic pub -1 /initialpose geometry_msgs/PoseWithCovarianceStamped "header:
+  seq: 0
+  stamp:
+    secs: 0
+    nsecs: 0
+  frame_id: ''
+pose:
+  pose:
+    position: {x: 0.0, y: 0.0, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+  covariance: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0]" 
+```
+需要将`position`和`orientation`的7个位置数据都填写好。一般来说，需要在关闭上一次定位之前，先用如下命令查看位置，记下这7个数
+``` bash
+rostopic echo /liorf_localization/mapping/odometry
+
+```
+另外，随时关注雷达定位频率：
+``` bash
+rostopic hz /liorf_localization/mapping/odometry
+
+```
+需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
+
 
 ---
 ## Contributors:
