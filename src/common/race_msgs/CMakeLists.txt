@@ -17,7 +17,6 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
 )
 
-
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -66,6 +65,7 @@ add_message_files(
   Tracking.msg
   LateralLoadTransfer.msg
   LateralLoadTransferStamped.msg
+  TrailerStatus.msg
 )
 
 ## Generate services in the 'srv' folder

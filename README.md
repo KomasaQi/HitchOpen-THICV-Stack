@@ -270,10 +270,12 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 在进行操作之前强烈建议进行鱼香ROS的换源操作，包括系统源和Python源等，否则后续可能会遇到一些问题。
 ``` bash
 sudo apt update
-sudo apt install -y ros-noetic-ros-base libceres-dev\
-ros-noetic-tf ros-noetic-pcl-conversions ros-noetic-cv-bridge \
-ros-noetic-visualization-msgs ros-noetic-geometry-msgs ros-noetic-nav-msgs \
-libpcl-dev libopencv-dev libgeographic-dev ros-noetic-robot-localization ros-noetic-robot-state-publisher ros-noetic-navigation ros-noetic-ackermann-msgs
+sudo apt install -y ros-noetic-ros-base libceres-dev ros-noetic-serial
+sudo apt install -y ros-noetic-tf ros-noetic-pcl-conversions ros-noetic-cv-bridge 
+sudo apt install -y ros-noetic-visualization-msgs ros-noetic-geometry-msgs ros-noetic-nav-msgs 
+sudo apt install -y libpcl-dev libopencv-dev libgeographic-dev ros-noetic-robot-localization 
+sudo apt install -y ros-noetic-robot-state-publisher ros-noetic-navigation ros-noetic-ackermann-msgs
+pip3 install pyserial
 ```
 在编译定位与建图相关的包时，若不进行此修改会遇到FLANN相关的错误，需要进行如下配置：
 ``` bash
@@ -297,7 +299,8 @@ struct access {
 cd ~
 git clone https://github.com/KomasaQi/HitchOpen-THICV-Stack.git  # 首先下载本项目
 cd HitchOpen-THICV-Stack
-catkin_make # 进行编译
+catkin_make --pkg race_msgs can_msgs automotive_msgs rtk_cloud_msgs smartcar_msgs system_msgs pix_driver # 先对被依赖的消息包和驱动包进行编译
+catkin_make # 编译整个项目
 ```
 如果一切顺利，编译完成一切就都完美结束了，但是大概率不会，会报错。比如找不到`race_msgs::XXXX`之类的文件，但不要着急，这是因为编译顺序的问题，其中一些包之间有相互依赖的关系，需要先编译依赖的包，再编译当前包才不会出错，但是往往不会按照这个顺序来就导致了错误。这个时候是需要**再重复在刚刚的终端运行**：
 ``` bash

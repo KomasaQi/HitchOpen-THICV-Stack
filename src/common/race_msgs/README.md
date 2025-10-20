@@ -110,6 +110,9 @@ bool emergency # 是否紧急状态
 bool clutch # 离合器状态
 uint8 steering_mode # 转向模式，1：单轴转向，2：双轴转向 参见Control.msg
 race_msgs/Tracking tracking # 跟踪信息
+float64 throttle_fb # 油门值 0~1
+float64 brake_fb # 刹车值 0~1
+race_msgs/TrailerStatus trailer # 挂车状态
 ```
 
 ## WheelSpeed.msg
@@ -137,13 +140,7 @@ uint8 G5 = 5     # 绿色旗帜且限速5km/h
 uint8 G10 = 10   # 绿色旗帜且限速10km/h
 uint8 G15 = 15   # 绿色旗帜且限速15km/h
 uint8 G20 = 20   # 绿色旗帜且限速20km/h
-uint8 G25 = 25   # 绿色旗帜且限速25km/h
-uint8 G30 = 30   # 绿色旗帜且限速30km/h
-uint8 G35 = 35   # 绿色旗帜且限速35km/h
 uint8 G40 = 40   # 绿色旗帜且限速40km/h
-uint8 G45 = 45   # 绿色旗帜且限速45km/h
-uint8 G50 = 50   # 绿色旗帜且限速50km/h
-uint8 G55 = 55   # 绿色旗帜且限速55km/h
 uint8 G60 = 60   # 绿色旗帜且限速60km/h 
 uint8 G80 = 80   # 绿色旗帜且限速80km/h
 ```
@@ -166,4 +163,11 @@ float64 ltr_rate # 侧向载荷转移率的变化率
 std_msgs/Header header
 float64 ltr # 侧向载荷转移率
 float64 ltr_rate # 侧向载荷转移率的变化率
+```
+## TrailerStatus.msg
+``` bash
+geometry_msgs/Pose pose # 挂车位置和姿态 包含position(xyz)和orientation(xyzw)
+race_msgs/Euler euler # 挂车姿态 包含俯仰角、横滚角、偏航角
+geometry_msgs/Twist vel # 平移旋转速度 包含速度、角速度
+geometry_msgs/Twist acc # 平移旋转加速度 包含加速度、角加速度
 ```
