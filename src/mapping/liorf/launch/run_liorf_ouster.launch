@@ -1,0 +1,21 @@
+<launch>
+
+    <arg name="project" default="liorf"/>
+    
+    <!-- Parameters -->
+    <rosparam file="$(find liorf)/config/liorf_ouster.yaml" command="load" />
+
+    <!--- LOAM -->
+    <include file="$(find liorf)/launch/include/module_loam.launch" />
+
+    <!--- Robot State TF -->
+    <!-- <include file="$(find liorf)/launch/include/module_robot_state_publisher.launch" /> -->
+
+    <!--- Run Navsat -->
+    <!-- <include file="$(find liorf)/launch/include/module_navsat.launch" /> -->
+
+    <!--- Run Rviz-->
+    <include file="$(find liorf)/launch/include/module_rviz_ouster.launch" />
+    <node pkg="liorf" type="remove_nan.py" name="$(arg project)_remove_nan" output="screen"/>
+
+</launch>

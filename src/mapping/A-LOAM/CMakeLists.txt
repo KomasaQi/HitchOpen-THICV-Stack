@@ -4,7 +4,7 @@ project(aloam_velodyne)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
-
+set(PCL_DIR "/usr/lib/x86_64-linux-gnu/cmake/pcl/")
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs

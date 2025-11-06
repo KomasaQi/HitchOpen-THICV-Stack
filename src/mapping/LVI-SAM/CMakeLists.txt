@@ -7,7 +7,8 @@ project(lvi_sam)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
-
+# 1. 显式指定系统 PCL 的 cmake 路径（确保找到系统 PCL）
+set(PCL_DIR "/usr/lib/x86_64-linux-gnu/cmake/pcl/")
 find_package(Boost REQUIRED COMPONENTS timer thread serialization chrono)
 
 ######################
