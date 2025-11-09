@@ -530,7 +530,7 @@ roslaunch ouster_ros driver.launch sensor_hostname:=192.168.1.222 timestamp_mode
 ``` bash
 roslaunch vins rs_d455_imu_only.launch
 ```
-启动定位节点
+启动定位节点。在此之前请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_zhihui3_ouster/`文件夹下面（如果没有请创建）下载![智慧楼3楼地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2Fcicv_zhihui3_ouster%2FGlobalMap.pcd)，否则定位节点无法正常启动。
 ```bash
 roslaunch liorf_localization run_truck_zhihui_localization.launch 
 ```
