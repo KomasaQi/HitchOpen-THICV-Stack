@@ -54,6 +54,17 @@ private:
         nh_.param("topic/control", control_topic_, std::string("/race/control"));
         nh_.param("topic/flag", flag_topic_, std::string("/race/flag"));
         nh_.param("ego_frame_id", ego_frame_id_, std::string("ego_vehicle"));
+        nh_.param("dual_steer_enable",dual_axis_steer_, false);
+        // 横向误差和航向误差开始降速的阈值
+        nh_.param("lateral_error_threshold", lateral_error_threshold_, 0.6);
+        nh_.param("heading_error_threshold", heading_error_threshold_, 0.3);
+        // 在各种绿色旗帜下因航向误差或横向误差而降低到的最小目标速度（km/h）
+        nh_.param("default_min_target_speed", default_min_target_speed_, 5.0);
+        // 横向误差和航向误差超出阈值时，目标速度的降低比例
+        nh_.param("lateral_error_decrease_ratio", lateral_error_decrease_ratio_, 0.8);
+        nh_.param("heading_error_decrease_ratio", heading_error_decrease_ratio_, 1.0);
+        nh_.param("constant_front_steering_bias", constant_front_steering_bias_, 0.01);
+        
         // 标志超时时间（s），默认1秒
         nh_.param("flag_timeout", flag_timeout_, 1.0);
         // 初始标志状态，默认RED
@@ -159,7 +170,12 @@ private:
         control_msg_.hand_brake = false; // 手刹关闭
         control_msg_.clutch = false; // 离合关闭
         control_msg_.control_mode = race_msgs::Control::THROTTLE_BRAKE_ONLY; // 默认油门刹车模式
-        control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
+        if (dual_axis_steer_){
+            control_msg_.steering_mode = race_msgs::Control::DUAL_STEERING_MODE; // 可以设置成双轴转向
+        }else {
+            control_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
+        }
+        
         // 横向/纵向默认值
         control_msg_.lateral.steering_angle = 0.0;
         control_msg_.lateral.steering_angle_velocity = 0.0;
@@ -248,6 +264,24 @@ private:
             // 自定义ROS_WARN的颜色（例如：改为紫色）
             ROS_WARN("\033[32m检测到GREEN旗帜比赛正常无限速\033[0m");
         }
+
+        // 检测横向误差和航向误差是否超过阈值，若超过就会按照绝对值超出比例降低参考速度
+        double lateral_error_abs = std::max(std::abs(last_status_->tracking.lateral_tracking_error) - lateral_error_threshold_,0.0);
+        double heading_error_abs = std::max(std::abs(last_status_->tracking.heading_angle_error) - heading_error_threshold_,0.0);
+        double target_speed_after_lat_dec = speed_limit_ * (1.0 - lateral_error_abs / lateral_error_threshold_);
+        double target_speed_after_head_dec = speed_limit_ * (1.0 - heading_error_abs / heading_error_threshold_);
+        // 取横向和航向误差降低后的较小值作为最终目标速度
+        double target_speed = std::min(target_speed_after_lat_dec, target_speed_after_head_dec);
+        // 取最终目标速度和默认最小目标速度的较大值作为最终目标速度
+        target_speed = std::max(target_speed, default_min_target_speed_/3.6);
+        if (target_speed < speed_limit_) {
+            speed_limit_ = target_speed;
+            ROS_WARN("\033[33m[ControllerManager] 横向误差或航向误差高于阈值，速度限制已更新为 %.2f km/h\033[0m", speed_limit_*3.6);
+        }
+
+
+
+
     }
     /**
      * @brief 紧急停止函数
@@ -319,6 +353,10 @@ private:
 
         // 5. 设置控制指令时间戳并发布
         control_msg_.header.stamp = current_time;
+
+        // 补偿因为前轮撞歪（向右侧）带来的偏差
+        control_msg_.lateral.steering_angle = control_msg_.lateral.steering_angle + constant_front_steering_bias_;
+        control_msg_.gear = race_msgs::Control::GEAR_2;
         control_pub_.publish(control_msg_);
     }
 
@@ -380,6 +418,15 @@ private:
     ros::Time last_control_time_;
     double speed_limit_; // 速度限制（m/s）
     double default_speed_limit_; // 默认速度限制（m/s）
+    bool dual_axis_steer_; // 转向模式
+    // 横向误差和航向误差阈值
+    double lateral_error_threshold_;
+    double heading_error_threshold_;
+    double default_min_target_speed_; // 在各种绿色旗帜下因航向误差或横向误差而降低到的最小目标速度（km/h）
+    // 横向误差和航向误差超出阈值时，目标速度的降低比例
+    double lateral_error_decrease_ratio_;
+    double heading_error_decrease_ratio_;
+    double constant_front_steering_bias_;
 
 
 
