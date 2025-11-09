@@ -520,6 +520,43 @@ rostopic hz /liorf_localization/mapping/odometry
 ```
 需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
 
+#### 4.4.5 卡车模型启动流程
+
+启动雷达驱动:
+``` bash
+roslaunch ouster_ros driver.launch sensor_hostname:=192.168.1.222 timestamp_mode:=TIME_FROM_ROS_TIME viz:=false lidar_mode:=1024x10
+```
+启动相机IMU
+``` bash
+roslaunch vins rs_d455_imu_only.launch
+```
+启动定位节点
+```bash
+roslaunch liorf_localization run_truck_zhihui_localization.launch 
+```
+启动小车驱动
+``` bash
+roslaunch truck_driver chassis_driver.launch 
+```
+启动路径发布
+``` bash
+roslaunch race_global_static_planner cicv_zhihui3_circuit.launch
+```
+启动计时器节点
+``` bash
+roslaunch competition_timer competition_timer.launch
+```
+设置限速
+``` bash
+rosparam set /competition_timer/flag G5
+```
+启动跟踪控制节点
+``` bash
+roslaunch race_tracker simple_controller_carla.launch 
+```
+
+source ~/HitchOpen-THICV-Stack/devel/setup.bash
+
 
 ---
 ## Contributors:
