@@ -1,2 +1,0 @@
-float32 front_obs_dist
-float32 back_obs_dist

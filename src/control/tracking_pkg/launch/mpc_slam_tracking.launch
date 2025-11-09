@@ -1,6 +1,0 @@
-<launch>
-
-    <node pkg="chassis_pkg" type="chassis_node.py" name="chassis_node" output="screen" />
-    <node pkg="tracking_pkg" type="MPC_tracking_node.py" name="MPC_tracking_node" output="screen" />
-    <node pkg="tracking_pkg" type="ref_path_pub_node.py" name="ref_path_pub_node" output="screen" />
-</launch>

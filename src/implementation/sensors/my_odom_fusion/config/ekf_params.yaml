@@ -1,0 +1,93 @@
+# 输入话题配置
+odom0: /scanmatch_odom        # 扫描匹配里程计
+odom1: /wheel_odom             # 纯轮速里程计（新添加）
+imu0: /imu/data               # IMU话题
+# pose0: /poseupdate            # Hector Mapping发布的位姿话题
+
+# 为每个输入源指定其提供的数据 (true表示使用，false表示忽略)
+# 顺序: [X, Y, Z, roll, pitch, yaw, X˙, Y˙, Z˙, roll˙, pitch˙, yaw˙, X¨, Y¨, Z¨]
+
+# 扫描匹配里程计配置
+odom0_config: [true, true, false,   # 使用X,Y位置
+               false, false, false, # 不使用姿态
+               true,  true,  false, # 使用线速度X,Y
+               false, false, true,  # 使用角速度Z
+               false, false, false] # 不使用线性加速度
+odom0_differential: false
+odom0_relative: false
+
+# 纯轮速里程计配置
+odom1_config: [true, true, false,   # 使用X,Y位置
+               false, false, false, # 不使用姿态
+               true,  false, false, # 使用线速度X（Y和Z不使用）
+               false, false, false, # 不使用角速度
+               false, false, false] # 不使用线性加速度
+odom1_differential: false
+odom1_relative: false
+
+# IMU配置
+imu0_config: [true, true, false,  # 不使用IMU的位置
+              true, true, false,    # 使用IMU的Roll和Pitch姿态
+              false, false, false,  # 不使用IMU的线速度
+              true, true, true,     # 使用IMU的所有角速度
+              true,  true,  false]  # 使用IMU的X,Y线性加速度（Z不使用）
+imu0_differential: false
+imu0_relative: false
+imu0_remove_gravitational_acceleration: true
+
+# Hector Mapping位姿估计配置
+# pose0_config: [true, true, false,   # 使用X,Y位置
+#                false, false, true,  # 使用Yaw角度
+#                false, false, false, # 不使用速度
+#                false, false, false, # 不使用角速度
+#                false, false, false] # 不使用加速度
+# pose0_differential: false
+# pose0_relative: false
+
+# 坐标系设置
+map_frame: map
+odom_frame: odom
+base_link_frame: base_footprint
+world_frame: odom
+
+# 初始状态设置
+initial_state: [0.0, 0.0, 0.0,   # 初始位置X,Y,Z
+                0.0, 0.0, 0.0,   # 初始姿态Roll,Pitch,Yaw
+                0.0, 0.0, 0.0,   # 初始速度X,Y,Z
+                0.0, 0.0, 0.0,   # 初始角速度
+                0.0, 0.0, 0.0]   # 初始加速度
+
+# 过程噪声协方差
+process_noise_covariance: [0.02, 0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0.02, 0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0.1,  0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0.01, 0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0.01, 0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0.02, 0,     0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0.01,  0,     0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0.01,  0,    0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0.05, 0,    0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0.005, 0,    0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0.005, 0,    0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0.01, 0,    0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0.005, 0,    0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0.005, 0,
+                           0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0.01]
+
+# 是否发布TF变换
+publish_tf: true
+
+# TF发布频率
+tf_publish_rate: 50.0
+
+# 是否在2D平面模式下运行
+two_d_mode: true
+
+# 滤波器更新频率
+frequency: 50.0
+
+# 传感器超时时间（秒）
+sensor_timeout: 0.1
+
+# 调试模式
+print_diagnostics: true

@@ -1,9 +1,0 @@
-<launch>
-  <!-- 比赛计时器节点 -->
-  <node name="competition_timer" pkg="competition_timer" type="competition_timer" output="screen">
-    <!-- 加载参数配置文件 -->
-    <rosparam file="$(find competition_timer)/config/competition_timer_carla_params_open.yaml" command="load"/>
-    
-  
-  </node>
-</launch>

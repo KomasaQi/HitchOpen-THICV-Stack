@@ -1,0 +1,4 @@
+int8 command  # 0=启动引擎, 1=停止引擎，2=喇叭
+---
+bool success
+string message

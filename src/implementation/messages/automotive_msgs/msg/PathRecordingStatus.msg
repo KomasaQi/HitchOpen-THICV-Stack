@@ -1,2 +1,0 @@
-bool is_recording
-string info

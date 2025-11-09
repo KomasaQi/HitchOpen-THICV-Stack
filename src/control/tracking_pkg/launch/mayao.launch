@@ -1,6 +1,0 @@
-<launch>
-
-    <node pkg="chassis_pkg" type="chassis_node.py" name="chassis_node" output="screen" />
-    <node pkg="tracking_pkg" type="tracking_node.py" name="tracking_node" output="screen" />
-    <node pkg="tracking_pkg" type="mayao_node.py" name="mayao_node" output="screen" />
-</launch>

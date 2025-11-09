@@ -238,17 +238,7 @@ class RaceSteeringTool:
             self.control_msg.gear = self.control_msg.GEAR_REVERSE
         elif key == 'p':
             self.control_msg.gear = self.control_msg.GEAR_PARK
-        
-        # 根据当前模式处理控制指令
-        if current_mode == self.control_msg.THROTTLE_BRAKE_ONLY:
-            self.handle_mode_0(key, dt)
-        elif current_mode == self.control_msg.DES_SPEED_ONLY:
-            self.handle_mode_1(key, dt)
-        elif current_mode == self.control_msg.DES_ACCEL_ONLY:
-            self.handle_mode_2(key, dt)
-        
-
-                
+          
             
         # 急停
         elif key == 'q':
@@ -272,6 +262,15 @@ class RaceSteeringTool:
         # 显示帮助
         elif key == 'h':
             self.print_help()
+        
+        # 根据当前模式处理控制指令
+        if current_mode == self.control_msg.THROTTLE_BRAKE_ONLY:
+            self.handle_mode_0(key, dt)
+        elif current_mode == self.control_msg.DES_SPEED_ONLY:
+            self.handle_mode_1(key, dt)
+        elif current_mode == self.control_msg.DES_ACCEL_ONLY:
+            self.handle_mode_2(key, dt)
+        
         
         # 通用控制指令
         if self.control_msg.steering_mode == self.control_msg.FRONT_STEERING_MODE:

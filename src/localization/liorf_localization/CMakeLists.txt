@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(liorf_localization)
+set(GTSAM_DIR "/usr/local/lib/cmake/GTSAM/")
+find_package(GTSAM REQUIRED)
+
+# 手动设置 GTSAM 的包含目录和库（解决警告）
+set(GTSAM_INCLUDE_DIRS ${GTSAM_INCLUDE_DIR})
+set(GTSAM_LIBRARIES gtsam)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
@@ -83,24 +89,25 @@ link_directories(
   ${GTSAM_LIBRARY_DIRS}
 )
 
+file(GLOB common_lib "lib/*.cpp")
 ###########
 ## Build ##
 ###########
 
 # Range Image Projection
-add_executable(${PROJECT_NAME}_imageProjection src/imageProjection.cpp)
+add_executable(${PROJECT_NAME}_imageProjection src/imageProjection.cpp ${common_lib})
 add_dependencies(${PROJECT_NAME}_imageProjection ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
-target_link_libraries(${PROJECT_NAME}_imageProjection libCommonLib.so ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(${PROJECT_NAME}_imageProjection ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # Mapping Optimization
-add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization.cpp)
+add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization.cpp ${common_lib})
 add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
-target_link_libraries(${PROJECT_NAME}_mapOptmization libCommonLib.so Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
+target_link_libraries(${PROJECT_NAME}_mapOptmization Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
 
 # IMU Preintegration
-add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)
-target_link_libraries(${PROJECT_NAME}_imuPreintegration libCommonLib.so Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
+add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp ${common_lib})
+target_link_libraries(${PROJECT_NAME}_imuPreintegration Boost::timer ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} gtsam)
 
 # Map Research
 add_executable(${PROJECT_NAME}_mapResearch src/mapResearch.cpp)

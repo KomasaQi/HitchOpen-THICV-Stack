@@ -1,7 +1,0 @@
-string input_pcd_dir
-string output_pcd_dir
-string filename  # "" for all pcds under input_pcd_dir
-float32 map_resolution
----
-bool success
-string message

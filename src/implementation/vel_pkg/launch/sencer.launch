@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+
+<launch>
+
+  <!-- RPLIDAR 驱动 -->
+  <include file="$(find rplidar_ros)/launch/rplidar_s2.launch"/>
+
+  <!-- 轮速传感器发布节点（串口接收） -->
+  <node pkg="ssr_pkg" type="angle_serial_reader_node.py" name="angle_serial_reader_node" output="screen" />
+
+  <!-- imu 节点 -->
+  <node pkg="vel_pkg" type="imu_node.py" name="imu_node" output="screen" />
+
+  <!-- odom 融合节点 -->
+  <include file="$(find my_odom_fusion)/launch/odom_fusion.launch"/>
+
+  <!-- 底盘控制节点 -->
+  <node pkg="vel_pkg" type="chassis_controller.py" name="chassis_node" output="screen" />
+  
+  <!-- hector_mapping模拟odom 节点 -->
+  <!-- <include file="$(find vel_pkg)/launch/hector_mapping2.launch"/> -->
+   
+</launch>

@@ -1,5 +1,0 @@
-float32 target_latitude
-float32 target_longitude
-
-float32 finish_latitude
-float32 finish_longitude

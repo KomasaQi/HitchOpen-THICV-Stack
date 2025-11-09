@@ -1,2 +1,0 @@
-geometry_msgs/PoseStamped charge_front
-geometry_msgs/PoseStamped charge_point

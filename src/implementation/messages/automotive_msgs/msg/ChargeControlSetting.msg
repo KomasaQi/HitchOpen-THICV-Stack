@@ -1,1 +1,0 @@
-float32 th_stop_distance

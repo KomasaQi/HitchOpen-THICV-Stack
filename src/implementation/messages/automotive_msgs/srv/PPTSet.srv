@@ -1,6 +1,0 @@
-bool set_target
-bool is_target_front
-geometry_msgs/PoseStamped[] waypoints
-float32[] speed_limit_list
----
-bool success

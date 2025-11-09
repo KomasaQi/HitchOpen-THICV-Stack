@@ -1,0 +1,19 @@
+<launch>
+    <!-- 参数定义 -->
+    <!-- <arg name="wheel_radius" default="0.0425"/>
+    <arg name="wheel_circle" default="360.0"/> -->
+
+    <!-- 启动 wheel_to_odom 节点 -->
+    <node pkg="my_odom_fusion" type="wheel_to_odom.py" name="wheel_to_odom" output="screen">
+    </node>
+
+    <include file="$(find vel_pkg)/launch/hector_mapping2.launch"/>
+
+    <!-- 启动 ekf_filter_node -->
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_filter_node" output="screen">
+        <!-- 加载参数文件 -->
+        <rosparam command="load" file="$(find my_odom_fusion)/config/ekf_params.yaml"/>
+         <!-- <remap from="/odometry/filtered" to="odom"/> -->
+    </node>
+
+</launch>

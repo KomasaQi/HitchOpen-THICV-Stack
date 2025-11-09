@@ -1,0 +1,7 @@
+<launch>
+    <node name="wheel_speed_sensor" pkg="truck_driver" type="wheel_speed_sensor_node.py" output="screen"/>
+    <node pkg="truck_driver" type="chassis_race_control.py" name="chassis_race_control" output="screen"/>
+    <node pkg="truck_driver" type="imu_node.py" name="tractor_imu_node" output="screen"/>
+    <node pkg="truck_driver" type="state_converter" name="state_converter_node" output="screen"/>
+
+</launch>

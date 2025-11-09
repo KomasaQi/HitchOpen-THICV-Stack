@@ -18,4 +18,5 @@
     <include file="$(find liorf)/launch/include/module_rviz_ouster.launch" />
     <node pkg="liorf" type="remove_nan.py" name="$(arg project)_remove_nan" output="screen"/>
 
+
 </launch>

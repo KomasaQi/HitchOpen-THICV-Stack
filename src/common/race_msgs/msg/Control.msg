@@ -19,7 +19,7 @@ int8 GEAR_6 = 6
 
 uint8 control_mode # 控制模式
 uint8 THROTTLE_BRAKE_ONLY = 0
-uint8 DES_SPEED_ONLY = 1
+uint8 DES_SPEED_ONLY = 1 
 uint8 DES_ACCEL_ONLY = 2
 bool emergency # 紧急制动标志
 bool hand_brake # 手刹标志

@@ -1,0 +1,3 @@
+bool lock  # true=开差速锁, false=关差速锁
+---
+bool success

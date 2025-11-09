@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 真实机器人设置 -->
+  <param name="use_sim_time" value="false"/>
+  
+  <!-- RPLIDAR 驱动 -->
+  <node name="rplidarNode" pkg="rplidar_ros" type="rplidarNode" output="screen">
+    <param name="serial_port" type="string" value="/dev/rplidar"/>  
+    <param name="serial_baudrate" type="int" value="1000000"/>
+    <param name="frame_id" type="string" value="laser"/>
+    <param name="inverted" type="bool" value="true"/>  <!-- 尝试设置为true -->
+    <param name="angle_compensate" type="bool" value="true"/>
+    <param name="scan_frequency" type="double" value="10.0"/>
+    <param name="auto_reconnect" type="bool" value="true"/>
+    <param name="timeout" type="int" value="1000"/>
+  </node>
+
+  <!-- 激光TF校正节点 -->
+  <node pkg="vel_pkg" type="laser_tf_corrector.py" name="laser_tf_corrector" output="screen"/>
+  
+  <!-- 使用标准odom坐标系 -->
+  <node pkg="tf" type="static_transform_publisher" name="odom_to_base_footprint"
+        args="0 0 0 0 0 0 odom base_footprint 100"/>
+        
+  <!-- 基础坐标系到base_link的变换 -->
+  <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_base_link"
+        args="0 0 0 0 0 0 base_footprint base_link 100"/>
+
+  <!-- Hector SLAM 配置 - 使用校正后的激光数据 -->
+  <arg name="tf_map_scanmatch_transform_frame_name" default="odom"/>
+  <arg name="base_frame" default="base_footprint"/>
+  <arg name="odom_frame" default="odom"/>
+  <arg name="pub_map_odom_transform" default="true"/>
+  <arg name="scan_subscriber_queue_size" default="30"/>  
+  <arg name="scan_topic" default="scan_corrected"/>  <!-- 使用校正后的激光数据 -->
+  <arg name="map_size" default="2048"/>
+  
+  <node pkg="hector_mapping" type="hector_mapping" name="hector_mapping" output="screen">
+    <!-- Frame names -->
+    <param name="map_frame" value="map" />
+    <param name="base_frame" value="$(arg base_frame)" />
+    <param name="odom_frame" value="$(arg odom_frame)" />
+    
+    <!-- Tf use -->
+    <param name="use_tf_scan_transformation" value="true"/>
+    <param name="use_tf_pose_start_estimate" value="false"/>
+    <param name="pub_map_odom_transform" value="$(arg pub_map_odom_transform)"/>
+    
+    <!-- 确保发布 odometry 数据 -->
+    <param name="pub_odometry" value="true"/>
+    
+    <!-- 将 scanmatch_odom 重映射为 odom -->
+    <remap from="scanmatch_odom" to="odom"/>
+    
+    <!-- Map size / start point -->
+    <param name="map_resolution" value="0.050"/>
+    <param name="map_size" value="$(arg map_size)"/>
+    <param name="map_start_x" value="0.5"/>
+    <param name="map_start_y" value="0.5" />
+    <param name="map_multi_res_levels" value="2" />
+    
+    <!-- Map update parameters -->
+    <param name="update_factor_free" value="0.4"/>
+    <param name="update_factor_occupied" value="0.9" />
+    <param name="map_update_distance_thresh" value="0.4"/>
+    <param name="map_update_angle_thresh" value="0.06" />
+    <param name="laser_z_min_value" value = "-1.0" />
+    <param name="laser_z_max_value" value = "1.0" />
+    
+    <!-- 时间设置 -->
+    <param name="tf_timeout" value="2.0"/>
+    
+    <!-- 指定变换发布到 odom 坐标系 -->
+    <param name="tf_map_scanmatch_transform_frame_name" value="$(arg tf_map_scanmatch_transform_frame_name)" />
+    
+    <!-- 防止重复数据警告 -->
+    <param name="pub_map_scanmatch_transform" value="false"/>
+    
+    <!-- Advertising config --> 
+    <param name="advertise_map_service" value="true"/>
+    <param name="scan_subscriber_queue_size" value="$(arg scan_subscriber_queue_size)"/>
+    <param name="scan_topic" value="$(arg scan_topic)"/>
+  </node>
+</launch>

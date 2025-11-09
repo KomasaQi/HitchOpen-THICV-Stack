@@ -1,0 +1,21 @@
+# 控制参数
+tracking:
+  # 纯跟踪参数
+  lookahead_distance: 1.0      # 前瞻距离
+  min_lookahead: 0.5          # 最小前瞻距离
+  max_lookahead: 2.0          # 最大前瞻距离
+  
+  # PID参数
+  kp_lateral: 0.8             # 横向误差比例系数
+  kp_heading: 0.5             # 航向误差比例系数
+  kd: 0.1                     # 微分系数
+  
+  # 速度参数
+  max_linear_speed: 0.5       # 最大线速度
+  max_angular_speed: 1.0      # 最大角速度
+  base_linear_speed: 0.3      # 基础线速度
+  
+  # 跟踪参数
+  goal_tolerance: 0.1         # 目标容差
+  timeout: 10.0               # 超时时间
+  

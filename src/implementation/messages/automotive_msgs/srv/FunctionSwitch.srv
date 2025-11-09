@@ -1,6 +1,0 @@
-uint8 switch_to
----
-uint8 current_function_status
-
-uint8 FUNCTION_ENABLE = 0
-uint8 FUNCTION_DISABLE = 1

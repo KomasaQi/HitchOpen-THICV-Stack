@@ -1,0 +1,7 @@
+<launch>
+
+
+  <node name="wheel_speed_sensor" pkg="truck_driver" type="wheel_speed_sensor_node.py" output="screen"/>
+
+</launch>
+

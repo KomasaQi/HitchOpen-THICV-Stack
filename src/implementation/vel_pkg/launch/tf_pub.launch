@@ -1,0 +1,4 @@
+<launch>
+  <include file="$(find rplidar_ros)/launch/rplidar_s2.launch"/>
+
+</launch>

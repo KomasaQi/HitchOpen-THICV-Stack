@@ -1,0 +1,20 @@
+<launch>
+
+
+    <!--- Run Rviz-->
+    <include file="$(find liorf_localization)/launch/include/module_truck_zhihui_rviz.launch" />
+    
+    <arg name="project" default="liorf_localization"/>
+    <!-- Parameters -->
+    <rosparam file="$(find liorf_localization)/config/localization_truck_zhihui.yaml" command="load" />
+
+    <!--- LOAM -->
+    <include file="$(find liorf_localization)/launch/include/module_loam_truck.launch" />;
+
+
+    <node pkg="liorf_localization" type="remove_nan.py" name="$(arg project)_remove_nan" output="screen"/>
+
+
+
+
+</launch>

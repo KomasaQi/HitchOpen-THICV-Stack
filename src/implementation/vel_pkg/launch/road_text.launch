@@ -1,0 +1,18 @@
+<launch>
+
+    <!-- 模型发布节点 -->
+    <include file="$(find truck_model)/launch/truck_model.launch"/>
+
+    <node pkg="vel_pkg" type="ref_path_pub_node.py" name="ref_path_pub_node" output="screen" />
+
+    <node pkg="vel_pkg" type="tracking_node.py" name="tracking_node" output="screen" />
+    <!-- <rosparam command="load" file="$(find vel_pkg)/config/path_tracking.yaml"/> -->
+    
+
+    <!-- <node pkg="vel_pkg" type="ref_pub_text.py" name="ref_path_publisher" output="screen" /> -->
+
+    <!-- <node pkg="ssr_pkg" type="angle_serial_reader_node.py" name="angle_serial_reader_node" output="screen" /> -->
+    <!-- <node pkg="vel_pkg" type="wheel_speed_node.py" name="wheel_speed_node" output="screen" /> -->
+
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find vel_pkg)/rviz/dlc.rviz"/>
+</launch>

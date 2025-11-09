@@ -121,8 +121,6 @@ private:
     double start_detection_distance;   // 起点检测距离阈值（m）
     double end_detection_distance;     // 终点检测距离阈值（m）
     double distance_threshold_to_leave_start; // 离开起点的距离阈值（避免重复计数）
-    double emergent_lateral_error_threshold; // 紧急横向误差阈值（m）
-    double emergent_heading_angle_error_threshold; // 紧急航向角误差阈值（rad）
 };
 
 #endif // COMPETITION_TIMER_H
