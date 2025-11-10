@@ -14,7 +14,7 @@ class TrajectoryAnalyzer:
         
         # 参数设置（可在launch文件或参数服务器中配置）
         self.distance_threshold = rospy.get_param('~distance_threshold', 0.1)  # 距离阈值(m)
-        self.max_points = rospy.get_param('~max_points', 100)                  # 最大轨迹点数
+        self.max_points = rospy.get_param('~max_points', 200)                  # 最大轨迹点数
         self.wheelbase = rospy.get_param('~wheelbase', 0.3)                    # 车辆轴距(m)
         
         # 存储轨迹点的队列（存储PoseStamped类型，包含XYZ和时间戳）
@@ -22,7 +22,7 @@ class TrajectoryAnalyzer:
         self.last_recorded_point = None  # 上一个记录的点（仅用于XY距离计算）
         
         # 订阅odometry话题
-        rospy.Subscriber('/liorf/mapping/odometry', Odometry, self.odometry_callback)
+        rospy.Subscriber('/liorf_localization/mapping/odometry', Odometry, self.odometry_callback)
         
         # 发布轨迹可视化话题（nav_msgs/Path类型，带时间戳）
         self.traj_pub = rospy.Publisher('/traj_vis', Path, queue_size=10)

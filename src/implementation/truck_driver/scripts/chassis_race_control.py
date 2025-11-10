@@ -54,7 +54,7 @@ MAX_BRAKE_VALUE = 0.5 # 最大刹车值限制(防止爆缸)
 #####################################################
 #                   车辆自身参数
 # ================================================
-MAX_STEER_ANGLE = 85.0  # 最大转向角度(度)
+MAX_STEER_ANGLE = 15.0  # 最大转向角度(度)
 #####################################################
 
 
@@ -188,6 +188,7 @@ class ChassisNode:
         rospy.loginfo("最大转向角度: %.1f度 (%.3f弧度)", MAX_STEER_ANGLE, math.radians(MAX_STEER_ANGLE))
     
 
+
     
     def speedometer_callback(self, msg):
         """
@@ -240,7 +241,13 @@ class ChassisNode:
         
         # 将转向角度(弧度)转换为PWM信号
         # 转向通道 (ch4): 1500 ± (转向角度/最大转向角度) * 500
-        steering_ratio =  target_steering / math.radians(MAX_STEER_ANGLE)
+        # steering_ratio =  target_steering / math.radians(MAX_STEER_ANGLE)
+        
+        target_steering_2 = target_steering * target_steering
+        target_steering_3 = target_steering_2 * target_steering
+        steering_ratio = 7.8445*target_steering_3 + 3.3171*target_steering_2 + 2.8149*target_steering + 0.071431
+        steering_ratio += 0.0349
+        rospy.logwarn("角度指令：%.2f", steering_ratio)
         steering_pwm = int(1500 + steering_ratio * 500)
         steering_pwm = max(1000, min(2000, steering_pwm))
         
