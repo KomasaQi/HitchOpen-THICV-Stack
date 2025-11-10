@@ -1,0 +1,30 @@
+<launch>
+    <!-- 控制器管理器节点 -->
+    <node pkg="race_tracker" 
+          type="controller_manager" 
+          name="controller_manager" 
+          output="screen"
+          respawn="false"> <!-- 崩溃后不自动重启 -->
+
+        <!-- 1. 核心参数配置 -->
+        <param name="control_freq" type="double" value="20.0" /> <!-- 控制频率：10Hz -->
+        <param name="topic/local_path" type="string" value="/race/local_path" />
+        <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
+        <param name="topic/control" type="string" value="/race/control" />
+        <param name="topic/flag" type="string" value="/race/flag" />
+        <param name="ego_frame_id" type="string" value="ego_vehicle" />
+
+        <!-- 2. 插件列表（顺序：横向控制器 -> 纵向控制器，后执行的可覆盖前执行的） -->
+        <rosparam param="plugins">
+            - race_tracker::PIDTracker  <!-- 横向控制：PID -->
+            - race_tracker::PIDController          <!-- 纵向控制：PID -->
+        </rosparam>
+
+        <!-- 3. 加载控制器参数 -->
+        <rosparam command="load" file="$(find race_tracker)/config/pid_params.yaml" />
+
+    </node>
+
+    <!-- 可选：启动rqt_graph查看节点关系 -->
+    <!-- <node pkg="rqt_graph" type="rqt_graph" name="rqt_graph" output="screen" /> -->
+</launch>

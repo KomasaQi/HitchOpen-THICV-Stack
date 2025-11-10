@@ -27,3 +27,10 @@ end_detection_distance: 2.0
 
 # 初始旗帜状态 (使用名称而非数值)
 initial_flag: "RED"  # 可选值: RED, GREEN, BLACK, G5, G10, G15, G20, G40, G60, G80
+# 紧急状态阈值配置
+emergent_heading_angle_error_threshold: 1.6  # 紧急航向角误差阈值（rad）
+emergent_lateral_error_threshold: 11.5        # 紧急横向误差阈值（m）
+
+    # private_nh.param("emergent_lateral_error_threshold", emergent_lateral_error_threshold, 1.5); // 紧急横向误差阈值（m）
+    # private_nh.param("emergent_heading_angle_error_threshold", emergent_heading_angle_error_threshold, 0.6); // 紧急航向角误差阈值（rad）
+    

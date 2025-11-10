@@ -1,0 +1,23 @@
+pid_controller:
+  kp: 0.6
+  ki: 0.05
+  kd: 0.1
+  max_throttle: 0.8
+  max_brake: 0.8
+  integral_limit: 2.0
+  speed_tolerance: 0.2
+  min_target_speed: 0.5
+  predict_time_horizon: 0.5  # 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）
+
+pid_tracker:
+  min_lookahead_distance: 3.0        # 最小预瞄距离（m）
+  lookahead_speed_coeff: 0.5         # 预瞄距离与速度的系数
+  min_path_points: 3                  # 最小路径点数
+  max_steering_angle: 0.4           # 最大转向角度（rad）
+  lateral_error_weight: 0.2          # 横向误差权重
+  heading_error_weight: 0.9          # 航向误差权重
+  kp: 0.3                            # 比例增益
+  ki: 0.1                            # 积分增益
+  kd: 0.5                            # 微分增益
+  integral_limit: 0.2                # 积分限幅
+
