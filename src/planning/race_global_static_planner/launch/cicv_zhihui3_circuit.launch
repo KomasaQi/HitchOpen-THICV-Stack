@@ -1,0 +1,17 @@
+<launch>
+    <!-- 新增：打印参数文件的完整路径 -->
+    <param name="debug_params_path" value="$(find race_global_static_planner)/config/Cicv_zhihui3/zhihui3_circuit_params.yaml" />
+    
+    <!-- 加载参数配置文件 -->
+    <rosparam command="load" file="$(find race_global_static_planner)/config/Cicv_zhihui3/zhihui3_circuit_params.yaml" ns="race_global_static_planner" />
+    
+    <!-- 启动race_global_static_planner节点 -->
+    <node name="race_global_static_planner" pkg="race_global_static_planner" type="race_global_static_planner" output="screen">
+        <!-- 可以在这里覆盖配置文件中的参数 -->
+        <!-- <param name="publish_rate" value="20.0" /> -->
+    </node>
+
+    <!-- 启动rviz -->
+    <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find race_global_static_planner)/config/carla_planning.rviz" output="screen" /> -->
+
+</launch>

@@ -1,0 +1,54 @@
+# ==============================================================================
+# Race Global Static Planner 参数配置
+# 路径：$(find race_global_static_planner)/config/params.yaml
+# ==============================================================================
+
+# -------------------------- CSV路径配置 --------------------------
+# 全局路径CSV文件路径（为空时使用默认路径：包内config/corsa.csv）
+csv_file_path: "config/Cicv_zhihui3/Zhihui3_circuit.csv"
+
+enable_closed_loop: true # 是否处理为闭环路径
+
+# -------------------------- 发布频率配置 --------------------------
+# 全局路径发布频率（Hz），默认1Hz（全局路径静态，无需高频发布）
+global_path_publish_rate: 1.0
+
+# 局部路径发布频率（Hz），默认10Hz（与车辆状态更新频率同步）
+local_path_publish_rate: 10.0
+
+# -------------------------- 可视化配置 --------------------------
+# 是否发布全局路径可视化话题（/race/global_path_vis，nav_msgs/Path）
+global_visualization_enable: true
+
+# 是否发布局部路径可视化话题（/race/local_path_vis，nav_msgs/Path）
+local_visualization_enable: true
+
+# -------------------------- 局部路径范围配置 --------------------------
+# 局部路径向前覆盖距离（车辆前方的路径长度，单位：米）
+local_path_forward_distance: 5.0
+
+# 局部路径向后覆盖距离（车辆后方的路径长度，单位：米）
+local_path_backward_distance: 0.8
+
+# -------------------------- 距离计算权重配置 --------------------------
+# 位置距离权重（X轴：东向）
+distance_weight_x: 14.0
+
+# 位置距离权重（Y轴：北向）
+distance_weight_y: 14.0
+
+# 位置距离权重（Z轴：天向，默认权重较低，忽略高度影响）
+distance_weight_z: 0.0
+
+# 航向角距离权重（影响最近点匹配的航向优先级）
+distance_weight_heading: 100.0
+
+
+map_frame: "map" # 地图坐标系
+
+
+vehicle_status_topic: "/race/vehicle_state" # 车辆状态话题
+global_path_topic: "/race/global_path" # 全局路径话题
+local_path_topic: "/race/local_path" # 局部路径话题
+global_path_vis_topic: "/race/global_path_vis" # 全局路径可视化话题
+local_path_vis_topic: "/race/local_path_vis" # 局部路径可视化话题
