@@ -48,10 +48,12 @@ add_library(pid_controller plugins/pid_controller.cpp)
 add_library(nmpc_controller plugins/nmpc_controller.cpp)
 add_library(nmpc_lateral_controller plugins/nmpc_lateral_controller.cpp)
 add_library(anti_rollover_controller plugins/anti_rollover_controller.cpp)
+add_library(pid_tracker plugins/pid_tracker.cpp)
 
 # Link against the base class library
 target_link_libraries(pure_pursuit_controller ${catkin_LIBRARIES})
 target_link_libraries(pid_controller ${catkin_LIBRARIES})
+target_link_libraries(pid_tracker ${catkin_LIBRARIES})
 target_link_libraries(nmpc_controller ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
@@ -72,6 +74,7 @@ install(TARGETS
   pid_controller
   nmpc_controller
   nmpc_lateral_controller
+  pid_tracker
   anti_rollover_controller
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

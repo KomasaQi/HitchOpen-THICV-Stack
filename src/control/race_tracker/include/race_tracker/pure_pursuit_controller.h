@@ -68,7 +68,7 @@ private:
     double wheelbase_;           // 车辆轴距（m），默认2.8（需根据实车调整）
     double max_steering_angle_;  // 最大转向角（rad），默认0.87（约50度）
     double min_path_points_;     // 最小有效路径点数，默认3（避免路径过短）
-
+    double amplify_coeff_; // 前轮转角缩小
     // 新增：动态预瞄距离参数
     double min_lookahead_distance_;  // 最小预瞄距离（m）
     double lookahead_speed_coeff_;   // 速度系数（s），预瞄距离 = 最小距离 + 速度×系数    

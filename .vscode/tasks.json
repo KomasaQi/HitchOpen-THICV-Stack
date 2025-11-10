@@ -5,7 +5,7 @@
 			"type": "catkin_make",
 			"args": [
 				"--directory",
-				"/home/komasa/HitchOpen-THICV-Stack",
+				"/home/jetson/komasa/HitchOpen-THICV-Stack",
 				"-DCMAKE_BUILD_TYPE=RelWithDebInfo"
 			],
 			"problemMatcher": [

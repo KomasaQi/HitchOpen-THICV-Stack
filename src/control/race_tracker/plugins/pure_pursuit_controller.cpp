@@ -9,6 +9,7 @@ PurePursuitController::PurePursuitController()
       max_steering_angle_(0.87),
       min_path_points_(3),
       min_lookahead_distance_(3.0),
+      amplify_coeff_(1.0),
       lookahead_speed_coeff_(0.5) {}
 
 bool PurePursuitController::initialize(ros::NodeHandle& nh) {
@@ -26,7 +27,7 @@ bool PurePursuitController::initialize(ros::NodeHandle& nh) {
     nh_pursuit.param("min_lookahead_distance", min_lookahead_distance_, 3.0);
     nh_pursuit.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
 
-
+    nh_pursuit.param("amplify_coeff", amplify_coeff_, 1.0);
 
     // 打印参数加载日志
     logParamLoad("wheelbase", wheelbase_, 2.8);
@@ -104,7 +105,7 @@ void PurePursuitController::computeControl(
     }
 
     // 6. 赋值到控制指令（横向控制相关字段）
-    control_msg->lateral.steering_angle = steering_angle;
+    control_msg->lateral.steering_angle = steering_angle*amplify_coeff_;
     control_msg->lateral.steering_angle_velocity = steering_angle / dt; // 转向角速度（简化计算）
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
 

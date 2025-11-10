@@ -48,3 +48,13 @@
         </description>
     </class>
 </library>
+
+<library path="lib/libpid_tracker">
+    <class name="race_tracker::PIDTracker"
+           type="race_tracker::PIDTracker"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            PID tracker for lateral control of semi-trailer tank truck.
+        </description>
+    </class>
+</library>
