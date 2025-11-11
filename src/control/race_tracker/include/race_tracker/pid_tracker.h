@@ -36,7 +36,9 @@ private:
      */
     geometry_msgs::Point findLookaheadPoint(
         const race_msgs::VehicleStatusConstPtr& vehicle_status,
-        const race_msgs::PathConstPtr& path);
+        const race_msgs::PathConstPtr& path,
+        size_t closest_idx); // 新增：传入已计算的最近点索引
+
 
     /**
      * @brief 转换点到车辆坐标系
@@ -60,12 +62,13 @@ private:
      * @param vehicle_pose 车辆位姿
      * @param path 局部路径
      * @param closest_idx 最近路径点索引
+     * @param lookahead_point 预瞄点位置
      * @return 航向误差（rad）
      */
     double calculateHeadingError(
         const geometry_msgs::Pose& vehicle_pose,
-        const race_msgs::PathConstPtr& path,
-        size_t closest_idx);
+        const geometry_msgs::Point& closest_point, // 最近点位置
+        const geometry_msgs::Point& lookahead_point); // 预瞄点位置
 
     /**
      * @brief 重置PID状态
@@ -94,6 +97,9 @@ private:
     // PID状态变量
     double last_error_;              // 上一次综合误差
     double integral_error_;          // 积分误差累积
+
+    // 动力学相关参数
+    double max_steering_rate_;     // 最大转向角变化率（rad/s）
 };
 
 } // namespace race_tracker

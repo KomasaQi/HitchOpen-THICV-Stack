@@ -8,6 +8,7 @@ Panels:
         - /links1/map1
         - /links1/base_link1
         - /Odometry1
+        - /Odometry1/Odom IMU1
         - /Point Cloud1
         - /Point Cloud1/Velodyne1
         - /Mapping1
@@ -108,7 +109,7 @@ Visualization Manager:
             Shaft Length: 1
             Shaft Radius: 0.05000000074505806
             Value: Axes
-          Topic: /odometry/imu
+          Topic: /race/pose_vis
           Unreliable: false
           Value: true
         - Angle Tolerance: 0.10000000149011612
@@ -153,8 +154,8 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 5.111390590667725
-            Min Value: -0.9117892384529114
+            Max Value: 3.6668291091918945
+            Min Value: -1.0351921319961548
             Value: true
           Axis: Z
           Channel Name: intensity
