@@ -62,9 +62,9 @@ bool PIDTracker::initialize(ros::NodeHandle& nh) {
         ROS_WARN("[%s] 预瞄速度系数过小，重置为0.1", getName().c_str());
         lookahead_speed_coeff_ = 0.1;
     }
-    if (integral_limit_ < 0.1) {
+    if (integral_limit_ < 0.0000001) {
         ROS_WARN("[%s] 积分限幅过小，重置为0.1", getName().c_str());
-        integral_limit_ = 0.1;
+        integral_limit_ = 0.0000001;
     }
     if (lateral_error_weight_ < 0 || lateral_error_weight_ > 100) {
         ROS_WARN("[%s] 横向误差权重无效，重置为0.7", getName().c_str());

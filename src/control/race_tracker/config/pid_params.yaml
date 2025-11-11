@@ -16,9 +16,8 @@ pid_tracker:
   max_steering_angle: 0.20           # 最大转向角度（rad）
   lateral_error_weight: 2.0          # 横向误差权重
   heading_error_weight: 0.9          # 航向误差权重
-  kp: 0.02                            # 比例增益
-  ki: 0.002                            # 积分增益
-  kd: 0.0
-  6                            # 微分增益
-  integral_limit: 1.0                # 积分限幅
+  kp: 0.007                            # 比例增益
+  ki: 0.00001                            # 积分增益
+  kd: 0.007                           # 微分增益
+  integral_limit: 0.0001                # 积分限幅
 

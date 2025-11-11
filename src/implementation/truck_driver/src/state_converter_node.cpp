@@ -34,6 +34,7 @@ private:
     
     // 发布者
     ros::Publisher vehicle_state_pub_;
+    ros::Publisher vehicle_pose_vis_pub_;
     
     // 存储接收到的消息
     sensor_msgs::Imu imu_msg_;
@@ -60,9 +61,11 @@ private:
 
     // 不断被修改用于发布的状态
     race_msgs::VehicleStatus state_msg_;
+    nav_msgs::Odometry pose_vis_msg_; // 新增：用于可视化车辆状态的位姿消息
 
     ros::Timer track_timer_;       // 新增：跟踪误差计算计时器
     ros::Timer publish_timer_;     // 新增：状态发布计时器
+    
     
 public:
     StateConverter() : private_nh_("~"), 
@@ -87,6 +90,7 @@ public:
 
         // 初始化发布者
         vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 10);
+        vehicle_pose_vis_pub_ = nh_.advertise<nav_msgs::Odometry>("/race/pose_vis", 10);
         
         // 修复：计时器赋值给类成员变量（生命周期与类一致）
         track_timer_ = nh_.createTimer(ros::Duration(0.05), &StateConverter::trackCallback, this);
@@ -253,6 +257,8 @@ public:
         // 填充header
         state_msg_.header = odom_msg_.header;
         state_msg_.child_frame_id = "ego_vehicle";
+        pose_vis_msg_.header = odom_msg_.header;
+        pose_vis_msg_.child_frame_id = odom_msg_.child_frame_id;
         
         // 填充pose
         state_msg_.pose = odom_msg_.pose.pose;
@@ -265,6 +271,10 @@ public:
         // 实际Pose是上述pose向后挪动0.3m（轴距）
         state_msg_.pose.position.x -= 0.3 * cos(state_msg_.euler.yaw);
         state_msg_.pose.position.y -= 0.3 * sin(state_msg_.euler.yaw);
+
+        pose_vis_msg_.pose.pose = state_msg_.pose;
+        pose_vis_msg_.twist.twist = odom_msg_.twist.twist;
+    
         
         // 填充速度信息
         state_msg_.vel.linear.x = speedometer_msg_.data;
@@ -309,6 +319,7 @@ public:
         
         // 发布消息
         vehicle_state_pub_.publish(state_msg_);
+        vehicle_pose_vis_pub_.publish(pose_vis_msg_);
     }
 };
 
