@@ -129,5 +129,5 @@
         "dense": "cpp",
         "charconv": "cpp"
     },
-    "cmake.sourceDirectory": "/home/komasa/HitchOpen-THICV-Stack/src/mapping/liorf"
+    "cmake.sourceDirectory": "/home/jetson/komasa/HitchOpen-THICV-Stack/src/implementation/rviz_satellite"
 }

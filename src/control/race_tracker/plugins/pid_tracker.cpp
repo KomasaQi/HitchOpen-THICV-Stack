@@ -131,7 +131,7 @@ void PIDTracker::computeControl(
 
     double i_term = ki_ * integral_error_;
     double d_term = kd_ * (combined_error - last_error_) / dt;
-    double steering_angle_d = p_term + i_term + d_term;
+    double steering_angle_d = p_term + i_term + d_term - last_steering_angle_;
     double max_steering_increment = max_steering_rate_ * dt;
     
     if (steering_angle_d > max_steering_increment){
@@ -170,7 +170,8 @@ geometry_msgs::Point PIDTracker::findLookaheadPoint(
     ROS_INFO("[%s] 动态预瞄距离: %.2f m（速度: %.2f m/s）",
              getName().c_str(), current_lookahead_, current_speed);
 
-    const auto& vehicle_pos = vehicle_status->pose.position;
+    // const auto& vehicle_pos = vehicle_status->pose.position;
+    const auto& vehicle_pos = path->points[closest_idx].pose.position;
     double lookahead_sq = current_lookahead_ * current_lookahead_;
 
     // 直接使用传入的closest_idx，删除重复的最近点计算（核心优化）
