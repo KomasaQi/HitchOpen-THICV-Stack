@@ -1,5 +1,5 @@
 pid_controller:
-  kp: 0.3
+  kp: 0.4
   ki: 0.1
   kd: 0.01
   max_throttle: 1.0
@@ -13,7 +13,7 @@ pure_pursuit:
   wheelbase: 0.3
   max_steering_angle: 0.4
   min_path_point: 3.0
-  min_lookahead_distance: 0.5
-  lookahead_speed_coeff: 0.063
+  min_lookahead_distance: 0.4
+  lookahead_speed_coeff: 0.7
   predict_time_horizon: 0.5
-  amplify_coeff: 1.0
+  amplify_coeff: 0.3
