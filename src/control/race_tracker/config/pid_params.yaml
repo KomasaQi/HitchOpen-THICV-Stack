@@ -16,6 +16,7 @@ pid_tracker:
   max_steering_angle: 0.4           # 最大转向角度（rad）
   lateral_error_weight: 0.2          # 横向误差权重
   heading_error_weight: 0.9          # 航向误差权重
+  max_steering_rate: 0.4             # 最大转向比（用于限制最大转向角度）
   kp: 0.3                            # 比例增益
   ki: 0.1                            # 积分增益
   kd: 0.5                            # 微分增益

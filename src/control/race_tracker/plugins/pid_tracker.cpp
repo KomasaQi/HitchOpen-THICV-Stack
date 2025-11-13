@@ -17,6 +17,8 @@ PIDTracker::PIDTracker()
       lateral_error_weight_(0.7),
       heading_error_weight_(0.3),
       last_error_(0.0),
+      last_steering_angle_(0.0),
+      max_steering_rate_(0.2),
       integral_error_(0.0) {}
 
 bool PIDTracker::initialize(ros::NodeHandle& nh) {
@@ -40,6 +42,9 @@ bool PIDTracker::initialize(ros::NodeHandle& nh) {
     nh_pid.param("lateral_error_weight", lateral_error_weight_, 0.7);
     nh_pid.param("heading_error_weight", heading_error_weight_, 0.3);
 
+    // 加载动力学参数
+    nh_pid.param("max_steering_rate", max_steering_rate_, 0.2);
+
     // 打印参数日志
     logParamLoad("min_lookahead_distance", min_lookahead_distance_, 3.0);
     logParamLoad("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
@@ -51,33 +56,12 @@ bool PIDTracker::initialize(ros::NodeHandle& nh) {
     logParamLoad("max_steering_angle", max_steering_angle_, 0.87);
     logParamLoad("lateral_error_weight", lateral_error_weight_, 0.7);
     logParamLoad("heading_error_weight", heading_error_weight_, 0.3);
+    logParamLoad("max_steering_rate", max_steering_rate_, 0.2);
 
-    // 参数有效性检查
-    if (min_lookahead_distance_ < 1.0) {
-        ROS_WARN("[%s] 最小预瞄距离过小，重置为1.0m", getName().c_str());
-        min_lookahead_distance_ = 1.0;
-    }
-    if (lookahead_speed_coeff_ < 0.1) {
-        ROS_WARN("[%s] 预瞄速度系数过小，重置为0.1", getName().c_str());
-        lookahead_speed_coeff_ = 0.1;
-    }
-    if (integral_limit_ < 0.1) {
-        ROS_WARN("[%s] 积分限幅过小，重置为0.1", getName().c_str());
-        integral_limit_ = 0.1;
-    }
-    if (lateral_error_weight_ < 0 || lateral_error_weight_ > 1) {
-        ROS_WARN("[%s] 横向误差权重无效，重置为0.7", getName().c_str());
-        lateral_error_weight_ = 0.7;
-    }
-    if (heading_error_weight_ < 0 || heading_error_weight_ > 1) {
-        ROS_WARN("[%s] 航向误差权重无效，重置为0.3", getName().c_str());
-        heading_error_weight_ = 0.3;
-    }
 
     current_lookahead_ = min_lookahead_distance_;
     return true;
 }
-
 void PIDTracker::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
     const race_msgs::PathConstPtr& path,
@@ -85,7 +69,7 @@ void PIDTracker::computeControl(
     const double dt,
     const race_msgs::Flag::ConstPtr& flag) {
 
-    // 输入有效性检查
+    // 输入有效性检查（不变）
     if (!vehicle_status || !path || !control_msg) {
         ROS_ERROR("[%s] 输入数据为空", getName().c_str());
         control_msg->lateral.steering_angle = 0.0;
@@ -108,14 +92,7 @@ void PIDTracker::computeControl(
         return;
     }
 
-    // 1. 查找预瞄点
-    geometry_msgs::Point lookahead_point = findLookaheadPoint(vehicle_status, path);
-
-    // 2. 转换到车辆坐标系
-    geometry_msgs::Point veh_lookahead = transformToVehicleFrame(lookahead_point, vehicle_status->pose);
-    double lateral_error = veh_lookahead.y;  // 横向误差（车辆坐标系y轴）
-
-    // 3. 计算最近路径点索引
+    // 1. 先计算【最近点索引】（核心顺序调整：先找最近点，再找预瞄点）
     const auto& vehicle_pos = vehicle_status->pose.position;
     double min_dist_sq = std::numeric_limits<double>::max();
     size_t closest_idx = 0;
@@ -128,15 +105,22 @@ void PIDTracker::computeControl(
             closest_idx = i;
         }
     }
+    const geometry_msgs::Point& closest_point = path->points[closest_idx].pose.position; // 最近点位置
 
-    // 4. 计算航向误差
-    double heading_error = calculateHeadingError(vehicle_status->pose, path, closest_idx);
+    // 2. 查找预瞄点（传入closest_idx，避免重复计算）
+    geometry_msgs::Point lookahead_point = findLookaheadPoint(vehicle_status, path, closest_idx);
 
-    // 5. 计算综合误差（带权重）
+    // 3. 计算【横向误差】：最近点转换到自车坐标系的y值（核心修改）
+    geometry_msgs::Point veh_closest = transformToVehicleFrame(closest_point, vehicle_status->pose);
+    double lateral_error = veh_closest.y; // 横向误差 = 最近点在自车坐标系的y坐标
+
+    // 4. 计算【航向误差】：自车航向 vs 最近点-预瞄点连线航向（核心修改）
+    double heading_error = calculateHeadingError(vehicle_status->pose, closest_point, lookahead_point);
+
+    // 5. 后续综合误差、PID计算等逻辑（不变）
     double combined_error = lateral_error * lateral_error_weight_ + 
                            heading_error * heading_error_weight_;
 
-    // 6. PID控制计算
     double p_term = kp_ * combined_error;
     integral_error_ += combined_error * dt;
     if (integral_error_ > integral_limit_) {
@@ -147,54 +131,51 @@ void PIDTracker::computeControl(
 
     double i_term = ki_ * integral_error_;
     double d_term = kd_ * (combined_error - last_error_) / dt;
-    double steering_angle = p_term + i_term + d_term;
+    double steering_angle_d = p_term + i_term + d_term - last_steering_angle_;
+    double max_steering_increment = max_steering_rate_ * dt;
+    
+    if (steering_angle_d > max_steering_increment){
+        steering_angle_d = max_steering_increment;
+    } else if (steering_angle_d < -max_steering_increment){
+        steering_angle_d = -max_steering_increment;
+    }
+    double steering_angle = last_steering_angle_ + steering_angle_d;
+    last_steering_angle_ = steering_angle;
 
-    // 7. 限制转向角
+    // 限制转向角（不变）
     if (steering_angle > max_steering_angle_) {
         steering_angle = max_steering_angle_;
     } else if (steering_angle < -max_steering_angle_) {
         steering_angle = -max_steering_angle_;
     }
 
-    // 8. 更新控制指令
+    // 更新控制指令（不变）
     control_msg->lateral.steering_angle = steering_angle;
     control_msg->lateral.steering_angle_velocity = steering_angle / dt;
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
 
-    // 9. 保存当前误差
     last_error_ = combined_error;
 
     ROS_INFO("[%s] 横向误差: %.2f, 航向误差: %.2f, 综合误差: %.2f, 转向角: %.2f rad",
              getName().c_str(), lateral_error, heading_error, combined_error, steering_angle);
 }
-
 geometry_msgs::Point PIDTracker::findLookaheadPoint(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
-    const race_msgs::PathConstPtr& path) {
+    const race_msgs::PathConstPtr& path,
+    size_t closest_idx) { // 新增参数：已计算的最近点索引
 
-    // 计算动态预瞄距离
+    // 计算动态预瞄距离（不变）
     double current_speed = std::fabs(vehicle_status->vel.linear.x);
     current_lookahead_ = calculateDynamicLookahead(current_speed);
     ROS_INFO("[%s] 动态预瞄距离: %.2f m（速度: %.2f m/s）",
              getName().c_str(), current_lookahead_, current_speed);
 
-    const auto& vehicle_pos = vehicle_status->pose.position;
+    // const auto& vehicle_pos = vehicle_status->pose.position;
+    const auto& vehicle_pos = path->points[closest_idx].pose.position;
     double lookahead_sq = current_lookahead_ * current_lookahead_;
 
-    // 找到最近点
-    double min_dist_sq = std::numeric_limits<double>::max();
-    size_t closest_idx = 0;
-    for (size_t i = 0; i < path->points.size(); ++i) {
-        const auto& pos = path->points[i].pose.position;
-        double dist_sq = (pos.x - vehicle_pos.x) * (pos.x - vehicle_pos.x) +
-                        (pos.y - vehicle_pos.y) * (pos.y - vehicle_pos.y);
-        if (dist_sq < min_dist_sq) {
-            min_dist_sq = dist_sq;
-            closest_idx = i;
-        }
-    }
-
-    // 从最近点向后找满足预瞄距离的点
+    // 直接使用传入的closest_idx，删除重复的最近点计算（核心优化）
+    // 从最近点向后找满足预瞄距离的点（逻辑不变）
     for (size_t i = closest_idx; i < path->points.size(); ++i) {
         const auto& pos = path->points[i].pose.position;
         double dist_sq = (pos.x - vehicle_pos.x) * (pos.x - vehicle_pos.x) +
@@ -204,7 +185,7 @@ geometry_msgs::Point PIDTracker::findLookaheadPoint(
         }
     }
 
-    // 未找到则返回最后一个点
+    // 未找到则返回最后一个点（不变）
     ROS_WARN("[%s] 未找到满足预瞄距离的点，使用路径终点", getName().c_str());
     return path->points.back().pose.position;
 }
@@ -232,30 +213,34 @@ double PIDTracker::calculateDynamicLookahead(double current_speed) {
 
 double PIDTracker::calculateHeadingError(
     const geometry_msgs::Pose& vehicle_pose,
-    const race_msgs::PathConstPtr& path,
-    size_t closest_idx) {
+    const geometry_msgs::Point& closest_point, // 最近点位置
+    const geometry_msgs::Point& lookahead_point) { // 预瞄点位置
 
-    // 车辆当前航向角
+    // 1. 车辆当前航向角（不变）
     double vehicle_yaw = tf::getYaw(vehicle_pose.orientation);
 
-    // 路径方向（取最近点和下一个点的方向）
-    size_t next_idx = std::min(closest_idx + 1, path->points.size() - 1);
-    const auto& curr_path_pose = path->points[closest_idx].pose;
-    const auto& next_path_pose = path->points[next_idx].pose;
+    // 2. 路径方向：最近点 → 预瞄点的连线方向（核心修改）
+    double path_dx = lookahead_point.x - closest_point.x;
+    double path_dy = lookahead_point.y - closest_point.y;
 
-    double path_dx = next_path_pose.position.x - curr_path_pose.position.x;
-    double path_dy = next_path_pose.position.y - curr_path_pose.position.y;
-    double path_yaw = std::atan2(path_dy, path_dx);
+    // 避免除以0（若最近点和预瞄点重合，默认路径方向与车辆航向一致）
+    if (std::fabs(path_dx) < 1e-6 && std::fabs(path_dy) < 1e-6) {
+        ROS_WARN("[%s] 最近点与预瞄点重合，航向误差设为0", getName().c_str());
+        return 0.0;
+    }
 
-    // 计算航向误差（归一化到[-π, π]）
+    double path_yaw = std::atan2(path_dy, path_dx); // 路径航向角
+
+    // 3. 计算航向误差（归一化到[-π, π]，逻辑不变）
     double error = path_yaw - vehicle_yaw;
-    error = std::atan2(std::sin(error), std::cos(error));  // 角度归一化
+    error = std::atan2(std::sin(error), std::cos(error)); // 角度归一化
     return error;
 }
 
 void PIDTracker::resetPID() {
     last_error_ = 0.0;
     integral_error_ = 0.0;
+    last_steering_angle_ = 0.0; // 新增：重置上一时刻转向角，避免重启时突变
 }
 
 } // namespace race_tracker
