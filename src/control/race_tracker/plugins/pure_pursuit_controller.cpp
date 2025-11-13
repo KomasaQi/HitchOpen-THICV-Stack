@@ -1,6 +1,7 @@
 #include "race_tracker/pure_pursuit_controller.h"
 #include <pluginlib/class_list_macros.h>
 #include <tf/transform_datatypes.h>
+// #include <curvature.h>
 
 namespace race_tracker {
 
