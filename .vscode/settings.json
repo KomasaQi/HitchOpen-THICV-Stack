@@ -127,7 +127,10 @@
         "ranges": "cpp",
         "span": "cpp",
         "dense": "cpp",
-        "charconv": "cpp"
+        "charconv": "cpp",
+        "csignal": "cpp",
+        "cuchar": "cpp",
+        "scoped_allocator": "cpp"
     },
     "cmake.sourceDirectory": "/home/komasa/HitchOpen-THICV-Stack/src/mapping/liorf"
 }

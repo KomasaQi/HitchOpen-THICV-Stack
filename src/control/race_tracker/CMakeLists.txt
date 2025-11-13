@@ -43,7 +43,7 @@ add_executable(controller_manager src/controller_manager.cpp)
 target_link_libraries(controller_manager ${catkin_LIBRARIES})
 
 # Build the plugins
-add_library(pure_pursuit_controller plugins/pure_pursuit_controller.cpp)
+add_library(pure_pursuit_controller plugins/pure_pursuit_controller.cpp src/curvature.cpp)
 add_library(pid_controller plugins/pid_controller.cpp)
 add_library(nmpc_controller plugins/nmpc_controller.cpp)
 add_library(nmpc_lateral_controller plugins/nmpc_lateral_controller.cpp)

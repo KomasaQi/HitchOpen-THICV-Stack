@@ -6,6 +6,8 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+
+
 namespace race_tracker {
 
 /**
@@ -72,6 +74,8 @@ private:
     // 新增：动态预瞄距离参数
     double min_lookahead_distance_;  // 最小预瞄距离（m）
     double lookahead_speed_coeff_;   // 速度系数（s），预瞄距离 = 最小距离 + 速度×系数    
+    int curvature_point_num_;        // 计算曲率所用点数，默认5
+    int curvature_space_num_;        // 间隔点数，默认5
 };
 
 } // namespace race_tracker
