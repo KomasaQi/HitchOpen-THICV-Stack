@@ -1,7 +1,7 @@
 #include "race_tracker/pure_pursuit_controller.h"
 #include <pluginlib/class_list_macros.h>
 #include <tf/transform_datatypes.h>
-// #include <curvature.h>
+#include "race_tracker/curvature.h"
 
 namespace race_tracker {
 
@@ -27,9 +27,11 @@ bool PurePursuitController::initialize(ros::NodeHandle& nh) {
     // 新增：加载动态预瞄参数（默认最小3m，系数0.5s）
     nh_pursuit.param("min_lookahead_distance", min_lookahead_distance_, 3.0);
     nh_pursuit.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
-
     nh_pursuit.param("amplify_coeff", amplify_coeff_, 1.0);
-
+    nh_pursuit.param("curvature_point_num", curvature_point_num_, 5); // 计算曲率所用点数
+    nh_pursuit.param("curvature_space_num", curvature_space_num_, 5); // 间隔点数
+    nh_pursuit.param("curvature_coeffs", curvature_coeffs_, 5.0); // 曲率影响因子
+    
     // 打印参数加载日志
     logParamLoad("wheelbase", wheelbase_, 2.8);
     logParamLoad("max_steering_angle", max_steering_angle_, 0.87);
@@ -37,6 +39,10 @@ bool PurePursuitController::initialize(ros::NodeHandle& nh) {
     // 打印新增参数日志
     logParamLoad("min_lookahead_distance", min_lookahead_distance_, 3.0);
     logParamLoad("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
+    logParamLoad("amplify_coeff", amplify_coeff_, 1.0);
+    logParamLoad("curvature_point_num", curvature_point_num_, 5);
+    logParamLoad("curvature_space_num", curvature_space_num_, 5);
+    logParamLoad("curvature_coeffs", curvature_coeffs_, 10.0);
 
     // 检查参数有效性
     if (wheelbase_ < 1.0) {
@@ -97,6 +103,40 @@ void PurePursuitController::computeControl(
         steering_angle = std::atan2(2 * wheelbase_ * y, L * L);
     }
 
+
+   // 计算从最开始取指定点数，间隔指定点数的曲率
+    std::vector<Eigen::Vector2d> front_path;
+    int idx = 0;
+    for (int i = 0; i < curvature_point_num_; ++i) {
+        
+        if (idx >= path->points.size()) {
+            std::cout << "路径点不足，当前索引: " << idx << std::endl;
+            break;
+        }
+        const auto& pose = path->points[idx];
+        front_path.emplace_back(pose.pose.position.x, pose.pose.position.y);
+        // std::cout << "添加路径点: (" << pose.pose.position.x << ", " << pose.pose.position.y << ")" << std::endl;
+        idx += curvature_space_num_;
+    }
+    // 计算曲率
+    Curvature calculator;
+    std::vector<double> curvatures = calculator.curvature(front_path);
+    double avg_curvature = 0.0;
+    for (double curv : curvatures) {
+        avg_curvature += curv;
+    }
+    avg_curvature /= curvatures.size();
+
+    // 打印曲率
+    // for (int i = 0; i < curvatures.size(); ++i) {
+    //     std::cout << "Curvature at point " << i << ": " << curvatures[i] << std::endl;
+    // }
+    std::cout << "Average Curvature of " << curvature_point_num_ << " points: " << avg_curvature << std::endl;
+
+    // 对前轮转角进行缩放与曲率补偿
+    steering_angle *= amplify_coeff_;
+    steering_angle += avg_curvature * curvature_coeffs_;
+
     // 5. 限制转向角在安全范围（防止过冲）
     // 替换为
     if (steering_angle > max_steering_angle_) {
@@ -106,7 +146,7 @@ void PurePursuitController::computeControl(
     }
 
     // 6. 赋值到控制指令（横向控制相关字段）
-    control_msg->lateral.steering_angle = steering_angle*amplify_coeff_;
+    control_msg->lateral.steering_angle = steering_angle;
     control_msg->lateral.steering_angle_velocity = steering_angle / dt; // 转向角速度（简化计算）
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE; // 默认前轮转向
 

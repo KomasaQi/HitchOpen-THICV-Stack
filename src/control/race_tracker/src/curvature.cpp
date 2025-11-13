@@ -1,6 +1,7 @@
-#include "curvature.h"
+#include "race_tracker/curvature.h"
 #include <cmath>
 #include <stdexcept>
+#include <iostream>
 
 std::vector<double> Curvature::curvature(const std::vector<Eigen::Vector2d>& path) {
     if (path.size() < 3) {
@@ -36,7 +37,12 @@ std::vector<double> Curvature::curvature(const std::vector<Eigen::Vector2d>& pat
         
         // 计算曲率
         double angle = atan2(bc.y(), bc.x());
-        k[i] = -std::signbit(angle) * std::sin(alpha) / (0.5 * a);
+        // 打印角度
+        // std::cout << "angle[" << i << "] = " << std::sin(alpha) / (0.5 * a)  << std::endl;
+        if (angle < 0) {
+            alpha = -alpha;
+        }
+        k[i] = - std::sin(alpha) / (0.5 * a);
         
         // 更新点
         A = B;
@@ -46,6 +52,10 @@ std::vector<double> Curvature::curvature(const std::vector<Eigen::Vector2d>& pat
     // 处理边界点
     k[0] = k[1];
     k[len - 1] = k[len - 2];
+    // // 打印曲率
+    // for (size_t i = 0; i < len; ++i) {
+    //     std::cout << "k[" << i << "] = " << k[i] << std::endl;
+    // }
     
     return k;
 }
