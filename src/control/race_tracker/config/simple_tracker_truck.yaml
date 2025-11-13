@@ -7,7 +7,7 @@ pid_controller:
   integral_limit: 2.0
   speed_tolerance: 0.1
   min_target_speed: 0.1
-
+  predict_time_horizon: 0.5
 
 pure_pursuit:
   wheelbase: 0.3
@@ -15,5 +15,7 @@ pure_pursuit:
   min_path_point: 3.0
   min_lookahead_distance: 0.4
   lookahead_speed_coeff: 0.7
-  predict_time_horizon: 0.5
   amplify_coeff: 0.3
+  curvature_point_num: 5        # 计算曲率所用点数
+  curvature_space_num: 5        # 间隔点数
+  curvature_coeffs: 5.0         # 曲率影响因子
