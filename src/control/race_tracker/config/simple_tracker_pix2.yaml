@@ -1,0 +1,17 @@
+pid_controller:
+  kp: 0.3
+  ki: 0.05
+  kd: 0.1
+  max_throttle: 1.0
+  max_brake: 0.8
+  integral_limit: 2.0
+  speed_tolerance: 0.2
+  min_target_speed: 0.5
+
+pure_pursuit:
+  wheelbase: 1.8
+  max_steering_angle: 0.40
+  min_path_points: 3.0
+  min_lookahead_distance: 3.0
+  lookahead_speed_coeff: 0.45
+  predict_time_horizon: 0.5

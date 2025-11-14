@@ -120,8 +120,8 @@ geometry_msgs::Point PurePursuitController::findLookaheadPoint(
     // 新增：获取当前速度并计算动态预瞄距离
     double current_speed = vehicle_status->vel.linear.x;
     lookahead_distance_ = calculateDynamicLookahead(current_speed);
-    ROS_INFO("[%s] 动态预瞄距离: %.2f m（速度: %.2f m/s）",
-             getName().c_str(), lookahead_distance_, current_speed);
+    ROS_INFO("[%s] 动态预瞄距离: %.2f m（速度: %.2f km/h）",
+             getName().c_str(), lookahead_distance_, current_speed*3.6);
 
     const auto& vehicle_pos = vehicle_status->pose.position;
     double min_dist_to_veh = std::numeric_limits<double>::max();

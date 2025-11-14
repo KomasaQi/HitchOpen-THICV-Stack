@@ -1,0 +1,40 @@
+<launch>
+    <!-- 控制器管理器节点 -->
+    <node pkg="race_tracker" 
+          type="controller_manager" 
+          name="controller_manager" 
+          output="screen"
+          respawn="false"> <!-- 崩溃后不自动重启 -->
+
+        <!-- 1. 核心参数配置 -->
+        <param name="control_freq" type="double" value="20.0" /> <!-- 控制频率：10Hz -->
+        <param name="topic/local_path" type="string" value="/race/local_path" />
+        <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
+        <param name="topic/control" type="string" value="/race/control" />
+        <param name="topic/flag" type="string" value="/race/flag" />
+        <param name="ego_frame_id" type="string" value="ego_vehicle" />
+        <!-- 横向误差和航向误差开始降速的阈值 -->
+        <param name="lateral_error_threshold" type="double" value="0.6" />
+        <param name="heading_error_threshold" type="double" value="0.3" />
+        <!-- 在各种绿色旗帜下因航向误差或横向误差而降低到的最小目标速度（km/h） -->
+        <param name="default_min_target_speed" type="double" value="10.0" />
+        <!-- 横向误差和航向误差超出阈值时，目标速度的降低比例 -->
+        <param name="lateral_error_decrease_ratio" type="double" value="0.8" />
+        <param name="heading_error_decrease_ratio" type="double" value="1.0" />
+        <!-- 补偿前轮转角的静态偏差 -->
+        <param name="constant_front_steering_bias" type="double" value="0.02"/> 
+
+        <!-- 2. 插件列表（顺序：横向控制器 -> 纵向控制器，后执行的可覆盖前执行的） -->
+        <rosparam param="plugins">
+            - race_tracker::PurePursuitController  <!-- 横向控制：纯追踪 -->
+            - race_tracker::PIDController          <!-- 纵向控制：PID -->
+        </rosparam>
+
+        <!-- 3. 加载控制器参数 -->
+        <rosparam command="load" file="$(find race_tracker)/config/simple_tracker_pix2.yaml" />
+
+    </node>
+
+    <!-- 可选：启动rqt_graph查看节点关系 -->
+    <!-- <node pkg="rqt_graph" type="rqt_graph" name="rqt_graph" output="screen" /> -->
+</launch>

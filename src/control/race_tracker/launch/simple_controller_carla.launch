@@ -22,7 +22,8 @@
         <param name="lateral_error_decrease_ratio" type="double" value="0.8" />
         <param name="heading_error_decrease_ratio" type="double" value="1.0" />
         <!-- 补偿前轮转角的静态偏差 -->
-        <param name="constant_front_steering_bias" type="double" value="0.05"/> 
+        <!-- <param name="constant_front_steering_bias" type="double" value="0.05"/>  -->
+        <param name="constant_front_steering_bias" type="double" value="0.01"/> 
 
         <!-- 2. 插件列表（顺序：横向控制器 -> 纵向控制器，后执行的可覆盖前执行的） -->
         <rosparam param="plugins">

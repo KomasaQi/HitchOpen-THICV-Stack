@@ -462,7 +462,7 @@ roslaunch simple_racing tianmen_racing.launch
 
 在新终端窗口中运行计时器。
 ``` bash
-roslaunch competition_timer tianmen_down_pre_timer.launch
+roslaunch competition_timer tianmen_down_final_timer.launch
 ```
 
 
@@ -479,6 +479,7 @@ roslaunch race_tracker simple_controller_carla.launch
 ``` bash
 rosparam set /competition_timer/flag G20 
 ```
+
 需要急停时用todesk窗口在这个终端中让状态变成`RED`即可，车辆会立即停止。
 ``` bash
 rosparam set /competition_timer/flag RED 
@@ -498,6 +499,21 @@ pose:
   pose:
     position: {x: 0.0, y: 0.0, z: 0.0}
     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+  covariance: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0]" 
+```
+``` bash
+rostopic pub -1 /initialpose geometry_msgs/PoseWithCovarianceStamped "header:
+  seq: 0
+  stamp:
+    secs: 0
+    nsecs: 0
+  frame_id: ''
+pose:
+  pose:
+    position: {x: -845.0, y: 1514.0, z: -700.0}
+    orientation: {x: -0.023, y: -0.026, z: -0.351, w: 0.936}
   covariance: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0]" 
