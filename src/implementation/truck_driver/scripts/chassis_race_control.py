@@ -15,11 +15,15 @@ import math
 # ================================================
 # CAN总线波特率
 CAN_BUS_BAUD = 500000 # 500kbps
+CAN_CHANNEL = 'can0'
+BUSTYPE = 'socketcan'
 
 # CH3 油门/刹车控制
 DRIVE_STOP = 1500  # 没有油门
 DRIVE_FULL_THROTTLE = 1000 # 全油门对应
 DRIVE_FULL_REVERSE = 2000  # 全后退对应
+FULL_THROTTLE_ALLOW_SPEED = 1.0 # 允许全油门的最低速度 (m/s)
+STATIC_ALLOWED_THROTTLE = 0.20 # 静止时允许的最大油门比例
 
 # CH4 转向控制
 STEER_NULL = 1500 # 0转向对应
@@ -57,17 +61,26 @@ MAX_BRAKE_VALUE = 0.5 # 最大刹车值限制(防止爆缸)
 MAX_STEER_ANGLE = 15.0  # 最大转向角度(度)
 #####################################################
 
+#####################################################
+#                   控制参数
+# ================================================= 
+LOSS_CONNECTION_TIMEOUT = 1.0
 
+#####################################################
+#                   全局变量
+# =================================================
 velocity = 0.0  # 当前速度 (m/s)
 vehicle_state = VEHICLE_STATE_STOP  # 车辆状态
+last_speed_receive_time = 0.0  # 上次收到控制指令时间
+#####################################################
 
 class VehicleController:
     def __init__(self):
         # 初始化系统自带CAN接口
         try:
             # 设置CAN接口 (假设使用can0)
-            self.bus = can.interface.Bus(channel='can0', bustype='socketcan', bitrate=CAN_BUS_BAUD)
-            rospy.loginfo("系统CAN接口初始化完成 (can0, 500kbps)")
+            self.bus = can.interface.Bus(channel= CAN_CHANNEL, bustype=BUSTYPE, bitrate=CAN_BUS_BAUD)
+            rospy.loginfo("系统CAN接口初始化完成 (%s, %s, %d)", CAN_CHANNEL, BUSTYPE, CAN_BUS_BAUD)
         except Exception as e:
             rospy.logerr("CAN接口初始化失败: %s", str(e))
             raise e
@@ -158,12 +171,17 @@ class VehicleController:
         
         return True
 
+    def send_safe_stop(self):
+        """发送安全停止指令"""
+        self.send_can_frames(DRIVE_STOP, STEER_NULL, GEAR_LOW, DIFF_LOCK_OFF)
+        time.sleep(0.1)  # 确保指令发送
+
+
     def shutdown_hook(self):
         """ROS关闭时发送安全值"""
         rospy.loginfo("发送安全停止指令")
         # 发送安全值
-        self.send_can_frames(DRIVE_STOP, STEER_NULL, GEAR_LOW, DIFF_LOCK_OFF)
-        time.sleep(0.1)  # 确保指令发送
+        self.send_safe_stop()
         # 关闭CAN总线
         self.bus.shutdown()
 
@@ -194,8 +212,9 @@ class ChassisNode:
         """
         处理/race/speedometer话题回调 (Float32)
         """
-        global velocity
+        global velocity, last_speed_receive_time
         velocity = msg.data
+        last_speed_receive_time = rospy.Time.now()
 
     
     def control_callback(self, msg):
@@ -204,6 +223,13 @@ class ChassisNode:
         """
         global velocity
         global vehicle_state
+        # 检查连接丢失
+        time_since_last_cmd = (rospy.Time.now() - last_speed_receive_time).to_sec()
+        if time_since_last_cmd > LOSS_CONNECTION_TIMEOUT:
+            rospy.logerr("轮速计连接超时，发送安全停止指令！距离上次接收时间: %.2f秒", time_since_last_cmd)
+            self.controller.send_safe_stop()
+            return
+        
         # 将PID输出转换为PWM信号
         throttle = msg.throttle # 期望油门值 (0 ~ 1)
         brake = msg.brake       # 期望刹车值 (0 ~ 1)
@@ -232,9 +258,20 @@ class ChassisNode:
             drive_cmd = 0.0  # 其他情况不驱动
             rospy.logwarn("Invalid gear: %d", current_gear)
             
-    
+        # 根据速度限制驱动指令，进行一个带偏置的线性映射作为幅值进行限制：max_drive_cmd = k * velocity + b
+        # 这里假设速度为1.0 m/s时，允许最大驱动指令为1.0,静止情况下允许最大驱动指令为0.25
+        max_drive_cmd = min((1.0 - STATIC_ALLOWED_THROTTLE) * velocity / FULL_THROTTLE_ALLOW_SPEED + STATIC_ALLOWED_THROTTLE,1.0)
+        if drive_cmd > max_drive_cmd:
+            drive_cmd = max_drive_cmd
+            rospy.logwarn("驱动指令超出当前速度允许范围，已限制为: %.3f", drive_cmd)
+           
         drive_pwm = max(1000, min(2000, int(1500 + drive_cmd * 500)))  # 转换为PWM信号范围1000-2000
-        rospy.loginfo("油门命令: %.3f, 刹车命令: %.3f, 驱动PWM: %d", throttle, brake, drive_pwm)
+        
+
+        
+        rospy.loginfo("油门命令: %.3f, 刹车命令: %.3f, 驱动指令: %d", throttle, brake, drive_cmd)
+        
+        
         # 限制转向角度在最大范围内
         target_steering = max(-math.radians(MAX_STEER_ANGLE), 
                                     min(math.radians(MAX_STEER_ANGLE), msg.lateral.steering_angle))
