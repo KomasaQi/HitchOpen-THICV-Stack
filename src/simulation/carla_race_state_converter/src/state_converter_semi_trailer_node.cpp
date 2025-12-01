@@ -78,6 +78,10 @@ public:
                        trailer_hinge_angle_(0.0),
                        trailer_state_initialized_(false),
                        vehicle_status_received_(false) {
+
+        // 设置中文环境变量
+        setlocale(LC_ALL, "zh_CN.UTF-8");
+
         // 获取车辆参数
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.37);
         private_nh_.param<double>("trailer_length", trailer_length_, 11.5);

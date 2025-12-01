@@ -9,9 +9,9 @@ nmpc_lateral_controller:
   sparse_control_step: 4 # 稀疏控制量步数
   
   # 车辆动力学参数
-  a1: -1.5               # 示例默认值，需根据实际车型调整
-  a2: -1.5               # 示例默认值
-  b1: 0.001               # 关键：加载 b1_，设默认值避免随机
+  a1: -30.0               # 示例默认值，需根据实际车型调整
+  a2: -5.0               # 示例默认值
+  b1: 0.37               # 关键：加载 b1_，设默认值避免随机
   
   sampling_time: 0.1              # 采样时间 (s)
   tractor_wheelbase: 2.8          # 牵引车轴距 (m)
@@ -36,8 +36,6 @@ nmpc_lateral_controller:
   weight_terminal_heading: 5.0    # 终端航向权重
   weight_ltr_constraint: 10000.0  # 侧向载荷转移率约束松弛变量权重
     
-
-
 
 pid_controller:
   kp: 0.6

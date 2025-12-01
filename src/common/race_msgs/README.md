@@ -11,6 +11,8 @@ This directory contains self defined message definitions used in the HitchOpen T
 - [WheelSpeed.msg](msg/WheelSpeed.msg)
 - [Euler.msg](msg/Euler.msg)
 - [Tracking.msg](msg/Tracking.msg)
+- [TrailerStatus.msg](msg/TrailerStatus.msg)
+- [LateralLoadTransfer.msg](msg/LateralLoadTransfer.msg)
 
 
 # Specific Message Definitions
@@ -110,9 +112,10 @@ bool emergency # 是否紧急状态
 bool clutch # 离合器状态
 uint8 steering_mode # 转向模式，1：单轴转向，2：双轴转向 参见Control.msg
 race_msgs/Tracking tracking # 跟踪信息
-float64 throttle_fb # 油门值 0~1
-float64 brake_fb # 刹车值 0~1
+float32 throttle_fb # 油门值 0~1
+float32 brake_fb # 刹车值 0~1
 race_msgs/TrailerStatus trailer # 挂车状态
+race_msgs/LateralLoadTransfer ltr_state # 侧向载荷转移率 包含载荷转移率和变化率
 ```
 
 ## WheelSpeed.msg
