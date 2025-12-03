@@ -95,7 +95,7 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,gamma,ltr,dltr]
     casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta]
     casadi::MX vx_sym = casadi::MX::sym("vx", 1);  // 速度参数 [vx]
-    casadi::MX theta_sym = vx_sym * casadi::MX::tan(U_sym(0)) / L1_;
+    casadi::MX dtheta_sym = vx_sym * casadi::MX::tan(U_sym(0)) / L1_;
     
 
     // 动力学方程（连续时间）
@@ -104,14 +104,14 @@ bool AntiRolloverController::initialize(ros::NodeHandle& nh) {
     // theta_dot = vx * tan(delta) / L1
     // gamma_dot = theta_dot - vx * tan(delta) / L2
     // ltr_dot = dltr 
-    // dltr_dot = a1*ltr + a2*dltr + b1*vx*theta*gamma
+    // dltr_dot = a1*ltr + a2*dltr + b1*vx*theta_dot 
     casadi::MX f_expr = casadi::MX::vertcat({
         vx_sym * casadi::MX::cos(X_sym(2)),  // x_dot
         vx_sym * casadi::MX::sin(X_sym(2)),  // y_dot
-        theta_sym,  // theta_dot
-        theta_sym - vx_sym/L2_ * casadi::MX::sin(X_sym(3)), // gamma_dot
+        dtheta_sym,  // theta_dot
+        dtheta_sym - vx_sym/L2_ * casadi::MX::sin(X_sym(3)), // gamma_dot
         X_sym(5) ,  // ltr_dot
-        a1_ * X_sym(4) + a2_ * X_sym(5) + b1_*vx_sym* X_sym(2)*X_sym(3)  // dltr_dot
+        a1_ * X_sym(4) + a2_ * X_sym(5) + b1_*vx_sym * dtheta_sym  // dltr_dot
     });
     f_func_ = casadi::Function("f_dynamics", {X_sym, U_sym, vx_sym}, {f_expr});
 

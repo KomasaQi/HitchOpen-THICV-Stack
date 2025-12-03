@@ -12,6 +12,7 @@
 #include <race_msgs/Lateral.h>
 #include <race_msgs/WheelSpeed.h>
 #include <race_msgs/Path.h>
+#include <race_msgs/LateralLoadTransferStamped.h>
 
 
 const double PI = 3.1415926; 
@@ -28,6 +29,7 @@ private:
     ros::Subscriber speedometer_sub_;
     ros::Subscriber wheel_rpm_truck_sub_;
     ros::Subscriber path_sub_;
+    ros::Subscriber ltr_sub_;
 
 
 
@@ -43,6 +45,7 @@ private:
     std_msgs::Float32 wheel_rpm_truck_msg_;
     std_msgs::Float32 speedometer_msg_;
     race_msgs::Path path_msg_;
+    race_msgs::LateralLoadTransferStamped ltr_msg_;
 
 
 
@@ -54,6 +57,7 @@ private:
     bool imu_trailer_received_;
     bool speedometer_received_;
     bool path_received_;
+    bool ltr_received_;
 
     
     // 车辆参数（可能需要根据实际车辆调整）
@@ -74,18 +78,22 @@ public:
                    odom_received_(false),
                    imu_trailer_received_(false),
                    imu_received_(false),
+                   ltr_received_(false),
                    path_received_(false) {
+
+        // 设置中文环境变量
+        setlocale(LC_ALL, "zh_CN.UTF-8");
         // 获取车辆参数
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.30);
         
         // 初始化订阅者
-        imu_sub_ = nh_.subscribe("/tractor/imu/data", 10, &StateConverter::imuCallback, this);
-        imu_trailer_sub_ = nh_.subscribe("/trailer/imu/data", 10, &StateConverter::imuTrailerCallback, this);
+        imu_sub_ = nh_.subscribe("/imu_message", 10, &StateConverter::imuCallback, this);
+        imu_trailer_sub_ = nh_.subscribe("/tractor/imu/data", 10, &StateConverter::imuTrailerCallback, this);
         odom_sub_ = nh_.subscribe("/odometry/imu", 10, &StateConverter::odomCallback, this);
         wheel_rpm_truck_sub_ = nh_.subscribe("/race/wheel_rate", 10, &StateConverter::wheelRpmCallback, this);
         speedometer_sub_ = nh_.subscribe("/race/speedometer", 10, &StateConverter::speedometerCallback, this);
         path_sub_ = nh_.subscribe("/race/local_path", 10, &StateConverter::pathCallback, this);
-
+        ltr_sub_ = nh_.subscribe("/race/ltr", 10, &StateConverter::ltrCallback, this); 
 
 
         // 初始化发布者
@@ -234,6 +242,10 @@ public:
 
     }
     
+    void ltrCallback(const race_msgs::LateralLoadTransferStamped::ConstPtr& msg) {
+        ltr_msg_ = *msg;
+        ltr_received_ = true;
+    }
     
     void wheelRpmCallback(const std_msgs::Float32::ConstPtr& msg) {
         wheel_rpm_truck_msg_ = *msg;
@@ -250,8 +262,17 @@ public:
     // 发布转换后的消息
     void publishVehicleState(const ros::TimerEvent& event) {
         // 等待所有必要的消息都被接收
-        if ( !wheel_rpm_truck_received_ || !speedometer_received_ || !odom_received_ ) {
+        if ( !wheel_rpm_truck_received_ || !speedometer_received_  ) {
             return;
+        }
+        if (!odom_received_){
+            ROS_WARN("暂无里程计信息，请检查Slam定位是否正常！相关状态置零。");
+        }
+        if (!imu_received_){
+            ROS_WARN("暂无IMU信息，请检查IMU节点是否正常！相关状态置零。");
+        }
+        if (!ltr_received_){
+            ROS_WARN("暂无LTR信息，请检查LTR估计节点是否正常！相关状态置零。");
         }
 
         // 填充header
@@ -281,7 +302,7 @@ public:
         
         // 填充加速度信息（来自IMU）
         state_msg_.acc.linear = imu_msg_.linear_acceleration;
-        state_msg_.acc.angular = imu_msg_.angular_velocity;
+        state_msg_.vel.angular = imu_msg_.angular_velocity;
         
         // 填充转向信息
         state_msg_.lateral.steering_angle = 0.0;
@@ -316,6 +337,10 @@ public:
         
         // 转向模式（默认设为前轮转向）
         state_msg_.steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
+
+        // LTR信息
+        state_msg_.ltr_state.ltr = ltr_msg_.ltr;
+        state_msg_.ltr_state.ltr_rate = ltr_msg_.ltr_rate;
         
         // 发布消息
         vehicle_state_pub_.publish(state_msg_);

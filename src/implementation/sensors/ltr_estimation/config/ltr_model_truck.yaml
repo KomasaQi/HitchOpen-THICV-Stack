@@ -3,7 +3,7 @@ ltr_topic: /race/ltr # 输出的LTR话题
 frame_id: ego_vehicle # 车辆坐标系
 
 # 悬架参数
-suspension_stiffness: 200.0 # 基础悬架刚度，单位：N/m
+suspension_stiffness: 30.0 # 基础悬架刚度，单位：N/m
 damping_coefficient: 10.0   # 基础阻尼系数，单位：N/(m/s)
 suspension_nonlinearity: 0.01  # 悬架非线性系数（越大非线性越强）
 damping_nonlinearity: 0.01     # 阻尼非线性系数（越大非线性越强）
