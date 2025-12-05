@@ -38,12 +38,12 @@ nmpc_lateral_controller:
     
 
 pid_controller:
-  kp: 0.4
-  ki: 0.1
-  kd: 0.01
-  max_throttle: 1.0
+  kp: 0.24
+  ki: 0.06
+  kd: 0.0
+  max_throttle: 0.6
   max_brake: 0.0
-  integral_limit: 2.0
+  integral_limit: 0.4
   speed_tolerance: 0.1
   min_target_speed: 0.1
-  predict_time_horizon: 0.5
+  predict_time_horizon: 1.0

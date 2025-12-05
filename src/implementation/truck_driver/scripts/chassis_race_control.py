@@ -20,10 +20,10 @@ BUSTYPE = 'socketcan'
 
 # CH3 油门/刹车控制
 DRIVE_STOP = 1500  # 没有油门
-DRIVE_FULL_THROTTLE = 1000 # 全油门对应
-DRIVE_FULL_REVERSE = 2000  # 全后退对应
-FULL_THROTTLE_ALLOW_SPEED = 1.0 # 允许全油门的最低速度 (m/s)
-STATIC_ALLOWED_THROTTLE = 0.20 # 静止时允许的最大油门比例
+DRIVE_FULL_THROTTLE = 2000 # 全油门对应
+DRIVE_FULL_REVERSE = 1000  # 全后退对应
+FULL_THROTTLE_ALLOW_SPEED = 4.5 # 允许全油门的最低速度 (m/s)
+STATIC_ALLOWED_THROTTLE = 0.13 # 静止时允许的最大油门比例
 
 # CH4 转向控制
 STEER_NULL = 1500 # 0转向对应
@@ -261,11 +261,12 @@ class ChassisNode:
         # 根据速度限制驱动指令，进行一个带偏置的线性映射作为幅值进行限制：max_drive_cmd = k * velocity + b
         # 这里假设速度为1.0 m/s时，允许最大驱动指令为1.0,静止情况下允许最大驱动指令为0.25
         max_drive_cmd = min((1.0 - STATIC_ALLOWED_THROTTLE) * velocity / FULL_THROTTLE_ALLOW_SPEED + STATIC_ALLOWED_THROTTLE,1.0)
+        
         if drive_cmd > max_drive_cmd:
             drive_cmd = max_drive_cmd
             rospy.logwarn("驱动指令超出当前速度允许范围，已限制为: %.3f", drive_cmd)
            
-        drive_pwm = max(1000, min(2000, int(1500 + drive_cmd * 500)))  # 转换为PWM信号范围1000-2000
+        drive_pwm = max(1000, min(2000, int(1500 - drive_cmd * 500)))  # 转换为PWM信号范围1000-2000
         
 
         

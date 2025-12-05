@@ -165,7 +165,7 @@ private:
      */
     void initDefaultControlMsg() {
         control_msg_.header.frame_id = ego_frame_id_; // 自车坐标系
-        control_msg_.gear = race_msgs::Control::GEAR_1; // 默认1档
+        control_msg_.gear = race_msgs::Control::GEAR_2; // 默认1档
         control_msg_.emergency = false; // 非紧急状态
         control_msg_.hand_brake = false; // 手刹关闭
         control_msg_.clutch = false; // 离合关闭
@@ -356,7 +356,7 @@ private:
 
         // 补偿因为前轮撞歪（向右侧）带来的偏差
         control_msg_.lateral.steering_angle = control_msg_.lateral.steering_angle + constant_front_steering_bias_;
-        control_msg_.gear = race_msgs::Control::GEAR_2;
+        control_msg_.gear = race_msgs::Control::GEAR_1;
         control_pub_.publish(control_msg_);
     }
 
