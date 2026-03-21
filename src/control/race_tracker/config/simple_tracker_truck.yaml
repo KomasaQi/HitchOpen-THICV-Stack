@@ -10,7 +10,7 @@ pid_controller:
   predict_time_horizon: 1.0
 
 pure_pursuit:
-  wheelbase: 0.3
+  wheelbase: 0.5
   max_steering_angle: 0.4
   min_path_point: 3.0
   min_lookahead_distance: 0.4

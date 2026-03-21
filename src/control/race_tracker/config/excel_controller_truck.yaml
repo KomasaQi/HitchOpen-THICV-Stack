@@ -12,7 +12,7 @@ nmpc_lateral_controller:
   front_steer_time_constant: 0.2  # 前轴转向动态时间常数
   rear_steer_time_constant: 0.2   # 后轴转向动态时间常数
   sampling_time: 0.1              # 采样时间 (s)
-  wheelbase: 0.3                    # 车辆轴距 (m)
+  wheelbase: 1.3                   # 车辆轴距 (m)
   gravity: 9.806                  # 重力加速度 (m/s²)
   max_acceleration: 0.5           # 预设最大加速度 (m/s²)
   
@@ -38,9 +38,9 @@ nmpc_lateral_controller:
     
 
 pid_controller:
-  kp: 0.24
-  ki: 0.06
-  kd: 0.0
+  kp: 0.25
+  ki: 0.08
+  kd: 0.05
   max_throttle: 0.6
   max_brake: 0.0
   integral_limit: 0.4
