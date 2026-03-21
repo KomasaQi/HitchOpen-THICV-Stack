@@ -74,6 +74,20 @@ vehicle_state = VEHICLE_STATE_STOP  # 车辆状态
 last_speed_receive_time = 0.0  # 上次收到控制指令时间
 #####################################################
 
+# 前轮转角查表模型
+# 查表点，必须按 ang 升序
+ang_table = np.array([-0.28, -0.2725, -0.2441, -0.2137, -0.1659, -0.1214, -0.072,
+                      -0.0311, 0.0131, 0.0524, 0.0824, 0.1116, 0.1392, 0.1584, 0.1714, 0.1889, 0.1994, 0.1989, 0.2129])
+cmd_table = np.array([-0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2,-0.1,
+                      0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+
+def cmd_from_ang(ang_des):
+    # 超范围时做饱和
+    ang_des = np.clip(ang_des, ang_table[0], ang_table[-1])
+    return np.interp(ang_des, ang_table, cmd_table)
+
+
+
 class VehicleController:
     def __init__(self):
         # 初始化系统自带CAN接口
@@ -279,12 +293,16 @@ class ChassisNode:
         
         # 将转向角度(弧度)转换为PWM信号
         # 转向通道 (ch4): 1500 ± (转向角度/最大转向角度) * 500
-        # steering_ratio =  target_steering / math.radians(MAX_STEER_ANGLE)
+        steering_ratio =  cmd_from_ang(target_steering)
         
-        target_steering_2 = target_steering * target_steering
-        target_steering_3 = target_steering_2 * target_steering
-        steering_ratio = 7.8445*target_steering_3 + 3.3171*target_steering_2 + 2.8149*target_steering + 0.071431
-        steering_ratio += 0.0349
+        # 下面的指令只用于标定
+        # steering_ratio = msg.lateral.steering_angle
+        
+        # target_steering_2 = target_steering * target_steering
+        # target_steering_3 = target_steering_2 * target_steering
+        # steering_ratio = 7.8445*target_steering_3 + 3.3171*target_steering_2 + 2.8149*target_steering + 0.071431
+        # steering_ratio += 0.0349
+        
         rospy.logwarn("角度指令：%.2f", steering_ratio)
         steering_pwm = int(1500 + steering_ratio * 500)
         steering_pwm = max(1000, min(2000, steering_pwm))

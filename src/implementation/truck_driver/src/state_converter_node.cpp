@@ -287,8 +287,10 @@ public:
         
         // 计算并填充euler角
         state_msg_.euler = quaternionToEuler(odom_msg_.pose.pose.orientation);
+        state_msg_.trailer.euler = quaternionToEuler(imu_trailer_msg_.orientation); // 挂车姿态
 
-        // 实际Pose是上述pose向后挪动0.3m（轴距）
+
+        
         // 实际Pose是上述pose向后挪动0.3m（轴距）
         state_msg_.pose.position.x -= 0.3 * cos(state_msg_.euler.yaw);
         state_msg_.pose.position.y -= 0.3 * sin(state_msg_.euler.yaw);
