@@ -522,40 +522,54 @@ rostopic hz /liorf_localization/mapping/odometry
 
 #### 4.4.5 卡车模型启动流程
 
-启动雷达驱动:
+- 启动雷达驱动:
 ``` bash
 roslaunch ouster_ros driver.launch sensor_hostname:=192.168.1.222 timestamp_mode:=TIME_FROM_ROS_TIME viz:=false lidar_mode:=1024x10
 ```
-启动相机IMU
+- 启动相机IMU
 ``` bash
 roslaunch vins rs_d455_imu_only.launch
 ```
-启动定位节点。在此之前请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_zhihui3_ouster/`文件夹下面（如果没有请创建）下载![智慧楼3楼地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2Fcicv_zhihui3_ouster%2FGlobalMap.pcd)，否则定位节点无法正常启动。
+- 启动定位节点。
+
+在此之前请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_zhihui3_ouster/`文件夹下面（如果没有请创建）下载![智慧楼3楼地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2Fcicv_zhihui3_ouster%2FGlobalMap.pcd)，否则定位节点无法正常启动。
+
 ```bash
 roslaunch liorf_localization run_truck_zhihui_localization.launch 
 ```
-启动小车驱动
+如果是在`车库`启动，使用以下命令启动定位节点：
+```bash
+roslaunch liorf_localization run_truck_garage_localization.launch 
+```
+
+- 启动小车驱动
 ``` bash
 roslaunch truck_driver chassis_driver.launch 
 ```
-启动路径发布
+- 启动路径发布
+
+如果在`智慧楼3楼`，使用以下命令启动路径发布节点：
 ``` bash
 roslaunch race_global_static_planner cicv_zhihui3_circuit.launch
 ```
-启动计时器节点
+如果是在`车库`启动，使用以下命令启动路径发布节点：
+``` bash
+roslaunch race_global_static_planner cicv_garage_circuit.launch
+```
+
+- 启动计时器节点
 ``` bash
 roslaunch competition_timer competition_timer.launch
 ```
-设置限速
+- 设置限速
 ``` bash
-rosparam set /competition_timer/flag G5
+rosparam set /competition_timer/flag G10
 ```
 启动跟踪控制节点
 ``` bash
 roslaunch race_tracker simple_controller_carla.launch 
 ```
 
-source ~/HitchOpen-THICV-Stack/devel/setup.bash
 
 
 ---

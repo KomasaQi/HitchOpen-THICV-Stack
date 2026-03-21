@@ -63,9 +63,9 @@ class IMUDataHandler:
             'last_update': rospy.Time.now()
         }
 
-        self.imu_pub = rospy.Publisher('/tractor/imu/data'
+        self.imu_pub = rospy.Publisher('/trailer/imu/data'
                                        , Imu, queue_size=5)
-        self.temp_pub = rospy.Publisher('/tractor/imu/temperature', Float32, queue_size=5)
+        self.temp_pub = rospy.Publisher('/trailer/imu/temperature', Float32, queue_size=5)
 
         # 用 float64 数组，避免 rostopic echo 卡死
         self.orientation_covariance = [0.01, 0, 0,

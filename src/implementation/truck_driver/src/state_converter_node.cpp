@@ -88,7 +88,7 @@ public:
         
         // 初始化订阅者
         imu_sub_ = nh_.subscribe("/imu_message", 10, &StateConverter::imuCallback, this);
-        imu_trailer_sub_ = nh_.subscribe("/tractor/imu/data", 10, &StateConverter::imuTrailerCallback, this);
+        imu_trailer_sub_ = nh_.subscribe("/trailer/imu/data", 10, &StateConverter::imuTrailerCallback, this);
         odom_sub_ = nh_.subscribe("/odometry/imu", 10, &StateConverter::odomCallback, this);
         wheel_rpm_truck_sub_ = nh_.subscribe("/race/wheel_rate", 10, &StateConverter::wheelRpmCallback, this);
         speedometer_sub_ = nh_.subscribe("/race/speedometer", 10, &StateConverter::speedometerCallback, this);
@@ -303,6 +303,14 @@ public:
         // 填充加速度信息（来自IMU）
         state_msg_.acc.linear = imu_msg_.linear_acceleration;
         state_msg_.vel.angular = imu_msg_.angular_velocity;
+
+        // 填充挂车IMU信息（因为IMU在挂车上因为线束长度不够需要前后反过来安装，所以x y轴都翻转了一下）
+        state_msg_.trailer.acc.linear.x = -imu_trailer_msg_.linear_acceleration.x;
+        state_msg_.trailer.acc.linear.y = -imu_trailer_msg_.linear_acceleration.y;
+        state_msg_.trailer.acc.linear.z = imu_trailer_msg_.linear_acceleration.z;
+        state_msg_.trailer.vel.angular.x = -imu_trailer_msg_.angular_velocity.x;
+        state_msg_.trailer.vel.angular.y = -imu_trailer_msg_.angular_velocity.y;
+        state_msg_.trailer.vel.angular.z = imu_trailer_msg_.angular_velocity.z;
         
         // 填充转向信息
         state_msg_.lateral.steering_angle = 0.0;

@@ -1,20 +1,24 @@
-imu_topic: /imu_message # 输入的IMU话题
-ltr_topic: /race/ltr # 输出的LTR话题
-frame_id: ego_vehicle # 车辆坐标系
+imu_topic: /trailer/imu/data
+ltr_topic: /race/ltr
+frame_id: imu_link
 
-# 悬架参数
-suspension_stiffness: 30.0 # 基础悬架刚度，单位：N/m
-damping_coefficient: 10.0   # 基础阻尼系数，单位：N/(m/s)
-suspension_nonlinearity: 0.01  # 悬架非线性系数（越大非线性越强）
-damping_nonlinearity: 0.01     # 阻尼非线性系数（越大非线性越强）
+total_mass: 60.0
+track_width: 0.18
+gravity: 9.806
 
-# 质量参数
-sprung_mass: 25.0       # 簧载质量，单位：千克（车身等由悬架支撑的质量）
-unsprung_mass: 2.0      # 簧下质量，单位：千克（车轮、轮毂等非悬架支撑的质量）
-cg_height_sprung: 0.25    # 簧载质量重心高度，单位：米
-cg_height_unsprung: 0.04   # 簧下质量重心高度，单位：米
+equivalent_stiffness: 18000.0
+equivalent_damping: 3200.0
 
-# 其他车辆参数
-track_width: 0.15          # 轮距，单位：米
-gravity: 9.806             # 重力加速度，单位：m/s²
+stiffness_nonlinearity: 0.0
+damping_nonlinearity: 0.0
 
+calibration_duration: 3.0
+calibration_max_roll_rate: 0.05
+
+roll_lpf_alpha: 0.20
+roll_rate_lpf_alpha: 0.25
+ltr_rate_lpf_alpha: 0.80
+min_dt: 0.001
+
+sign_correction: 1.0
+max_roll_for_estimation: 0.70
