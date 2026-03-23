@@ -55,6 +55,9 @@ STATIC_VELOCITY_THRESHOLD = 0.01  # m/s
 # 刹车比例系数
 BRAKE_VELOCITY_RATIO = 0.5 # 刹车比例系数 刹车= -1* 系数 * 当前速度
 MAX_BRAKE_VALUE = 0.5 # 最大刹车值限制(防止爆缸)
+
+# 油门限幅参数
+THROTTLE_LIMIT_EPSILON = 0.01 # 油门允许比稳态大的最大数值
 #####################################################
 #                   车辆自身参数
 # ================================================
@@ -74,6 +77,10 @@ vehicle_state = VEHICLE_STATE_STOP  # 车辆状态
 last_speed_receive_time = 0.0  # 上次收到控制指令时间
 #####################################################
 
+
+#####################################################
+#              查表模型（日新楼车库参数）
+# =================================================
 # 前轮转角查表模型
 # 查表点，必须按 ang 升序
 ang_table = np.array([-0.28, -0.2725, -0.2441, -0.2137, -0.1659, -0.1214, -0.072,
@@ -81,10 +88,27 @@ ang_table = np.array([-0.28, -0.2725, -0.2441, -0.2137, -0.1659, -0.1214, -0.072
 cmd_table = np.array([-0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2,-0.1,
                       0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
 
+
 def cmd_from_ang(ang_des):
     # 超范围时做饱和
     ang_des = np.clip(ang_des, ang_table[0], ang_table[-1])
     return np.interp(ang_des, ang_table, cmd_table)
+
+# 油门车速查表模型
+def throttle2speed(throttle):
+    if throttle < 0.097:
+        steady_speed = 0.0
+    else:
+        steady_speed = 26.3152*throttle - 2.5058
+    return steady_speed
+
+def speed2throttle(speed):
+    if speed < 0.10:
+        targeet_throttle = 0.097
+    else:
+        targeet_throttle = (speed + 2.5058) / 26.3152
+    return targeet_throttle
+#####################################################
 
 
 
@@ -248,6 +272,12 @@ class ChassisNode:
         throttle = msg.throttle # 期望油门值 (0 ~ 1)
         brake = msg.brake       # 期望刹车值 (0 ~ 1)
         current_gear = msg.gear  # 当前档位
+        
+        # 根据车速的油门限幅（避免传动系冲击）
+        steady_throttle = speed2throttle(velocity)  # 当前速度对应的稳态油门值
+        if throttle > steady_throttle + THROTTLE_LIMIT_EPSILON:
+            throttle = steady_throttle + THROTTLE_LIMIT_EPSILON
+            rospy.logwarn("油门命令超出当前速度允许范围，已限制为: %.3f", throttle)
         
         # 油门/刹车通道 (ch3)
         drive_cmd = 0.0
