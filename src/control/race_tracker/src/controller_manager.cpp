@@ -356,7 +356,7 @@ private:
 
         // 补偿因为前轮撞歪（向右侧）带来的偏差
         control_msg_.lateral.steering_angle = control_msg_.lateral.steering_angle + constant_front_steering_bias_;
-        control_msg_.gear = race_msgs::Control::GEAR_1;
+        control_msg_.gear = race_msgs::Control::GEAR_2;
         control_pub_.publish(control_msg_);
     }
 

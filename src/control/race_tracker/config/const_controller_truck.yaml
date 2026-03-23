@@ -1,0 +1,31 @@
+const_throttle_controller:
+  kp: 0.12
+  ki: 0.04
+  kd: 0.0
+
+  max_throttle: 0.25
+  max_brake: 0.00
+
+  pid_comp_limit: 0.04
+  integral_limit: 0.20
+
+  speed_tolerance: 0.10
+  min_target_speed: 0.0
+  predict_time_horizon: 1.0
+  brake_speed_error_threshold: 0.35
+
+  ff_deadzone_throttle: 0.11
+  ff_speed_slope: 26.3152
+  ff_speed_intercept: -2.5058
+  ff_min_enable_speed: 0.15
+
+pure_pursuit:
+  wheelbase: 0.5
+  max_steering_angle: 0.25
+  min_path_point: 3.0
+  min_lookahead_distance: 0.4
+  lookahead_speed_coeff: 0.7
+  amplify_coeff: 0.15
+  curvature_point_num: 5
+  curvature_space_num: 2
+  curvature_coeffs: 0.1

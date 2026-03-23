@@ -1,0 +1,29 @@
+<launch>
+    <node pkg="race_tracker" 
+          type="controller_manager" 
+          name="controller_manager" 
+          output="screen"
+          respawn="false">
+
+        <param name="control_freq" type="double" value="20.0" />
+        <param name="topic/local_path" type="string" value="/race/local_path" />
+        <param name="topic/vehicle_state" type="string" value="/race/vehicle_state" />
+        <param name="topic/control" type="string" value="/race/control" />
+        <param name="topic/flag" type="string" value="/race/flag" />
+        <param name="ego_frame_id" type="string" value="ego_vehicle" />
+
+        <param name="lateral_error_threshold" type="double" value="2.0" />
+        <param name="heading_error_threshold" type="double" value="1.5" />
+        <param name="default_min_target_speed" type="double" value="10.0" />
+        <param name="lateral_error_decrease_ratio" type="double" value="0.8" />
+        <param name="heading_error_decrease_ratio" type="double" value="1.0" />
+        <param name="constant_front_steering_bias" type="double" value="0.0"/> 
+
+        <rosparam param="plugins">
+            - race_tracker::PurePursuitController
+            - race_tracker::ConstThrottleController
+        </rosparam>
+
+        <rosparam command="load" file="$(find race_tracker)/config/const_controller_truck.yaml" />
+    </node>
+</launch>

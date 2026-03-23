@@ -58,3 +58,13 @@
         </description>
     </class>
 </library>
+
+<library path="lib/libconst_throttle_controller">
+    <class name="race_tracker::ConstThrottleController"
+           type="race_tracker::ConstThrottleController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            Constant throttle controller for longitudinal control.
+        </description>
+    </class>
+</library>
