@@ -18,14 +18,3 @@ const_throttle_controller:
   ff_speed_slope: 26.3152
   ff_speed_intercept: -2.5058
   ff_min_enable_speed: 0.15
-
-pure_pursuit:
-  wheelbase: 0.5
-  max_steering_angle: 0.25
-  min_path_point: 3.0
-  min_lookahead_distance: 0.4
-  lookahead_speed_coeff: 0.7
-  amplify_coeff: 0.15
-  curvature_point_num: 5
-  curvature_space_num: 2
-  curvature_coeffs: 0.1

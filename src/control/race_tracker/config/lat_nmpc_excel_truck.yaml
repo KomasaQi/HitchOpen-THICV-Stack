@@ -37,13 +37,3 @@ nmpc_lateral_controller:
   weight_terminal_heading: 5.0    # 终端航向权重
     
 
-pid_controller:
-  kp: 0.25
-  ki: 0.08
-  kd: 0.05
-  max_throttle: 0.6
-  max_brake: 0.0
-  integral_limit: 0.4
-  speed_tolerance: 0.1
-  min_target_speed: 0.1
-  predict_time_horizon: 1.0
