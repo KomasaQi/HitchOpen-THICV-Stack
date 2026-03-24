@@ -26,6 +26,4 @@
 
     </node>
 
-    <!-- 可选：启动rqt_graph查看节点关系 -->
-    <!-- <node pkg="rqt_graph" type="rqt_graph" name="rqt_graph" output="screen" /> -->
 </launch>

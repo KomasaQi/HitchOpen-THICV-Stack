@@ -33,14 +33,8 @@
         <!-- 3. 加载NMPC控制器参数 -->
         <rosparam command="load" file="$(find race_tracker)/config/lat_nmpc_excel_truck.yaml" />
         <rosparam command="load" file="$(find race_tracker)/config/long_const_throttle_truck.yaml" />
-        <!-- <rosparam ns="nmpc_controller">
-            <param name="front_steer_time_constant" value="0.01" /> 
-            <param name="rear_steer_time_constant" value="0.01" /> 
-
-        </rosparam> -->
+   
     </node>
 
-    <!-- 可选：启动rqt_graph查看节点关系 -->
-    <!-- <node pkg="rqt_graph" type="rqt_graph" name="rqt_graph" output="screen" /> -->
 </launch>
     
