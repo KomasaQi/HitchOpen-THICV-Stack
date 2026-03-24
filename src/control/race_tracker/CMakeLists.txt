@@ -47,6 +47,7 @@ add_library(pure_pursuit_controller plugins/pure_pursuit_controller.cpp src/curv
 add_library(pid_controller plugins/pid_controller.cpp)
 add_library(nmpc_controller plugins/nmpc_controller.cpp)
 add_library(nmpc_lateral_controller plugins/nmpc_lateral_controller.cpp)
+add_library(nmpc_accel_const_controller plugins/nmpc_accel_const_controller.cpp)
 add_library(anti_rollover_controller plugins/anti_rollover_controller.cpp)
 add_library(pid_tracker plugins/pid_tracker.cpp)
 add_library(const_throttle_controller plugins/const_throttle_controller.cpp)
@@ -65,6 +66,10 @@ target_link_libraries(nmpc_lateral_controller ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
 target_include_directories(nmpc_lateral_controller PRIVATE /usr/local/include)
+target_link_libraries(nmpc_accel_const_controller ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(nmpc_accel_const_controller PRIVATE /usr/local/include)
 target_link_libraries(anti_rollover_controller ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
@@ -78,6 +83,7 @@ install(TARGETS
   const_throttle_controller
   nmpc_controller
   nmpc_lateral_controller
+  nmpc_accel_const_controller
   pid_tracker
   anti_rollover_controller
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

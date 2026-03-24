@@ -44,7 +44,17 @@
            type="race_tracker::AntiRolloverController"
            base_class_type="race_tracker::ControllerPluginBase">
         <description>
-            Anti-rollover NMPC controller for lateral control of semi-trailer tank truck.
+            Anti-rollover NMPC controller for lateral control of semi-trailer tank truck by predicting and constrainting roll motion.
+        </description>
+    </class>
+</library>
+
+<library path="lib/libnmpc_accel_const_controller">
+    <class name="race_tracker::NMPCAccelConstController"
+           type="race_tracker::NMPCAccelConstController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            Anti-rollover NMPC controller for lateral control by constrainting lateral acceleration in prediction horizon.
         </description>
     </class>
 </library>

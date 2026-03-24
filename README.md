@@ -326,11 +326,11 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 很多知识都可以在`韩硕师兄`的个人笔记中找到答案[Hans's Notebook](https://hs867785578.github.io/my_note/)
 
 
-### 4.4 运行本项目
+## 5 运行本项目
 下面提供了一些运行的案例可以参考。
 
 ---
-#### 4.4.1 Carla车辆轨迹跟踪仿真
+### 5.1 Carla车辆轨迹跟踪仿真
 在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
 ![Carla Town10HD_Opt](/tutorial/images/runing_carla.png)
 
@@ -373,7 +373,7 @@ roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 
 ---
 
-#### 4.4.2 Carla车辆定位+轨迹跟踪仿真
+### 5.2 Carla车辆定位+轨迹跟踪仿真
 这是最为全面的一个仿真案例，采用liorf_localization进行定位。
 
 在进行定位前需要[☞下载`Carla Town10HD_Opt`的点云地图文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCarla_Map_Town10%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Carla_Map_Town10`目录下。
@@ -392,7 +392,7 @@ roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 ```
 ---
-#### 4.4.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
+### 5.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
 这是用实车数据进行的定位仿真案例，采用liorf_localization进行定位仿真。采集的是国汽智联园区外部的感知数据。在进行定位前需要[☞下载`Cicv`的点云地图文件`GlobalMap.pcd`（注意不要改名字）](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下。同时[☞下载`pix_moving.bag`的传感器实时录制文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2Fpix_moving.bag)，也放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下（或其他任何你能找到的文件路径）。
 
 我们可以启动一下位姿发布：
@@ -417,7 +417,7 @@ rosbag play pix_moving.bag
 ![localization result](/tutorial/images/cicv_loc_result.png)
 
 ---
-#### 4.4.4 天门山预赛车辆启动流程
+### 5.4 天门山预赛车辆启动流程
 **1. 启动梯子**
 
 打开电脑第一步先启动一个终端并运行下列命令打开clash梯子
@@ -520,7 +520,7 @@ rostopic hz /liorf_localization/mapping/odometry
 ```
 需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
 
-#### 4.4.5 卡车模型启动流程
+### 5.5 卡车模型启动流程
 
 - 启动雷达驱动:
 ``` bash
@@ -532,12 +532,12 @@ roslaunch vins rs_d455_imu_only.launch
 ```
 - 启动定位节点。
 
-在此之前请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_zhihui3_ouster/`文件夹下面（如果没有请创建）下载![智慧楼3楼地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2Fcicv_zhihui3_ouster%2FGlobalMap.pcd)，否则定位节点无法正常启动。
+在此之前请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_zhihui3_ouster/`文件夹下面（如果没有请创建）下载[智慧楼3楼地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2Fcicv_zhihui3_ouster%2FGlobalMap.pcd)，否则定位节点无法正常启动。
 
 ```bash
 roslaunch liorf_localization run_truck_zhihui_localization.launch 
 ```
-如果是在`车库`启动，使用以下命令启动定位节点：
+如果是在`车库`启动，使用以下命令启动定位节点（请记得给`HitchOpen-THICV-Stack/src/launch/simple_racing/maps/cicv_garage_ouster/`文件夹下面（如果没有请创建）下载[车库地图GlobalMap.pcd](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Garage_Map%2Fcicv_garage.pcd)）：
 ```bash
 roslaunch liorf_localization run_truck_garage_localization.launch 
 ```
@@ -570,7 +570,32 @@ rosparam set /competition_timer/flag G10
 roslaunch race_tracker simple_controller_carla.launch 
 ```
 
+### 5.6 卡车模型参数标定
 
+**（1）前轮转角非线性关系标定**
+
+由于模型小车的转向舵机位于车辆的一侧，加上车辆是阿克曼转向结构，故无法在相同的左右极限指令下实现对称的左右转角，使得实际转角存在`非对称性`。加之舵机的摇臂是圆周运动，并不是线性地推动转向羊角，故这一点使得转角存在`非线性`。同时在大转角的情况下，轮胎特性会进一步体现，轮胎侧向力负荷达到极限，此时会出现转向衰退的情况，即打更多方向盘反而增加了转弯半径，等效转角随方向盘进一步增加而出现减小，这加重了转向特性的`非线性`。
+
+为对上述非线性和非对称性进行补偿，通常在测试用地面进行实际`等效前轮转角`的标定，即前轮实际转角由于轮胎滑移的存在，不等于根据转弯半径计算的等效前轮转角。我们首先启动小车定位与驱动节点，然后使用`rqt`指令
+``` bash
+rqt # 启动rqt界面，找到plugin->topics->publisher
+```
+然后发布`/race/control`话题，给小车基础的`油门`、`档位`以及所需测量的转向指令，准备切换遥控器自动驾驶模式。在开始前打开记录节点：
+``` bash
+rosrun fw_pkg trajectory_analyzer.py 
+```
+该节点根据SLAM定位结果记录默认参数为`0.1m`间隔的轨迹信息，并将记录的所有点用来进行最小二乘拟合一个圆，并输出拟合半径，以及根据`名义轴距`计算的`等效前轮转角`。
+
+得到了标定表以后可以在`truck_driver`包中的`chassis_control.py`节点输入标定的值即可修正转角。
+
+
+**（2）油门车速稳态关系标定**
+
+为对油门进行更加平滑的控制，实现精准速度，我们可以标定试验场地的油门车速稳态关系以用作前馈。同样打开`rqt`指令，给定待测油门值，然后打开车速稳定显示模块：
+``` bash 
+rosrun fw_pkg speed_filter.py
+``` 
+该模块对`/race/speedometer`话题中根据轮速计测量到的速度进行滤波，保留过去`5s`内的均值进行显示，用来读数。测试时需要保持目标油门5s以上，安全停车后可在命令行中上翻读取稳定数值。
 
 ---
 ## Contributors:
