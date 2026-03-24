@@ -1,0 +1,19 @@
+# vehicle_state_recorder 默认参数配置
+
+# 要订阅的车辆状态话题
+topic_name: "/race/vehicle_state"
+
+# 实验名称，会自动拼接开始记录时间形成最终文件名
+# 例如：double_lane_change_20260324_153000.csv
+experiment_name: "default_experiment"
+
+# CSV 输出目录
+output_dir: "~/komasa/HitchOpen-THICV-Stack/src/implementation/exp_utils/data/vehicle_state_logs"
+
+# 每收到多少条消息后主动 flush 一次到磁盘
+# 1 表示每条都 flush，最安全但稍慢
+flush_every_n: 5
+
+# 文件名中是否使用系统时间（推荐 true）
+# false 时将改用 ROS 时间戳秒数
+use_wall_time_in_filename: true

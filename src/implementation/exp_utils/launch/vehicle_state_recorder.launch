@@ -1,0 +1,25 @@
+<launch>
+    <!-- ============================= -->
+    <!-- 可在命令行覆盖的参数 -->
+    <!-- ============================= -->
+    <arg name="topic_name" default="/race/vehicle_state" />
+    <arg name="experiment_name" default="default_experiment" />
+    <arg name="output_dir" default="~/komasa/HitchOpen-THICV-Stack/src/implementation/exp_utils/data/vehicle_state_logs" />
+    <arg name="flush_every_n" default="5" />
+    <arg name="use_wall_time_in_filename" default="true" />
+
+    <!-- 加载默认参数文件 -->
+    <rosparam command="load" file="$(find exp_utils)/config/vehicle_state_recorder.yaml" />
+
+    <!-- 使用 launch 参数覆盖 yaml 中的同名参数 -->
+    <node pkg="exp_utils"
+          type="vehicle_state_recorder.py"
+          name="vehicle_state_recorder"
+          output="screen">
+        <param name="topic_name" value="$(arg topic_name)" />
+        <param name="experiment_name" value="$(arg experiment_name)" />
+        <param name="output_dir" value="$(arg output_dir)" />
+        <param name="flush_every_n" value="$(arg flush_every_n)" />
+        <param name="use_wall_time_in_filename" value="$(arg use_wall_time_in_filename)" />
+    </node>
+</launch>
