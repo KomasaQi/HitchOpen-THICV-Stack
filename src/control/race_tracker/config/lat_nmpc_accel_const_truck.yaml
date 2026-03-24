@@ -2,22 +2,22 @@ nmpc_accel_const_controller:
   nx: 4
   nu: 1
 
-  prediction_step: 20
-  sparse_control_step: 4
+  prediction_step: 15
+  sparse_control_step: 3
 
-  front_steer_time_constant: 0.2
+  front_steer_time_constant: 0.1
   sampling_time: 0.1
   wheelbase: 0.3
   gravity: 9.806
-  max_lateral_acceleration: 1.5
+  max_lateral_acceleration: 1.8
 
   min_front_steer: -0.25
   max_front_steer: 0.25
 
-  weight_position: 25.0
-  weight_heading: 13.0
-  weight_front_steer: 200.0
+  weight_position: 35.0
+  weight_heading: 25.0
+  weight_front_steer: 2.0
   weight_front_steer_control: 1.0
-  weight_front_steer_rate: 10.0
-  weight_terminal_position: 20.0
-  weight_terminal_heading: 10.0
+  weight_front_steer_rate: 0.5
+  weight_terminal_position: 5.0
+  weight_terminal_heading: 3.0
