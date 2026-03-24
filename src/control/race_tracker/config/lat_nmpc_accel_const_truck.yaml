@@ -15,7 +15,7 @@ nmpc_accel_const_controller:
   max_front_steer: 0.25
 
   weight_position: 35.0
-  weight_heading: 25.0
+  weight_heading: 35.0
   weight_front_steer: 2.0
   weight_front_steer_control: 1.0
   weight_front_steer_rate: 0.5
