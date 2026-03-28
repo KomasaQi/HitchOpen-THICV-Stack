@@ -2,24 +2,55 @@
     <!-- ============================= -->
     <!-- 可在命令行覆盖的参数 -->
     <!-- ============================= -->
-    <arg name="topic_name" default="/race/vehicle_state" />
+
+    <!-- 车辆状态话题 -->
+    <arg name="state_topic_name" default="/race/vehicle_state" />
+
+    <!-- 控制话题 -->
+    <arg name="control_topic_name" default="/race/control" />
+
+    <!-- 实验名称 -->
     <arg name="experiment_name" default="default_experiment" />
+
+    <!-- 输出目录 -->
     <arg name="output_dir" default="~/komasa/HitchOpen-THICV-Stack/src/implementation/exp_utils/data/vehicle_state_logs" />
+
+    <!-- 每隔多少行 flush 一次 -->
     <arg name="flush_every_n" default="5" />
+
+    <!-- 文件名是否使用系统时间 -->
     <arg name="use_wall_time_in_filename" default="true" />
 
-    <!-- 加载默认参数文件 -->
+    <!-- 固定记录周期，单位：秒。0.05 s = 20 Hz -->
+    <arg name="record_period" default="0.05" />
+
+    <!-- 订阅队列长度 -->
+    <arg name="subscriber_queue_size" default="100" />
+
+    <!-- 是否启动时写入表头 -->
+    <arg name="write_header_on_start" default="true" />
+
+    <!-- ============================= -->
+    <!-- 先加载 yaml 默认参数 -->
+    <!-- ============================= -->
     <rosparam command="load" file="$(find exp_utils)/config/vehicle_state_recorder.yaml" />
 
-    <!-- 使用 launch 参数覆盖 yaml 中的同名参数 -->
+    <!-- ============================= -->
+    <!-- launch 参数覆盖 yaml 同名参数 -->
+    <!-- ============================= -->
     <node pkg="exp_utils"
           type="vehicle_state_recorder.py"
           name="vehicle_state_recorder"
           output="screen">
-        <param name="topic_name" value="$(arg topic_name)" />
+
+        <param name="state_topic_name" value="$(arg state_topic_name)" />
+        <param name="control_topic_name" value="$(arg control_topic_name)" />
         <param name="experiment_name" value="$(arg experiment_name)" />
         <param name="output_dir" value="$(arg output_dir)" />
         <param name="flush_every_n" value="$(arg flush_every_n)" />
         <param name="use_wall_time_in_filename" value="$(arg use_wall_time_in_filename)" />
+        <param name="record_period" value="$(arg record_period)" />
+        <param name="subscriber_queue_size" value="$(arg subscriber_queue_size)" />
+        <param name="write_header_on_start" value="$(arg write_header_on_start)" />
     </node>
 </launch>
