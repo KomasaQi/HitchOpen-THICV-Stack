@@ -14,7 +14,7 @@
         <param name="topic/flag" type="string" value="/race/flag" />
         <param name="ego_frame_id" type="string" value="ego_vehicle" />
 
-        <!-- 2. 仅使用NMPC插件 -->
+        <!-- 2. 加载插件 -->
         <rosparam param="plugins">
             - race_tracker::NMPCLateralController  <!-- NMPC双轴横向控制器 -->
             - race_tracker::PIDController  <!-- PID控制器 -->
