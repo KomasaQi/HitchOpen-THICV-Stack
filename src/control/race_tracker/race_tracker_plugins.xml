@@ -58,3 +58,13 @@
         </description>
     </class>
 </library>
+
+<library path="lib/libeso_tracker">
+    <class name="race_tracker::ESOTracker"
+           type="race_tracker::ESOTracker"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            ESO tracker for lateral control of semi-trailer truck, originally designed for DFCV project.
+        </description>
+    </class>
+</library>
