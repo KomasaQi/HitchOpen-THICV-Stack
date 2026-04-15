@@ -239,6 +239,20 @@ public:
     void publishVehicleState(const ros::TimerEvent& event) {
         // 等待所有必要的消息都被接收
         if (!imu_received_ || !odom_received_ || !speedometer_received_ || !vehicle_status_received_) {
+            std::cout << "等待所有必要的消息都被接收" << std::endl;
+            // 检查一下什么消息没有被接收
+            if (!imu_received_) {
+                std::cout << "IMU消息未接收" << std::endl;
+            }
+            if (!odom_received_) {
+                std::cout << "里程计消息未接收" << std::endl;
+            }
+            if (!speedometer_received_) {
+                std::cout << "速度计消息未接收" << std::endl;
+            }
+            if (!vehicle_status_received_) {
+                std::cout << "车辆状态消息未接收" << std::endl;
+            }
             return;
         }
         
