@@ -2,100 +2,143 @@
 #define RACE_TRACKER_ESO_TRACKER_H
 
 #include <casadi/casadi.hpp>
+#include <Eigen/Dense>
 #include <ros/ros.h>
 #include <vector>
+#include <cmath>
+#include <memory>
 #include <tf/transform_datatypes.h>
+
+// ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
 #include <race_msgs/Control.h>
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
-#include <memory>
-
+#include <race_msgs/Flag.h>
 
 namespace race_tracker {
 
+// NMPC参数 (保留原有参数体系)
+struct NMPCParams {
+    double m = 10000.0;
+    double Iz = 50000.0;
+    double lf = 2.0;
+    double lr = 2.135;
+    double Cf = 250000.0;
+    double Cr = 1000000.0;
+    double T_lag = 0.2;
+    double dt = 0.05;
+    int N = 35;
+    int Nc = 5;
+    int nx = 6;
+    int nu = 1;
+    double delta_max = 0.5;
+    double delta_min = -0.5;
+    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
+    double R = 10.0;
+    double dR = 200.0;
+
+    NMPCParams() {
+        // 初始化Q矩阵
+        Q(0,0) = 1000; Q(1,1) = 5000; Q(2,2) = 4000;
+        Q(3,3) = 100;  Q(4,4) = 800;  Q(5,5) = 1000;
+    }
+};
+
+// NMPC求解器结构 
+struct NMPSolver {
+    casadi::Opti opti;
+    casadi::MX X;
+    casadi::MX U_sparse;
+    casadi::MX P_x0;
+    casadi::MX P_waypoints;
+    casadi::MX P_vx;
+    casadi::MX P_u_prev;
+    casadi::MX P_h_hat;
+    casadi::MX P_dyn_params;
+    std::unique_ptr<casadi::OptiSol> sol_prev; 
+    bool has_prev_sol = false;
+};
+
+// 核心控制器类继承自 ControllerPluginBase
 class ESOTracker : public ControllerPluginBase {
 public:
-    ESOTracker() = default;
+    ESOTracker();
     ~ESOTracker() override = default;
 
+    // --- 核心 ROS 插件重载函数 ---
     bool initialize(ros::NodeHandle& nh) override;
+    
     void computeControl(
         const race_msgs::VehicleStatusConstPtr& vehicle_status,
         const race_msgs::PathConstPtr& path,
         race_msgs::Control* control_msg,
         const double dt,
         const race_msgs::Flag::ConstPtr& flag) override;
+
     std::string getName() const override { return "ESOTracker"; }
 
 private:
-    // 辅助函数
+    // --- 算法核心函数 (源自原代码) ---
+    void buildNMPSolver();
+
+    casadi::MX vehicleDynamicsModel(const casadi::MX& state, const casadi::MX& cmd_delta,
+                                    const casadi::MX& vx, const casadi::MX& h_dist,
+                                    const casadi::MX& dyn_params);
+
+    bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
+                   std::vector<double>& control_output);
+
+    
+    void ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt);
+    
+    void rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta, 
+                              double curr_r, double curr_ay, double dt);
+    
+    void esoCompute(double curr_r, double curr_delta, double dt);
+
+    double normalizeAngle(double angle);
+
+    // --- ROS 与路径处理辅助函数  ---
     double quaternion_to_yaw(const geometry_msgs::Quaternion& q);
     int find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path);
     std::vector<double> calculate_cumulative_distance(const race_msgs::Path& path, int start_idx);
     std::vector<double> linear_interpolate(const std::vector<double>& s_original, 
-                                         const std::vector<double>& val_original, 
-                                         const std::vector<double>& s_target);
+                                           const std::vector<double>& val_original, 
+                                           const std::vector<double>& s_target);
     casadi::DM interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
-                                      int start_idx, int end_idx, int n_waypoints, double yaw0);
+                                        int start_idx, int end_idx, int n_waypoints, double yaw0);
     casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state);
-
-    // NMPC求解函数
-    bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
-                  std::vector<double>& control_output);
-
-    // 车辆状态转换
+    
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
-    // 控制器参数
-    int nx_;                // 状态维度 [x, y, vx, theta, delta1, delta2]
-    int nu_;                // 控制量维度 [delta1_des, delta2_des]
-    int N_;                 // NMPC预测步长
-    int Nc_;                // 稀疏控制量步数
-    double T_d1_;           // 前轴转向动态时间常数
-    double T_d2_;           // 后轴转向动态时间常数
-    double dt_;             // 采样时间 (s)
-    double L_;              // 车辆轴距 (m)
-    double g_;              // 重力加速度 (m/s²)
-    double a_max_;          // 预设最大加速度 (m/s²)
-    int n_waypoints_;       // 目标参考路点数量
+private:
+    // --- 状态与持久化变量 ---
+    NMPCParams nmpc_params_;
+    NMPSolver solver_;
+    
+    double current_cmd_ = 0.0;
+    int nmpc_counter_ = 4;
 
-    // 控制量边界
-    double delta1_min_;     // 前轴最小转向角
-    double delta1_max_;     // 前轴最大转向角
-    double delta2_min_;     // 后轴最小转向角
-    double delta2_max_;     // 后轴最大转向角
+    // ESO观测器相关
+    double eso_x1_ = 0.0;
+    double eso_x2_ = 0.0;
 
-    // 代价函数权重
-    double w_pos_;          // 位置跟踪权重
-    double w_theta_;        // 航向跟踪权重
-    double w_v_;            // 速度跟踪权重
-    double w_ax_;           // 加速度平滑权重
-    double w_delta1_;       // 前轴转向角平滑权重
-    double w_delta2_;       // 后轴转向角平滑权重
-    double w_term_pos_;     // 终端位置权重
-    double w_term_theta_;   // 终端航向权重
-    double w_term_v_;       // 终端速度权重
-    double w_delta_cmd1_;   // 前轴转向角指令权重
-    double w_delta_cmd2_;   // 后轴转向角指令权重
+    // UKF相关
+    Eigen::Vector2d ukf_x_est_;  // [vy, r]
+    Eigen::Matrix2d ukf_P_est_;
 
-
-    // NMPC求解器相关
-    std::unique_ptr<casadi::OptiSol> sol_prev_;  // 原：casadi::OptiSol sol_prev_;
-    casadi::MX X_;          // 状态序列
-    casadi::MX U_sparse_;   // 稀疏控制量
-    casadi::MX x0_;         // 初始状态参数
-    casadi::MX waypoints_;  // 参考路点参数
-    casadi::Function f_func_; // 动力学模型函数
-    casadi::Opti opti_;     // NMPC优化器
-    std::vector<double> last_control_output_; // 上一次的控制输出
-    bool has_prev_sol_;     // 是否有前一次求解结果
-
-    // 稀疏控制量分布
-    std::vector<int> steps_per_control_;
+    // RLS相关
+    double rls_P_f_ = 1e5;
+    double rls_theta_f_ = 250000.0;
+    double rls_P_r_ = 1e5;
+    double rls_theta_r_ = 1000000.0;
+    double rls_r_prev_ = 0.0;
+    double rls_r_dot_pre_ = 0.0;
+    double rls_Cf_est_ = 250000.0;
+    double rls_Cr_est_ = 1000000.0;
 };
 
 } // namespace race_tracker
 
 #endif // RACE_TRACKER_ESO_TRACKER_H
-    

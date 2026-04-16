@@ -45,7 +45,8 @@
 #include "dlio/dlio.h"
 #include "nano_gicp/nano_gicp.h"
 
-template class nano_gicp::NanoGICP<PointType, PointType>;
+
+//template class nano_gicp::NanoGICP<PointType, PointType>;
 
 namespace nano_gicp {
 
@@ -392,3 +393,7 @@ bool NanoGICP<PointSource, PointTarget>::calculate_covariances(
 }
 
 }  // namespace nano_gicp
+
+// 显式实例化 (Explicit Instantiation)
+
+template class nano_gicp::NanoGICP<dlio::Point, dlio::Point>;

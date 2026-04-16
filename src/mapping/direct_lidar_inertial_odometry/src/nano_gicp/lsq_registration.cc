@@ -45,7 +45,7 @@
 #include "dlio/dlio.h"
 #include "nano_gicp/lsq_registration.h"
 
-template class nano_gicp::LsqRegistration<PointType, PointType>;
+//template class nano_gicp::LsqRegistration<PointType, PointType>;
 
 namespace nano_gicp {
 
@@ -229,3 +229,4 @@ bool LsqRegistration<PointTarget, PointSource>::step_lm(Eigen::Isometry3d& x0, E
 }
 
 }  // namespace nano_gicp
+template class nano_gicp::LsqRegistration<dlio::Point, dlio::Point>;

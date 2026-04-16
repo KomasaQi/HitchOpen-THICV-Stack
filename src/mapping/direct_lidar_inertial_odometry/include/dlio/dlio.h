@@ -11,6 +11,7 @@
  ***********************************************************/
 
 // SYSTEM
+#pragma once
 #include <atomic>
 
 #ifdef HAS_CPUID
@@ -109,3 +110,4 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(dlio::Point,
                                  (double, timestamp, timestamp))
 
 typedef dlio::Point PointType;
+

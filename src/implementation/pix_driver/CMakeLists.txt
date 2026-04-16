@@ -57,6 +57,7 @@ include_directories(
 )
 
 add_executable(can_bridge src/can_bridge.cpp)
+add_dependencies(can_bridge ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(can_bridge
   ${catkin_LIBRARIES}
   boost_system
