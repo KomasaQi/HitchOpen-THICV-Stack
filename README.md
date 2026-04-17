@@ -521,12 +521,35 @@ rostopic hz /liorf_localization/mapping/odometry
 需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
 
 
+#### 4.4.5 东风项目半挂车仿真启动流程
+
+xxxx 说明 TODO
+
+
+生成小卡车
+```bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0"
+
+```
+别忘记手动倒退挂接挂车！
+
+xxx 其他启动项目 TODO
+
+更新后的轨迹
+```bash
+roslaunch race_global_static_planner race_global_carla_town10_truck.launch
+```
+
+
+
 ---
 ## Contributors:
 
 - 戚笑景 Komasa Qi （清华大学）
 - 何瑞坤 He Ruikun （辽宁工业大学）
 - 邹恒多 Zou Hengduo （清华大学）
+- 龚林豪 Gong Linhao (江苏理工学院)
+- 王坤鹏 Wang Kunpeng (长安大学)
 - 扶尚宇 Fu Shangyu （清华大学）
 - 邱逸凡 Qiu Yifan （中国农业大学）
 - 黄梓谦 Huang Ziqian （华南理工大学）
