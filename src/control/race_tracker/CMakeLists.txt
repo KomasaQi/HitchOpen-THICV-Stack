@@ -50,6 +50,7 @@ add_library(nmpc_lateral_controller plugins/nmpc_lateral_controller.cpp)
 add_library(anti_rollover_controller plugins/anti_rollover_controller.cpp)
 add_library(pid_tracker plugins/pid_tracker.cpp)
 add_library(eso_tracker plugins/eso_tracker.cpp)
+add_library(eso_tracker2 plugins/eso_tracker2.cpp)
 
 
 
@@ -73,6 +74,10 @@ target_link_libraries(eso_tracker ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
 target_include_directories(eso_tracker PRIVATE /usr/local/include)
+target_link_libraries(eso_tracker2 ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(eso_tracker2 PRIVATE /usr/local/include)
 
 
 
@@ -86,6 +91,7 @@ install(TARGETS
   pid_tracker
   anti_rollover_controller
   eso_tracker
+  eso_tracker2
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

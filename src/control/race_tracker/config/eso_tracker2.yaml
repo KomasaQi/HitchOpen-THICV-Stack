@@ -1,0 +1,35 @@
+# NMPC横向控制器参数配置
+nmpc_controller:       
+  # 状态与控制维度配置
+  nx: 6                 # 状态维度 [x, y, theta, vy, r, delta]
+  nu: 1                 # 控制量维度 [delta_des] 单前轴转向
+  
+  # 预测与控制步长配置
+  prediction_step: 35    # NMPC预测步长 (N)
+  sparse_control_step: 5 # 稀疏控制量步数 (Nc)
+  
+  # 控制时间与频率
+  sampling_time: 0.05   # 采样时间 (s)
+  
+  # 车辆核心动力学参数 
+  m: 10000.0            # 车辆质量 (kg)
+  Iz: 50000.0           # 横摆转动惯量 (kg·m²)
+  lf: 2.0               # 质心到前轴距离 (m)
+  lr: 2.135             # 质心到后轴距离 (m)
+  
+  # 控制量边界约束
+  min_steer: -0.5       # 前轴最小转向角 (rad)
+  max_steer: 0.5        # 前轴最大转向角 (rad)
+  
+
+# 纵向 PID 控制器（保持原样，无需修改）
+pid_controller:
+  kp: 0.6
+  ki: 0.05
+  kd: 0.1
+  max_throttle: 0.8
+  max_brake: 0.8
+  integral_limit: 2.0
+  speed_tolerance: 0.2
+  min_target_speed: 0.5
+  predict_time_horizon: 0.5  # 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）
