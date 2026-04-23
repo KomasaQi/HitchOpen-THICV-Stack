@@ -526,18 +526,51 @@ rostopic hz /liorf_localization/mapping/odometry
 xxxx 说明 TODO
 
 
-生成小卡车
+1.生成小卡车
 ```bash
 roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0"
-
 ```
-别忘记手动倒退挂接挂车！
+别忘记手动倒退挂接挂车！(接上挂车可以往前开几步，逃离红绿灯支配恐惧)。如下图挂上罐子/挂车：
+![one_tracker_DFCV](/tutorial/images/one_tracker_DFCV.png)
+![tracker_DFCV](/tutorial/images/tracker_DFCV.png)
+
+2.ros桥启动！
+
+然后在新的终端中运行带有一阶+纯时延动力学的转向、刹车、油门动力学的carla_race_bridge，以将本仓库自定义的race_msgs消息包中的消息与carla-ros-bridge中的消息进行转换：
+```bash
+roslaunch carla_race_bridge  carla_race_bridge_with_dynamics.launch 
+```
+3.静态轨迹启动！
+
+再在新的一个终端中运行静态全局规划代码
+```bash
+roslaunch race_global_static_planner race_global_carla_town10_truck.launch
+```
+4.控制算法启动！
+
+再在一个新的终端里面运行控制算法eso_tracker/eso_tracker2，都是横向控制，前者为2DOF模型，后者为3DOF模型（多挂车横摆角速度）。任选一个运行就可以啦。
+```bash
+roslaunch race_tracker eso_tracker_carla.launch
+roslaunch race_tracker eso_tracker2_carla.launch
+```
+5.半挂小车启动！
+
+此时应该会显示收到RED Flag，以及侧向载荷尚未收到的红色提示，不用急！只是启动了紧急停止，车辆并不会运动，我们需要打开ltr来输入，以及competition_timer来控制车辆运行。
+```bash
+roslaunch ltr_estimation ltr_carla.launch 
+```
+```bash
+roslaunch competition_timer competition_timer.launch
+```
+我们需要设置比赛旗帜的颜色来控制车辆状态。如： 手动更改比赛计时器的旗帜状态为GREEN：
+```bash
+rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREEN RED BLACK G5 G10 G15 G20 G40 G60 G80
+```
+注意：如果一开始挂接了挂车，不要忘记回到Rviz按下B切换到控制器控制喔~不然小车就跑不起来哒
+![eso_tracker_DFCV](/tutorial/images/eso_tracker_DFCV.png)
 
 xxx 其他启动项目 TODO
 
-更新后的轨迹
-```bash
-roslaunch race_global_static_planner race_global_carla_town10_truck.launch
 ```
 
 
