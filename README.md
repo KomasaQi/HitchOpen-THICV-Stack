@@ -571,11 +571,8 @@ rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREE
 
 xxx 其他启动项目 TODO
 
-```
 
 
-
----
 ## Contributors:
 
 - 戚笑景 Komasa Qi （清华大学）
