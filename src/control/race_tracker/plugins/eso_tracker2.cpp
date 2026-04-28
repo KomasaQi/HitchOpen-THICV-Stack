@@ -54,8 +54,8 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("lt", nmpc_params_.lt, 3.4);
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
     nh_nmpc.param("M", nmpc_params_.M, nmpc_params_.m + nmpc_params_.m_t);
-    // 加载原NMPC核心参数   
-    nh_nmpc.param("prediction_step", nmpc_params_.N, 15);
+    // 加载原NMPC核心参数   1
+    nh_nmpc.param("prediction_step", nmpc_params_.N, 35);
     nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 5);
     nh_nmpc.param("sampling_time", nmpc_params_.dt, 0.05);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
@@ -586,7 +586,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_trailor = (Fyt_hy1 * lr) / Iz1;
     MX d_vy = (Fyf*cos(delta) + Fyr + Fyt_hy1) / m1 - vx * r;
     MX Mh = hx * Fyt_hy1 - hy * Fyt_hx1;
-    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 + h_dist - r_dot_2DOF- d_trailor;
+    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 ;//+ h_dist - r_dot_2DOF- d_trailor;
 
     // 挂车动力学
     MX Fyt_hy2 = -Fyt;
@@ -628,7 +628,7 @@ void ESOTracker2::buildNMPSolver() {
         current_idx = end_idx;
     }
 
-    // 转角变化率约束（新增）
+    //转角变化率约束（新增）
     double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
     double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
     solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
@@ -679,7 +679,6 @@ void ESOTracker2::buildNMPSolver() {
         J += nmpc_params_.Q_gamma_rate * pow(gamma_dot_actual, 2);
         J += nmpc_params_.R * pow(con, 2);
     }
-
     // 控制量平滑项（保留原逻辑）
     J += nmpc_params_.dR * pow(solver_.U_sparse(0) - solver_.P_u_prev, 2);
     for (int i=1; i<Nc; i++) J += nmpc_params_.dR * pow(solver_.U_sparse(i) - solver_.U_sparse(i-1), 2);

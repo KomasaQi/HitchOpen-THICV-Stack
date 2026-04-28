@@ -34,15 +34,25 @@ struct NMPCParams {
     int nu = 1;
     double delta_max = 0.5;
     double delta_min = -0.5;
-    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
-    double R = 10.0;
-    double dR = 200.0;
+    double delta_c_max = 1.5;
 
+    // 代价函数权重独立变量 
+    double Q_x = 1000.0, Q_y = 5000.0, Q_theta = 4000.0;
+    double Q_vy = 100.0, Q_r = 800.0, Q_delta = 1000.0;
+    double R = 10.0;
+    double dR = 500.0;
+
+    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
 
     NMPCParams() {
-        // 初始化Q矩阵
-        Q(0,0) = 1000; Q(1,1) = 5000; Q(2,2) = 4000;
-        Q(3,3) = 100;  Q(4,4) = 800;  Q(5,5) = 1000;
+        updateQMatrix();
+    }
+
+    // 加载完YAML后调用此函数更新Eigen矩阵
+    void updateQMatrix() {
+        Q.setZero();
+        Q(0,0) = Q_x; Q(1,1) = Q_y; Q(2,2) = Q_theta;
+        Q(3,3) = Q_vy; Q(4,4) = Q_r; Q(5,5) = Q_delta;
     }
 };
 
@@ -80,7 +90,7 @@ public:
     std::string getName() const override { return "ESOTracker"; }
 
 private:
-    // --- 算法核心函数 (源自原代码) ---
+    // --- 算法核心函数  ---
     void buildNMPSolver();
 
     casadi::MX vehicleDynamicsModel(const casadi::MX& state, const casadi::MX& cmd_delta,
@@ -114,6 +124,12 @@ private:
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
 private:
+
+    bool is_high_speed_last_ = false;       // 上一帧是否为高速模式
+    double blend_alpha_ = 0.0;              // 切换权重：0=纯跟踪 1=完全NMPC
+    static constexpr double BLEND_LOW = 15.0 / 3.6;  // 13km/h 开始过渡
+    static constexpr double BLEND_HIGH = 18.0 / 3.6; // 17km/h 完全切NMPC
+    double nmpc_safe_cmd_ = 0.0;            // NMPC预计算的安全输出（纯跟踪模式下预热用
     // --- 状态与持久化变量 ---
     NMPCParams nmpc_params_;
     NMPSolver solver_;

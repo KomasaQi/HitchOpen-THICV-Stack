@@ -39,8 +39,8 @@ struct NMPCParams {
     double Ct = 400000.0;
     double M = m+m_t;     // 总质量
     // 约束参数（新增）
-    // double delta_rate_max = 15.0/180.0*M_PI;
-    // double delta_rate_min = -15.0/180.0*M_PI;
+    double delta_rate_max = 100.0/180.0*M_PI;
+    double delta_rate_min = -100.0/180.0*M_PI;
     // double gamma_max = 50.0/180.0*M_PI;
     // double gamma_min = -50.0/180.0*M_PI;
     // 原有NMPC核心参数（Matlab值覆盖）
