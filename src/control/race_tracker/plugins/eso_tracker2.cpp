@@ -53,7 +53,7 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Iz_t", nmpc_params_.Iz_t, 150000.0);
     nh_nmpc.param("lt", nmpc_params_.lt, 3.4);
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
-    nh_nmpc.param("MM", nmpc_params_.M, nmpc_params_.m + nmpc_params_.m_t);
+    nh_nmpc.param("M", nmpc_params_.M, nmpc_params_.m + nmpc_params_.m_t);
     // 加载原NMPC核心参数   
     nh_nmpc.param("prediction_step", nmpc_params_.N, 15);
     nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 5);
@@ -628,13 +628,13 @@ void ESOTracker2::buildNMPSolver() {
         current_idx = end_idx;
     }
 
-    // // 转角变化率约束（新增）
-    // double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
-    // double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
-    // solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
-    // for (int i=1; i<Nc; i++) {
-    //     solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(i) - solver_.U_sparse(i-1), max_dU));
-    // }
+    // 转角变化率约束（新增）
+    double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
+    double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
+    solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
+    for (int i=1; i<Nc; i++) {
+        solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(i) - solver_.U_sparse(i-1), max_dU));
+    }
 
     MX J = 0.0;
     solver_.opti.subject_to(solver_.X(Slice(), 0) == solver_.P_x0);

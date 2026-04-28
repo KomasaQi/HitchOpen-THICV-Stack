@@ -18,7 +18,7 @@
 
 namespace race_tracker {
 
-// NMPC参数 (保留原有参数体系)
+// NMPC参数 
 struct NMPCParams {
     double m = 10000.0;
     double Iz = 50000.0;
@@ -37,6 +37,7 @@ struct NMPCParams {
     Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
     double R = 10.0;
     double dR = 200.0;
+
 
     NMPCParams() {
         // 初始化Q矩阵
