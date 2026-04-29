@@ -1,44 +1,55 @@
-# NMPC横向控制器参数配置
-nmpc_controller:       
-  # 状态与控制维度配置
-  nx: 6                 # 状态维度 [x, y, theta, vy, r, delta]
-  nu: 1                 # 控制量维度 [delta_des] 单前轴转向
-  
-  # 预测与控制步长配置
-  prediction_step: 35    # NMPC预测步长 (N)
-  sparse_control_step: 5 # 稀疏控制量步数 (Nc)
-  
-  # 控制时间与频率
-  sampling_time: 0.05   # 采样时间 (s)
-  
-  # 车辆核心动力学参数 
-  m: 10000.0            # 车辆质量 (kg)
-  Iz: 50000.0           # 横摆转动惯量 (kg·m²)
-  lf: 2.0               # 质心到前轴距离 (m)
-  lr: 2.135             # 质心到后轴距离 (m)
-  T_lag: 0.2            # 转向系统滞后时间 (s)
-  
-  # 控制量边界约束
-  min_steer: -0.5       # 前轴最小转向角 (rad)
-  max_steer: 0.5        # 前轴最大转向角 (rad)
-  max_delta_delta: 1.5  # 最大转向角速度 (rad/s)
-  
-  # 代价函数权重 
-  Q_x: 1000.0           # 横向位置误差权重
-  Q_y: 5000.0           # 纵向位置误差权重
-  Q_theta: 4000.0       # 航向角误差权重
-  Q_vy: 100.0           # 侧向速度权重
-  Q_r: 800.0            # 横摆角速度权重
-  Q_delta: 1000.0       # 转向角权重
-  R: 10.0               # 控制量权重
-  dR: 100000.0             # 控制增量权重 (平滑性)
+eso_tracker:  
+  # --- 1. 基础配置 (维度与时间) ---
+  nx: 6                         # 状态维度 [x, y, theta, vy, r, delta]
+  nu: 1                         # 控制量维度 [delta_des]
+  prediction_step: 35           # 预测步长 (N)
+  sparse_control_step: 5        # 控制步长 (Nc)
+  sampling_time: 0.05           # 采样时间 dt (s)
+  integration_grade: 2.0        # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4
 
-  # 积分求解参数
-  integration_grade: 1.0  # 积分求解参数，默认2.0（RK2积分）
+  # --- 2. 车辆物理参数 ---
+  m: 10000.0                    # 车辆质量 (kg)
+  Iz: 50000.0                   # 横摆转动惯量 (kg·m²)
+  lf: 2.0                       # 质心到前轴距离 (m)
+  lr: 2.135                     # 质心到后轴距离 (m)
+  T_lag: 0.2                    # 转向系统滞后时间 (s)
+  
+  # --- 3. 轮胎模型参数 (RLS辨识初始值 & 上下限) ---
+  Cf: 250000.0                  # 前轴侧偏刚度初始值 (N/rad)
+  Cr: 1000000.0                 # 后轴侧偏刚度初始值 (N/rad)
+  Cf_min: 200000.0              # RLS辨识下限
+  Cf_max: 100000000.0           # RLS辨识上限 (1e8)
+  Cr_min: 1000000.0             # RLS辨识下限
+  Cr_max: 500000000.0           # RLS辨识上限 (5e8)
 
+  # --- 4. 控制量约束 ---
+  min_steer: -0.5               # 最小转向角 (rad)
+  max_steer: 0.5                # 最大转向角 (rad)
+  max_delta_delta: 1.5           # 最大转向角速度 (rad/s)
 
+  # --- 5. 代价函数权重 (Q矩阵 & R矩阵) ---
+  Q_x: 1000.0                  # 位置X误差权重
+  Q_y: 5000.0                   # 位置Y误差权重
+  Q_theta: 4000.0               # 航向角误差权重
+  Q_vy: 100.0                   # 侧向速度权重
+  Q_r: 800.0                    # 横摆角速度权重
+  Q_delta: 1000.0               # 转向角权重
+  R: 10.0                       # 控制量大小权重
+  dR: 100000.0                  # 控制增量权重 (平滑性，非常敏感)
 
-# 纵向 PID 控制器
+# ==============================================================================
+#                        逻辑切换与纯跟踪配置
+# ==============================================================================
+supervisor_config:
+  # --- 模式切换逻辑 ---
+  startup_time: 5.0              # 启动强制纯跟踪时间 (s)
+  blend_speed_low: 4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
+  blend_speed_high: 5.0           # 融合 -> NMPC 切换车速 (18 km/h)
+  
+  # --- 纯跟踪 (Pure Pursuit) 参数 ---
+  lookahead_distance: 6.0        # 前视距离 (m)
+
+#纵向
 pid_controller:
   kp: 0.6
   ki: 0.05
@@ -48,4 +59,4 @@ pid_controller:
   integral_limit: 2.0
   speed_tolerance: 0.2
   min_target_speed: 0.5
-  predict_time_horizon: 0.5
+  predict_time_horizon: 0.5  # 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）

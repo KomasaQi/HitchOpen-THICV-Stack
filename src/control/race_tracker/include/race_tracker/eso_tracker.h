@@ -18,42 +18,54 @@
 
 namespace race_tracker {
 
+// 监督层与纯跟踪参数
+struct SupervisorParams {
+    double startup_time;
+    double blend_speed_low;
+    double blend_speed_high;
+    double lookahead_distance;
+};
+
 // NMPC参数 
 struct NMPCParams {
-    double m = 10000.0;
-    double Iz = 50000.0;
-    double lf = 2.0;
-    double lr = 2.135;
-    double Cf = 250000.0;
-    double Cr = 1000000.0;
-    double T_lag = 0.2;
-    double dt = 0.05;
-    int N = 35;
-    int Nc = 5;
-    int nx = 6;
-    int nu = 1;
-    double delta_max = 0.5;
-    double delta_min = -0.5;
-    double delta_c_max = 1.5;
+    // --- 基础配置 ---
+    double m;
+    double Iz;
+    double lf;
+    double lr;
+    double T_lag;
+    double dt;
+    int N;
+    int Nc;
+    int nx;
+    int nu;
+    
+    // --- 控制约束 ---
+    double delta_max;
+    double delta_min;
+    double delta_c_max;
 
-    // 代价函数权重独立变量 
-    double Q_x = 1000.0, Q_y = 5000.0, Q_theta = 4000.0;
-    double Q_vy = 100.0, Q_r = 800.0, Q_delta = 1000.0;
-    double R = 10.0;
-    double dR = 500.0;
+    // --- 轮胎参数 (含辨识上下限) ---
+    double Cf;
+    double Cr;
+    double Cf_min;
+    double Cf_max;
+    double Cr_min;
+    double Cr_max;
 
-    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
+    // --- 积分器 ---
+    double integration_grade;
 
-    NMPCParams() {
-        updateQMatrix();
-    }
+    // --- 代价函数权重 ---
+    double Q_x, Q_y, Q_theta;
+    double Q_vy, Q_r, Q_delta;
+    double R;
+    double dR;
 
-    // 加载完YAML后调用此函数更新Eigen矩阵
-    void updateQMatrix() {
-        Q.setZero();
-        Q(0,0) = Q_x; Q(1,1) = Q_y; Q(2,2) = Q_theta;
-        Q(3,3) = Q_vy; Q(4,4) = Q_r; Q(5,5) = Q_delta;
-    }
+    Eigen::Matrix<double, 6, 6> Q;
+
+    NMPCParams(); // 声明构造函数，在cpp中实现矩阵初始化
+    void updateQMatrix();
 };
 
 // NMPC求解器结构 
@@ -68,7 +80,7 @@ struct NMPSolver {
     casadi::MX P_h_hat;
     casadi::MX P_dyn_params;
     std::unique_ptr<casadi::OptiSol> sol_prev; 
-    bool has_prev_sol = false;
+    bool has_prev_sol;
 };
 
 // 核心控制器类继承自 ControllerPluginBase
@@ -125,41 +137,36 @@ private:
 
 private:
 
-    bool is_high_speed_last_ = false;       // 上一帧是否为高速模式
-    double blend_alpha_ = 0.0;              // 切换权重：0=纯跟踪 1=完全NMPC
-    static constexpr double BLEND_LOW = 15.0 / 3.6;  
-    static constexpr double BLEND_HIGH = 18.0 / 3.6;
-    double nmpc_safe_cmd_ = 0.0;            // NMPC预计算的安全输出（纯跟踪模式下预热用）
-    ros::Time start_time_;                  // 记录算法启动时间
+    bool is_high_speed_last_;
+    double blend_alpha_;
+    double nmpc_safe_cmd_;
+    ros::Time start_time_;
     double last_final_cmd_;
-    // --- 状态与持久化变量 ---
+    
+    // --- 核心参数结构体 ---
     NMPCParams nmpc_params_;
+    SupervisorParams supervisor_params_;
     NMPSolver solver_;
     
-    double current_cmd_ = 0.0;
-    int nmpc_counter_ = 4;
+    double current_cmd_;
 
     // ESO观测器相关
-    double eso_x1_ = 0.0;
-    double eso_x2_ = 0.0;
+    double eso_x1_;
+    double eso_x2_;
 
     // UKF相关
-    Eigen::Vector2d ukf_x_est_;  // [vy, r]
+    Eigen::Vector2d ukf_x_est_;
     Eigen::Matrix2d ukf_P_est_;
 
     // RLS相关
-    double rls_P_f_ = 1e5;
-    double rls_theta_f_ = 250000.0;
-    double rls_P_r_ = 1e5;
-    double rls_theta_r_ = 1000000.0;
-    double rls_r_prev_ = 0.0;
-    double rls_r_dot_pre_ = 0.0;
-    double rls_Cf_est_ = 250000.0;
-    double rls_Cr_est_ = 1000000.0;
-
-    // 求解器设定
-    double integration_grade_;
-
+    double rls_P_f_;
+    double rls_theta_f_;
+    double rls_P_r_;
+    double rls_theta_r_;
+    double rls_r_prev_;
+    double rls_r_dot_pre_;
+    double rls_Cf_est_;
+    double rls_Cr_est_;
 };
 
 } // namespace race_tracker
