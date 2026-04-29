@@ -127,9 +127,11 @@ private:
 
     bool is_high_speed_last_ = false;       // 上一帧是否为高速模式
     double blend_alpha_ = 0.0;              // 切换权重：0=纯跟踪 1=完全NMPC
-    static constexpr double BLEND_LOW = 15.0 / 3.6;  // 13km/h 开始过渡
-    static constexpr double BLEND_HIGH = 18.0 / 3.6; // 17km/h 完全切NMPC
-    double nmpc_safe_cmd_ = 0.0;            // NMPC预计算的安全输出（纯跟踪模式下预热用
+    static constexpr double BLEND_LOW = 15.0 / 3.6;  
+    static constexpr double BLEND_HIGH = 18.0 / 3.6;
+    double nmpc_safe_cmd_ = 0.0;            // NMPC预计算的安全输出（纯跟踪模式下预热用）
+    ros::Time start_time_;                  // 记录算法启动时间
+    double last_final_cmd_;
     // --- 状态与持久化变量 ---
     NMPCParams nmpc_params_;
     NMPSolver solver_;

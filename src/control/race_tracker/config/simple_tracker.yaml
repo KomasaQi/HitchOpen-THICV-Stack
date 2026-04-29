@@ -11,9 +11,9 @@ pid_controller:
 
 
 pure_pursuit:
-  wheelbase: 2.8
+  wheelbase: 4.135
   max_steering_angle: 0.40
   min_path_points: 3.0
   min_lookahead_distance: 5.0
-  lookahead_speed_coeff: 0.5
+  lookahead_speed_coeff: 1.7
 

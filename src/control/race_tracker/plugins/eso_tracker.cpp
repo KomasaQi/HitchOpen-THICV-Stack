@@ -26,6 +26,14 @@ ESOTracker::ESOTracker() {
     current_cmd_ = 0.0;
     solver_.has_prev_sol = false;
     solver_.sol_prev = nullptr;
+    last_final_cmd_ = 0.0;
+    
+    blend_alpha_ = 0.0;         
+    is_high_speed_last_ = false;
+    // 启动计时变量
+   
+    start_time_ = ros::Time(0);
+    nmpc_safe_cmd_ = 0.0;
 }
 
 // 插件初始化（替代原flag=0）
@@ -55,6 +63,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Q_delta", nmpc_params_.Q_delta, 1000.0);
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0);
+
+    start_time_ = ros::Time::now(); 
 
     // 更新Eigen Q矩阵
     nmpc_params_.updateQMatrix();
@@ -114,8 +124,10 @@ void ESOTracker::computeControl(
         eso_x1_ = curr_r; 
         eso_x2_ = 0.0;
         rls_r_prev_ = 0.0;
-        blend_alpha_ = 0.0;
+        blend_alpha_ = 0.0; 
         is_high_speed_last_ = false;
+        start_time_ = current_time;
+        last_final_cmd_ = curr_delta; 
     }
     last_control_time = current_time;
 
@@ -137,18 +149,30 @@ void ESOTracker::computeControl(
     esoCompute(curr_r, curr_delta, obs_dt);
 
     // ==========================================================
+    // 启动阶段：前5秒强制纯跟踪
+    // ==========================================================
+
+    double time_elapsed = (current_time - start_time_).toSec();
+    bool is_current_high_speed = false;
+
+    // ==========================================================
     // 模式平滑过渡权重计算
     // ==========================================================
-    // 计算切换权重：车速低于15km/h完全用纯跟踪，高于18km/h完全用NMPC，中间线性过渡
-    if (curr_vx_raw <= BLEND_LOW) {
+    if (time_elapsed < 5.0) {
+        // 启动前5秒：强制纯跟踪
         blend_alpha_ = 0.0;
-    } else if (curr_vx_raw >= BLEND_HIGH) {
-        blend_alpha_ = 1.0;
+        ROS_INFO_THROTTLE(1.0, "[STARTUP] 预热中: %.1f / 5.0 s | 纯跟踪锁定", time_elapsed);
     } else {
-        // 线性过渡
-        blend_alpha_ = (curr_vx_raw - BLEND_LOW) / (BLEND_HIGH - BLEND_LOW);
+        // 5秒后：恢复原有车速切换逻辑
+        if (curr_vx_raw <= BLEND_LOW) {
+            blend_alpha_ = 0.0;
+        } else if (curr_vx_raw >= BLEND_HIGH) {
+            blend_alpha_ = 1.0;
+        } else {
+            blend_alpha_ = (curr_vx_raw - BLEND_LOW) / (BLEND_HIGH - BLEND_LOW);
+        }
     }
-    bool is_current_high_speed = (blend_alpha_ >= 0.99);
+    is_current_high_speed = (blend_alpha_ >= 0.99);
 
     // ==========================================================
     // NMPC都后台预计算，保持热启动
@@ -192,7 +216,7 @@ void ESOTracker::computeControl(
     // 纯跟踪逻辑（仅计算，不直接输出，也不清空热启动）
     // ==========================================================
     double pp_safe_cmd_ = 0.0;
-    double L = nmpc_params_.lf + nmpc_params_.lr; // 轴距
+    double L = nmpc_params_.lf + nmpc_params_.lr; //轴距
     double lookahead_dist = 6.0; 
     
     // 找目标点
@@ -245,11 +269,12 @@ void ESOTracker::computeControl(
     double final_cmd = blend_alpha_ * nmpc_safe_cmd_ + (1.0 - blend_alpha_) * pp_safe_cmd_;
 
     // 全局转角增量限制，防止任何情况下的跳变
-    static double last_final_cmd = 0.0;
-    double max_delta_per_step = nmpc_params_.delta_c_max * obs_dt; // 单步最大转角变化
-    final_cmd = std::max(last_final_cmd - max_delta_per_step, 
-                          std::min(last_final_cmd + max_delta_per_step, final_cmd));
-    last_final_cmd = final_cmd;
+
+    double max_delta_per_step = nmpc_params_.delta_c_max * obs_dt;
+    final_cmd = std::max(last_final_cmd_ - max_delta_per_step, 
+                     std::min(last_final_cmd_ + max_delta_per_step, final_cmd));
+    last_final_cmd_ = final_cmd;
+
 
     // 更新current_cmd_，保持状态连续
     current_cmd_ = final_cmd;
