@@ -1,7 +1,7 @@
 # NMPC横向控制器参数配置
-nmpc_controller:       
+eso_tracker2:       
   # 状态与控制维度配置
-  nx: 6                 # 状态维度 [x, y, theta, vy, r, delta]
+  nx: 8                 # 【修改】状态维度 → 8维 [x, y, theta, vy, r, delta, r_t, gamma]
   nu: 1                 # 控制量维度 [delta_des] 单前轴转向
   
   # 预测与控制步长配置
@@ -11,16 +11,55 @@ nmpc_controller:
   # 控制时间与频率
   sampling_time: 0.05   # 采样时间 (s)
   
-  # 车辆核心动力学参数 
-  m: 10000.0            # 车辆质量 (kg)
-  Iz: 50000.0           # 横摆转动惯量 (kg·m²)
-  lf: 2.0               # 质心到前轴距离 (m)
-  lr: 2.135             # 质心到后轴距离 (m)
-  
-  # 控制量边界约束
-  min_steer: -0.5       # 前轴最小转向角 (rad)
-  max_steer: 0.5        # 前轴最大转向角 (rad)
-  
+  # —— 车辆核心动力学参数（含挂车） ——
+  m: 10000.0            # 牵引车质量 (kg)
+  Iz: 50000.0           # 牵引车横摆转动惯量 (kg·m²)
+  lf: 2.0               # 牵引车质心到前轴距离 (m)
+  lr: 2.135             # 牵引车质心到后轴距离 (m)
+  m_t: 7570.0           # 空挂车质量（kg）
+  Iz_t: 150000.0        # 挂车横摆转动惯量 (kg·m²)
+  lt: 3.4               # 挂车质心到铰接点距离 (m)
+  L2: 7.9               # 挂车铰接点到后轴距离 (m)
+  lh: 0.0               # 铰接点相对牵引车质心的纵向偏移 (m)
+  T_lag: 0.1            # 转向系统滞后时间常数 (s)
+
+  # —— 控制量边界约束 ——
+  min_steer: -0.6        # 前轴最小转向角 (rad)
+  max_steer: 0.6         # 前轴最大转向角 (rad)
+  delta_rate_max: 1.5    # 最大转向角速度 (rad/s)
+  delta_rate_min: -1.5   # 最小转向角速度 (rad/s)
+
+  # # —— 代价函数权重 ——
+  Q_x: 10000.0           # 横向位置误差权重
+  Q_y: 10000.0           # 纵向位置误差权重
+  Q_theta: 5000.0        # 航向角误差权重
+  Q_vy: 100.0            # 侧向速度权重
+  Q_r: 800.0             # 横摆角速度权重
+  Q_delta: 1000.0      # 未使用该权重项
+  Q_rt: 1.0              # 挂车状态权重
+  Q_gamma: 1.0           # 挂车状态权重
+  Q_R: 10.0              # 控制量权重 
+  Q_dR: 100000.0         # 控制增量权重 (平滑性)
+
+  # # —— 参数估计中参数 ——
+  Kiz: 5.0               # 横摆转动惯量比例系数
+
+  # —— NMPC控制器参数 ——
+  ipopt_max_iter: 100                      # IPPT最大迭代次数，默认100次
+  ipopt_acceptable_tol: 1e-2               # IPPT可接受解的容差，默认1e-2
+  ipopt_acceptable_iter: 5                 # IPPT可接受迭代次数，默认5次 连续 5 次迭代满足 acceptable_tol 即可停止
+  ipopt_warm_start_bound_push: 1e-3        # IPPT预热边界推送系数，默认1e-3，用于初始化控制量边界，热启动时，将初始点向变量边界 “推” 的最小距离
+  ipopt_warm_start_slack_bound_push: 1e-3  # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
+  ipopt_warm_start_mult_bound_push: 1e-3   # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
+
+  # —— 参数估计中参数 ——
+  rls_Cf_est: 250000.0;          # 挂车前轴刚度初始值（N/m）
+  rls_Cr_est: 1000000.0;         # 挂车后轴刚度初始值（N/m）
+  rls_Ct_est: 400000.0;          # 挂车横摆转动惯量初始值（kg·m²）
+  rls_w1_prev: 0.0;              # 挂车横摆角初始值（rad）
+  rls_w1_dot_prev: 0.0;          # 挂车横摆角速度初始值（rad/s）
+
+
 
 # 纵向 PID 控制器（保持原样，无需修改）
 pid_controller:

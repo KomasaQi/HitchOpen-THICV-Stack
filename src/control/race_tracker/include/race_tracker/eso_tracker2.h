@@ -8,9 +8,6 @@
 #include <cmath>
 #include <memory>
 #include <tf/transform_datatypes.h>
-// #include <stdexcept>
-// #include <numeric>
-// #include <limits>
 
 // ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
@@ -24,47 +21,37 @@ namespace race_tracker {
 // 扩展NMPC参数（兼容原结构，新增挂车参数）
 struct NMPCParams {
     // 牵引车参数（Matlab默认值覆盖原单车值）
-    double m = 6595.0;
-    double Iz = 34806.2;
-    double lf = 2.0;
-    double lr = 2.135;
-    double Cf = 250000.0;
-    double Cr = 1000000.0;
+    double m;
+    double Iz;
+    double lf;
+    double lr;
+    double Cf;
+    double Cr;
     // 挂车参数（新增）
-    double m_t = 7570.0;
-    double Iz_t = 150000.0;
-    double lh = 0.0;
-    double lt = 3.4;
-    double L2 = 7.9;
-    double Ct = 400000.0;
-    double M = m+m_t;     // 总质量
+    double m_t;
+    double Iz_t;
+    double lh;
+    double lt;
+    double L2;
+    double Ct;
+    double M;     // 总质量
     // 约束参数（新增）
-    double delta_rate_max = 100.0/180.0*M_PI;
-    double delta_rate_min = -100.0/180.0*M_PI;
-    // double gamma_max = 50.0/180.0*M_PI;
-    // double gamma_min = -50.0/180.0*M_PI;
+    double delta_rate_max;
+    double delta_rate_min;
     // 原有NMPC核心参数（Matlab值覆盖）
-    double T_lag = 0.2;
-    double dt = 0.05;
-    int N = 25;
-    int Nc = 5;
-    int nx = 8; // 扩展为8维状态：[x,y,theta,vy,r,delta,r_t,gamma]
-    int nu = 1;
-    double delta_max = 0.5;
-    double delta_min = -0.5;       
-    // 代价函数权重（兼容原结构，新增挂车权重）
-    Eigen::Matrix<double, 6, 6> Q = Eigen::Matrix<double, 6, 6>::Zero();
-    double R = 800.0;
-    double dR = 1500.0;
-    double Q_gamma = 10.0;
-    double Q_r_t = 50.0;
-    double Q_gamma_rate = 300.0;
-
-    NMPCParams() {
-        // 原Q矩阵初始化（Matlab值覆盖）
-        Q(0,0) = 4000; Q(1,1) = 4000; Q(2,2) = 2000;
-        Q(3,3) = 100;  Q(4,4) = 800;  Q(5,5) = 100;
-    }
+    double T_lag;
+    double dt;
+    int N;
+    int Nc;
+    int nx; // 扩展为8维状态：[x,y,theta,vy,r,delta,r_t,gamma]
+    int nu;
+    double delta_max;
+    double delta_min;       
+    // 代价函数权重（扩展为8维，支持挂车状态）
+    Eigen::Matrix<double, 8, 8> Q = Eigen::Matrix<double, 8, 8>::Zero();
+    double R;
+    double dR;
+    double Kiz; // 横摆转动惯量比例系数
 };
 
 // 扩展NMPC求解器（兼容原结构，新增热启动缓存）
@@ -80,9 +67,6 @@ struct NMPSolver {
     casadi::MX P_dyn_params; // 扩展为10维动力学参数
     std::unique_ptr<casadi::OptiSol> sol_prev;
     bool has_prev_sol = false;
-    // // 热启动缓存（新增，对应Matlab last_sol_X/U）
-    // casadi::DM last_sol_X;
-    // casadi::DM last_sol_U;
 };
 
 // 核心控制器类（完全保留原类名）
@@ -141,6 +125,11 @@ private:
                                             double L1);
     void calculate_trailer_kinematics(double delta_f, double curr_vx, double curr_r, double dt);
 
+    // --- [新增] 纯跟踪兜底保护函数 ---
+    double computePurePursuitSteering(const race_msgs::Path& path,
+                                      double curr_x, double curr_y,
+                                      double curr_theta, double lookahead_dist);
+
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
 private:
@@ -149,7 +138,6 @@ private:
     NMPSolver solver_;
     
     double current_cmd_ = 0.0;
-    int nmpc_counter_ = 4;
 
     // ESO观测器（保留原变量名）
     double eso_x1_ = 0.0;
@@ -160,22 +148,28 @@ private:
     Eigen::Matrix4d ekf_P_;
 
     // 原RLS变量替换为FF-RLS变量（保留rls_前缀）
-    double rls_w1_prev_ = 0.0;
-    double rls_w2_prev_ = 0.0;
+    double rls_w1_prev_;
+    double rls_w2_prev_;
     Eigen::Matrix3d rls_P_;
-    double rls_w1_dot_prev_ = 0.0;
-    double rls_w2_dot_prev_ = 0.0;
+    double rls_w1_dot_prev_;
+    double rls_w2_dot_prev_;
     Eigen::Vector3d rls_C_out_prev_;
-    double rls_Cf_est_ = 250000.0;
-    double rls_Cr_est_ = 1000000.0;
-    double rls_Ct_est_ = 400000.0;
+    double rls_Cf_est_;
+    double rls_Cr_est_;
+    double rls_Ct_est_;
 
     // 挂车状态变量（新增）
     double gamma_ = 0.0;
     double r_t_ = 0.0;
 
-    // 预测轨迹（新增）
-    // casadi::DM predicted_trajectory_;
+    // ipopt求解器参数
+    double ipopt_max_iter_;
+    double ipopt_acceptable_tol_;
+    double ipopt_acceptable_iter_;
+    double ipopt_warm_start_bound_push_;
+    double ipopt_warm_start_slack_bound_push_;
+    double ipopt_warm_start_mult_bound_push_;
+
 };
 
 } // namespace race_tracker

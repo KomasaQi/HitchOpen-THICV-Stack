@@ -24,7 +24,6 @@ ESOTracker2::ESOTracker2() {
     eso_x1_ = 0.0;
     eso_x2_ = 0.0;
 
-    nmpc_counter_ = 4; //？？
     // 挂车状态初始化
     gamma_ = 0.0;
     r_t_ = 0.0;
@@ -32,42 +31,125 @@ ESOTracker2::ESOTracker2() {
     current_cmd_ = 0.0;
     solver_.has_prev_sol = false;
     solver_.sol_prev = nullptr;
-    // // 热启动与预测轨迹初始化
-    // solver_.last_sol_X = DM::zeros(nmpc_params_.nx, nmpc_params_.N+1);
-    // solver_.last_sol_U = DM::zeros(nmpc_params_.nu, nmpc_params_.Nc);
-    // predicted_trajectory_ = DM::zeros(2, nmpc_params_.N+1);
 }
 
 // 插件初始化
 bool ESOTracker2::initialize(ros::NodeHandle& nh) {
-    ros::NodeHandle nh_nmpc(nh, "nmpc_controller");
+    ros::NodeHandle nh_nmpc(nh, "eso_tracker2");
     ROS_INFO("[%s] NMPC 控制器命名空间: %s", getName().c_str(), nh_nmpc.getNamespace().c_str());
 
-    // 加载牵引车参数   
-    nh_nmpc.param("m", nmpc_params_.m, 6595.0);
-    nh_nmpc.param("Iz", nmpc_params_.Iz, 34806.2);
+    // 加载NMPC核心参数
+    nh_nmpc.param("nx", nmpc_params_.nx, 8);
+    nh_nmpc.param("nu", nmpc_params_.nu, 1);
+    nh_nmpc.param("prediction_step", nmpc_params_.N, 35);
+    nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 5);
+    nh_nmpc.param("sampling_time", nmpc_params_.dt, 0.05);
+    // 加载—— 车辆核心动力学参数（含挂车） ——
+    nh_nmpc.param("m", nmpc_params_.m, 10000.0);
+    nh_nmpc.param("Iz", nmpc_params_.Iz, 50000.0);
     nh_nmpc.param("lf", nmpc_params_.lf, 2.0);
     nh_nmpc.param("lr", nmpc_params_.lr, 2.135);
-    // 加载挂车参数   
     nh_nmpc.param("m_t", nmpc_params_.m_t, 7570.0);
     nh_nmpc.param("Iz_t", nmpc_params_.Iz_t, 150000.0);
     nh_nmpc.param("lt", nmpc_params_.lt, 3.4);
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
-    nh_nmpc.param("M", nmpc_params_.M, nmpc_params_.m + nmpc_params_.m_t);
-    // 加载原NMPC核心参数   1
-    nh_nmpc.param("prediction_step", nmpc_params_.N, 35);
-    nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 5);
-    nh_nmpc.param("sampling_time", nmpc_params_.dt, 0.05);
-    nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
-    nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.5);
+    nh_nmpc.param("lh", nmpc_params_.lh, 0.0);
+    nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.1);
 
-    // 重置辨识参数（更新为挂车3个刚度）
-    rls_Cf_est_ = 250000.0;
-    rls_Cr_est_ = 1000000.0;
-    rls_Ct_est_ = 400000.0;
-    rls_w1_prev_ = 0.0;
-    rls_w1_dot_prev_ = 0.0;
+    // 加载—— 控制量边界约束 ——
+    nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.6);
+    nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.6);
+    nh_nmpc.param("delta_rate_max", nmpc_params_.delta_rate_max, 1.5);
+    nh_nmpc.param("delta_rate_min", nmpc_params_.delta_rate_min, -1.5);
 
+    // 加载—— 代价函数权重 ——
+    nh_nmpc.param("Q_x", nmpc_params_.Q(0,0), 10000.0);          // 横向位置误差权重
+    nh_nmpc.param("Q_y", nmpc_params_.Q(1,1), 10000.0);          // 纵向位置误差权重
+    nh_nmpc.param("Q_theta", nmpc_params_.Q(2,2), 5000.0);       // 航向角误差权重
+    nh_nmpc.param("Q_vy", nmpc_params_.Q(3,3), 100.0);          // 侧向速度权重
+    nh_nmpc.param("Q_r", nmpc_params_.Q(4,4), 800.0);          // 横摆角速度权重
+    nh_nmpc.param("Q_delta", nmpc_params_.Q(5,5), 1000.0);      // 未使用该权重项
+    nh_nmpc.param("Q_rt", nmpc_params_.Q(6,6), 1.0);      // 挂车状态权重
+    nh_nmpc.param("Q_gamma", nmpc_params_.Q(7,7), 1.0);      // 挂车状态权重
+
+
+    nh_nmpc.param("Q_R", nmpc_params_.R, 10.0);      // 控制量权重 
+    nh_nmpc.param("Q_dR", nmpc_params_.dR, 100000.0);      // 控制增量权重 (平滑性)
+
+    //  —— 参数估计中参数 ——
+    nh_nmpc.param("Kiz", nmpc_params_.Kiz, 5.1);      // 横摆转动惯量比例系数
+
+    // 加载—— 参数估计中参数 ——
+    nh_nmpc.param("rls_Cf_est", rls_Cf_est_, 250000.0);          // 挂车前轴刚度初始值（N/m）
+    nh_nmpc.param("rls_Cr_est", rls_Cr_est_, 1000000.0);         // 挂车后轴刚度初始值（N/m）
+    nh_nmpc.param("rls_Ct_est", rls_Ct_est_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
+    nh_nmpc.param("rls_w1_prev", rls_w1_prev_, 0.0);              // 挂车横摆角初始值（rad）
+    nh_nmpc.param("rls_w1_dot_prev", rls_w1_dot_prev_, 0.0);        // 挂车横摆角速度初始值（rad/s）
+
+    //  —— IPOPT求解器参数 ——
+    nh_nmpc.param("ipopt_max_iter", ipopt_max_iter_, 100.0);                      // IPPT最大迭代次数，默认100次
+    nh_nmpc.param("ipopt_acceptable_tol", ipopt_acceptable_tol_, 1e-2);               // IPPT可接受解的容差，默认1e-2
+    nh_nmpc.param("ipopt_acceptable_iter", ipopt_acceptable_iter_, 5.0);                 // IPPT可接受迭代次数，默认5次 连续 5 次迭代满足 acceptable_tol 即可停止
+    nh_nmpc.param("ipopt_warm_start_bound_push", ipopt_warm_start_bound_push_, 1e-3);        // IPPT预热边界推送系数，默认1e-3，用于初始化控制量边界，热启动时，将初始点向变量边界 “推” 的最小距离
+    nh_nmpc.param("ipopt_warm_start_slack_bound_push", ipopt_warm_start_slack_bound_push_, 1e-3);  // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
+    nh_nmpc.param("ipopt_warm_start_mult_bound_push", ipopt_warm_start_mult_bound_push_, 1e-3);   // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
+
+
+
+
+
+    // 打印加载的参数
+    // NMPC核心参数
+    logParamLoad("nx",nmpc_params_.nx, 8);
+    logParamLoad("nu",nmpc_params_.nu, 1);
+    logParamLoad("prediction_step",nmpc_params_.N, 35);
+    logParamLoad("sparse_control_step",nmpc_params_.Nc, 5);
+    logParamLoad("sampling_time",nmpc_params_.dt, 0.05);
+    // 车辆核心动力学参数（含挂车） ——
+    logParamLoad("m", nmpc_params_.m, 10000.0);
+    logParamLoad("Iz", nmpc_params_.Iz, 50000.0);
+    logParamLoad("lf", nmpc_params_.lf, 2.0);
+    logParamLoad("lr", nmpc_params_.lr, 2.135);
+    logParamLoad("m_t", nmpc_params_.m_t, 7570.0);
+    logParamLoad("Iz_t", nmpc_params_.Iz_t, 150000.0);
+    logParamLoad("lt", nmpc_params_.lt, 3.4);
+    logParamLoad("L2", nmpc_params_.L2, 7.9);
+    logParamLoad("lh", nmpc_params_.lh, 0.0);
+    logParamLoad("T_lag", nmpc_params_.T_lag, 0.1);
+    // 控制量边界约束 ——
+    logParamLoad("min_steer", nmpc_params_.delta_min, -0.6);
+    logParamLoad("max_steer", nmpc_params_.delta_max, 0.6);
+    logParamLoad("delta_rate_max", nmpc_params_.delta_rate_max, 1.5);
+    logParamLoad("delta_rate_min", nmpc_params_.delta_rate_min, -1.5);
+    // 代价函数权重 ——
+    logParamLoad("Q_x",nmpc_params_.Q(0,0), 10000.0); 
+    logParamLoad("Q_y",nmpc_params_.Q(1,1), 10000.0);          // 纵向位置误差权重
+    logParamLoad("Q_theta",nmpc_params_.Q(2,2), 5000.0);       // 航向角误差权重
+    logParamLoad("Q_vy",nmpc_params_.Q(3,3), 100.0);          // 侧向速度权重
+    logParamLoad("Q_r",nmpc_params_.Q(4,4), 800.0);          // 横摆角速度权重
+    logParamLoad("Q_delta",nmpc_params_.Q(5,5), 1000.0);      // 未使用该权重项
+    logParamLoad("Q_rt",nmpc_params_.Q(6,6), 1.0);      // 挂车状态权重
+    logParamLoad("Q_gamma",nmpc_params_.Q(7,7), 1.0);      // 挂车状态权重
+    logParamLoad("Q_R", nmpc_params_.R, 10.0);      // 控制量权重 
+    logParamLoad("Q_dR", nmpc_params_.dR, 100000.0);      // 控制增量权重 (平滑性)
+    // —— 参数估计中参数 ——
+    logParamLoad("Kiz", nmpc_params_.Kiz, 5.1);      // 横摆转动惯量比例系数
+    logParamLoad("rls_Cf_est", rls_Cf_est_, 250000.0);          // 挂车前轴刚度初始值（N/m）
+    logParamLoad("rls_Cr_est", rls_Cr_est_, 1000000.0);         // 挂车后轴刚度初始值（N/m）
+    logParamLoad("rls_Ct_est", rls_Ct_est_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
+    logParamLoad("rls_w1_prev", rls_w1_prev_, 0.0);              // 挂车横摆角初始值（rad）
+    logParamLoad("rls_w1_dot_prev", rls_w1_dot_prev_, 0.0);        // 挂车横摆角速度初始值（rad/s）
+    // IPOPT
+    logParamLoad("ipopt_max_iter", ipopt_max_iter_, 100.0);                      // IPPT最大迭代次数，默认100次
+    logParamLoad("ipopt_acceptable_tol", ipopt_acceptable_tol_, 1e-2);               // IPPT可接受解的容差，默认1e-2
+    logParamLoad("ipopt_acceptable_iter", ipopt_acceptable_iter_, 5.0);                 // IPPT可接受迭代次数，默认5次 连续 5 次迭代满足 acceptable_tol 即可停止
+    logParamLoad("ipopt_warm_start_bound_push", ipopt_warm_start_bound_push_, 1e-3);        // IPPT预热边界推送系数，默认1e-3，用于初始化控制量边界，热启动时，将初始点向变量边界 “推” 的最小距离
+    logParamLoad("ipopt_warm_start_slack_bound_push", ipopt_warm_start_slack_bound_push_, 1e-3);  // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
+    logParamLoad("ipopt_warm_start_mult_bound_push", ipopt_warm_start_mult_bound_push_, 1e-3);   // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
+
+
+
+    
     // 构建CasADi求解器（保留原函数名）
     buildNMPSolver();
     ROS_INFO("[%s] 控制器初始化完成（挂车版）", getName().c_str());
@@ -118,17 +200,14 @@ void ESOTracker2::computeControl(
     if (last_control_time.toSec() != 0.0 && (current_time - last_control_time).toSec() > 0.2) {
         ROS_WARN("[%s] 检测到控制重连，清空历史记忆与热启动！", getName().c_str());
         
-        // 1. 清空 NMPC 热启动
+        //  清空 NMPC 热启动
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
         
-        // 2. 将控制指令历史对齐到当前真实的物理方向盘转角
+        // 将控制指令历史对齐到当前真实的物理方向盘转角
         current_cmd_ = curr_delta; 
         
-        // 3. 复位 UKF 状态（防止协方差和侧向速度起飞）
-        // ukf_x_est_ = Eigen::Vector2d(0.0, curr_r);
-        
-        // 4. 复位 ESO 观测器（清空积累的错误扰动）
+        // 复位 ESO 观测器（清空积累的错误扰动）
         eso_x1_ = curr_r; 
         eso_x2_ = 0.0;
     }
@@ -171,12 +250,7 @@ void ESOTracker2::computeControl(
                                       curr_delta, curr_r_t, curr_gamma};
     std::vector<double> control_output(1);
 
-    // 7. 尝试求解，如果不成功则保留上一次的 current_cmd_
-    if (solveNMPC(nmpc_state, waypoints_dm, control_output)) {
-        current_cmd_ = control_output[0];
-    }
-
-    // 8. 绑定NMPC运行时参数（扩展为10维）
+    // 7. 绑定NMPC运行时参数（扩展为10维），必须在求解前设置
     std::vector<double> dyn_params = {
         nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr,
         rls_Cf_est_, rls_Cr_est_, M, nmpc_params_.Iz_t, nmpc_params_.lt, rls_Ct_est_
@@ -184,6 +258,22 @@ void ESOTracker2::computeControl(
     solver_.opti.set_value(solver_.P_vx, curr_vx);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
+
+    // 8. 尝试求解，如果不成功则使用纯跟踪作为保护
+    double raw_delta_cmd = 0.0;
+    if (solveNMPC(nmpc_state, waypoints_dm, control_output)) {
+        raw_delta_cmd = control_output[0];
+    } else {
+        // [修改] 启用纯跟踪兜底
+        raw_delta_cmd = computePurePursuitSteering(*path, curr_x, curr_y, curr_theta, 6.0);
+        ROS_WARN_THROTTLE(1.0, "[%s] NMPC 求解失败，启用纯跟踪保护: %.3f", getName().c_str(), raw_delta_cmd);
+    }
+    raw_delta_cmd = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, raw_delta_cmd));
+    const double d_delta_max = nmpc_params_.delta_rate_max * obs_dt;
+    double smoothed_delta_cmd = std::max(current_cmd_ - d_delta_max, std::min(current_cmd_ + d_delta_max, raw_delta_cmd));
+    
+    current_cmd_ = smoothed_delta_cmd;
+
 
     // 9. 填装ROS消息输出（完全保留原逻辑）
     control_msg->lateral.steering_angle = current_cmd_;
@@ -302,8 +392,9 @@ casadi::DM ESOTracker2::process_race_path(const race_msgs::Path& input_path, con
     
     // 1. 生成基于实时车速的动态距离向量 s_target
     std::vector<double> s_target(nmpc_params_.N + 1);
+    double preview_factor = 1.5; // 增加预瞄距离因子
     for (int i = 0; i <= nmpc_params_.N; ++i) {
-        s_target[i] = calc_vx * nmpc_params_.dt * i;
+        s_target[i] = calc_vx * nmpc_params_.dt * i * preview_factor;
     }
 
     // 2. 截取原始路径的最大长度 
@@ -332,7 +423,7 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
     double m1 = nmpc_params_.m;
     double m2 = M - m1;
     double Iz1 = nmpc_params_.Iz;
-    double Iz2 = nmpc_params_.Iz_t + 5*(m2/nmpc_params_.m_t);
+    double Iz2 = nmpc_params_.Iz_t +  nmpc_params_.Kiz*(m2/nmpc_params_.m_t);
     double Cf = rls_Cf_est_;
     double Cr = rls_Cr_est_;
     double Ct = rls_Ct_est_;
@@ -586,7 +677,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_trailor = (Fyt_hy1 * lr) / Iz1;
     MX d_vy = (Fyf*cos(delta) + Fyr + Fyt_hy1) / m1 - vx * r;
     MX Mh = hx * Fyt_hy1 - hy * Fyt_hx1;
-    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 ;//+ h_dist - r_dot_2DOF- d_trailor;
+    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 + h_dist; - r_dot_2DOF - d_trailor;
 
     // 挂车动力学
     MX Fyt_hy2 = -Fyt;
@@ -650,19 +741,6 @@ void ESOTracker2::buildNMPSolver() {
         MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params);
         solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt/6 * (k1 + 2*k2 + 2*k3 + k4));
 
-        // // 挂车专属约束（新增）
-        // MX r = st(4), r_t = st(6), gamma = st(7);
-        // MX delta_next = solver_.X(5, k+1);
-        // MX delta_rate = (delta_next - st(5)) / nmpc_params_.dt;
-        // solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_rate_min, delta_rate, nmpc_params_.delta_rate_max));
-
-        // MX gamma_con = gamma + (r - r_t) * 0.05;
-        // solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.gamma_min, gamma_con, nmpc_params_.gamma_max));
-
-        // MX gamma_dot = r - r_t;
-        // solver_.opti.subject_to(solver_.opti.bounded(-0.5, gamma_dot, 0.5));
-        // solver_.opti.subject_to(solver_.opti.bounded(-0.5, r_t, 0.5));
-
         // 代价函数（扩展挂车项）
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
@@ -674,9 +752,9 @@ void ESOTracker2::buildNMPSolver() {
         J += nmpc_params_.Q(2,2) * pow(e_theta, 2);
         J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - r_ref, 2);
         J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1), 2);
-        J += nmpc_params_.Q_gamma * pow(solver_.X(7, k+1), 2);
-        J += nmpc_params_.Q_r_t * pow(solver_.X(6, k+1) - r_ref, 2);
-        J += nmpc_params_.Q_gamma_rate * pow(gamma_dot_actual, 2);
+        // J += nmpc_params_.Q_gamma * pow(solver_.X(7, k+1), 2);
+        // J += nmpc_params_.Q_r_t * pow(solver_.X(6, k+1) - r_ref, 2);
+        // J += nmpc_params_.Q_gamma_rate * pow(gamma_dot_actual, 2);
         J += nmpc_params_.R * pow(con, 2);
     }
     // 控制量平滑项（保留原逻辑）
@@ -685,7 +763,6 @@ void ESOTracker2::buildNMPSolver() {
 
     // 硬约束（保留原逻辑）
     solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.U_sparse, nmpc_params_.delta_max));
-    // solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.X(5, Slice()), nmpc_params_.delta_max));
 
     solver_.opti.minimize(J);
 
@@ -693,17 +770,18 @@ void ESOTracker2::buildNMPSolver() {
     Dict opts = {
         {"ipopt.print_level", 0}, 
         {"ipopt.sb", "yes"}, 
-        {"ipopt.max_iter", 100},
+        {"ipopt.max_iter", ipopt_max_iter_},
         {"ipopt.tol", 1e-3},
-        {"ipopt.acceptable_tol", 1e-2},
+        {"ipopt.acceptable_tol", ipopt_acceptable_tol_},
+        {"ipopt.acceptable_iter", ipopt_acceptable_iter_},
         {"ipopt.mu_strategy", "adaptive"},
         {"print_time", 0},
         {"expand", true},
 
         {"ipopt.warm_start_init_point", "yes"},        // 明确告诉求解器接受热启动
-        {"ipopt.warm_start_bound_push", 1e-9},         // 将变量向边界推的松弛量压到极小
-        {"ipopt.warm_start_slack_bound_push", 1e-9},
-        {"ipopt.warm_start_mult_bound_push", 1e-9},    // 乘子松弛量压到极小
+        {"ipopt.warm_start_bound_push", ipopt_warm_start_bound_push_},        
+        {"ipopt.warm_start_slack_bound_push", ipopt_warm_start_slack_bound_push_},
+        {"ipopt.warm_start_mult_bound_push", ipopt_warm_start_mult_bound_push_}, 
         
         {"print_time", 0}
     };
@@ -721,19 +799,6 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
         solver_.opti.set_value(solver_.P_waypoints, waypoints);
         solver_.opti.set_value(solver_.P_u_prev, current_cmd_);
 
-        // --- 修正：使用 is_empty() 判断 DM 是否为空 ---
-        // if (!solver_.last_sol_X.is_empty()) {
-        //     DM X_guess = DM::zeros(nmpc_params_.nx, nmpc_params_.N+1);
-        //     X_guess(Slice(), Slice(0, nmpc_params_.N)) = solver_.last_sol_X(Slice(), Slice(1, nmpc_params_.N+1));
-        //     X_guess(Slice(), nmpc_params_.N) = solver_.last_sol_X(Slice(), nmpc_params_.N);
-        //     solver_.opti.set_initial(solver_.X, X_guess);
-
-        //     DM U_guess = DM::zeros(nmpc_params_.nu, nmpc_params_.Nc);
-        //     U_guess(Slice(), Slice(0, nmpc_params_.Nc-1)) = solver_.last_sol_U(Slice(), Slice(1, nmpc_params_.Nc));
-        //     U_guess(Slice(), nmpc_params_.Nc-1) = solver_.last_sol_U(Slice(), nmpc_params_.Nc-1);
-        //     solver_.opti.set_initial(solver_.U_sparse, U_guess);
-        // }
-
          if (solver_.has_prev_sol && solver_.sol_prev) {
             solver_.opti.set_initial(solver_.X, solver_.sol_prev->value(solver_.X));
             solver_.opti.set_initial(solver_.U_sparse, solver_.sol_prev->value(solver_.U_sparse));
@@ -750,11 +815,6 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
         solver_.has_prev_sol = true;
 
-        // // 保存热启动数据
-        // solver_.last_sol_X = sol.value(solver_.X);
-        // solver_.last_sol_U = sol.value(solver_.U_sparse);
-        // predicted_trajectory_(0, Slice()) = sol.value(solver_.X(0, Slice()));
-        // predicted_trajectory_(1, Slice()) = sol.value(solver_.X(1, Slice()));
 
         control_output[0] = static_cast<double>(sol.value(solver_.U_sparse(0)));
         return true;
@@ -763,14 +823,57 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
          auto end_time = std::chrono::high_resolution_clock::now();//求解失败的耗时
        std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
        ROS_WARN("[%s] NMPC 求解失败! 耗时: %.2f ms, 原因: %s", getName().c_str(), elapsed.count(), e.what());
-        // // --- 修正：清空 DM 赋值为空的 DM() ---
-        // solver_.last_sol_X = DM();
-        // solver_.last_sol_U = DM();
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
         return false;
     }
 }
+
+// ---------------------- [新增] 纯跟踪兜底保护实现 ----------------------
+double ESOTracker2::computePurePursuitSteering(const race_msgs::Path& path,
+                                               double curr_x, double curr_y,
+                                               double curr_theta, double lookahead_dist) {
+    if (path.points.empty()) return 0.0;
+
+    // 1. 找最近点
+    int nearest_idx = find_nearest_path_point(curr_x, curr_y, path);
+    int target_idx = nearest_idx;
+    
+    // 2. 向前搜索预瞄距离内的目标点
+    for (int i = nearest_idx; i < static_cast<int>(path.points.size()); ++i) {
+        double dx = path.points[i].pose.position.x - curr_x;
+        double dy = path.points[i].pose.position.y - curr_y;
+        double dist = std::sqrt(dx*dx + dy*dy);
+        if (dist >= lookahead_dist) {
+            target_idx = i;
+            break;
+        }
+    }
+    // 如果列表走完还没够到预瞄距离，就用最后一个点
+    if (target_idx == nearest_idx) {
+        target_idx = path.points.size() - 1;
+    }
+
+    // 3. 坐标转换到车体坐标系
+    const auto& target_pt = path.points[target_idx].pose.position;
+    double dx = target_pt.x - curr_x;
+    double dy = target_pt.y - curr_y;
+    
+    // 旋转矩阵：将世界坐标误差转换为车体坐标
+    double local_x = std::cos(curr_theta) * dx + std::sin(curr_theta) * dy;
+    double local_y = -std::sin(curr_theta) * dx + std::cos(curr_theta) * dy;
+
+    // 4. 纯跟踪公式计算
+    double L = nmpc_params_.lf + nmpc_params_.lr; // 牵引车轴距
+    double ld = std::max(lookahead_dist, std::sqrt(local_x*local_x + local_y*local_y));
+    
+    // 反正切计算前轮转角
+    double delta_pp = std::atan2(2.0 * L * local_y, ld * ld);
+
+    // 5. 限幅保护
+    return std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp));
+}
+
 
 } // namespace race_tracker
 
