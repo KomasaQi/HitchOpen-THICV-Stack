@@ -64,6 +64,17 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0);
 
+
+
+    // 加载积分求解参数
+    nh_nmpc.param("integration_grade", integration_grade_, 2.0);
+
+
+
+    // 打印参数加载情况
+    logParamLoad("integration_grade", integration_grade_,2.0);
+
+
     start_time_ = ros::Time::now(); 
 
     // 更新Eigen Q矩阵
@@ -614,9 +625,36 @@ void ESOTracker::buildNMPSolver() {
         MX st = solver_.X(Slice(), k), con = U_full(Slice(), k);
         MX h = solver_.P_h_hat * pow(0.85, k);
 
-        MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
-        MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
-        solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * k2);
+        // MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
+        // MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+        // solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * k2);
+
+
+        if (integration_grade_ >= 0.5 && integration_grade_ < 1.5) { // Euler前向积分
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params));
+        }
+
+        else if (integration_grade_ >= 1.5 && integration_grade_ < 2.5) { // RK2积分
+            // RK2积分（新增）
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * k2);
+        }
+        else if (integration_grade_ >= 3.5 && integration_grade_ < 4.5) { // RK4积分
+            // RK4积分（保留原逻辑）
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k3 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k2, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params);
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt/6 * (k1 + 2*k2 + 2*k3 + k4));
+        }
+        else {
+            // 报错：integration_grade_不在有效范围内，无法选择积分方法
+            throw std::runtime_error("integration_grade_不在有效范围内，无法选择积分方法");
+        }
+
+
+
 
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);

@@ -156,6 +156,10 @@ private:
     double rls_r_dot_pre_ = 0.0;
     double rls_Cf_est_ = 250000.0;
     double rls_Cr_est_ = 1000000.0;
+
+    // 求解器设定
+    double integration_grade_;
+
 };
 
 } // namespace race_tracker

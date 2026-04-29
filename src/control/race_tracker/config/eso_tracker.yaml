@@ -33,6 +33,11 @@ nmpc_controller:
   R: 10.0               # 控制量权重
   dR: 100000.0             # 控制增量权重 (平滑性)
 
+  # 积分求解参数
+  integration_grade: 1.0  # 积分求解参数，默认2.0（RK2积分）
+
+
+
 # 纵向 PID 控制器
 pid_controller:
   kp: 0.6

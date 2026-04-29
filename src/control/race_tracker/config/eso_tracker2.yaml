@@ -66,7 +66,7 @@ eso_tracker2:
   rls_Ct_est_max: 200000.0;     # 挂车横摆转动惯量最大值（kg·m²）
 
   # 积分求解参数
-  integration_grade: 1.0  # 积分求解参数，默认2.0（RK2积分）
+  integration_grade: 4.0  # 积分求解参数，默认2.0（RK2积分）
 
 
 
