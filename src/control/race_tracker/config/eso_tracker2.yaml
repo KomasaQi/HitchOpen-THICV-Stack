@@ -5,7 +5,7 @@ eso_tracker2:
   nu: 1                 # 控制量维度 [delta_des] 单前轴转向
   
   # 预测与控制步长配置
-  prediction_step: 35    # NMPC预测步长 (N)
+  prediction_step: 20    # NMPC预测步长 (N)
   sparse_control_step: 5 # 稀疏控制量步数 (Nc)
   
   # 控制时间与频率
@@ -31,7 +31,7 @@ eso_tracker2:
 
   # # —— 代价函数权重 ——
   Q_x: 10000.0           # 横向位置误差权重
-  Q_y: 10000.0           # 纵向位置误差权重
+  Q_y: 1000.0           # 纵向位置误差权重 // 未用到
   Q_theta: 5000.0        # 航向角误差权重
   Q_vy: 100.0            # 侧向速度权重
   Q_r: 800.0             # 横摆角速度权重
@@ -39,13 +39,13 @@ eso_tracker2:
   Q_rt: 1.0              # 挂车状态权重
   Q_gamma: 1.0           # 挂车状态权重
   Q_R: 10.0              # 控制量权重 
-  Q_dR: 100000.0         # 控制增量权重 (平滑性)
+  Q_dR: 5000000.0         # 控制增量权重 (平滑性)
 
   # # —— 参数估计中参数 ——
   Kiz: 5.0               # 横摆转动惯量比例系数
 
   # —— NMPC控制器参数 ——
-  ipopt_max_iter: 100                      # IPPT最大迭代次数，默认100次
+  ipopt_max_iter: 50                      # IPPT最大迭代次数，默认100次
   ipopt_acceptable_tol: 1e-2               # IPPT可接受解的容差，默认1e-2
   ipopt_acceptable_iter: 5                 # IPPT可接受迭代次数，默认5次 连续 5 次迭代满足 acceptable_tol 即可停止
   ipopt_warm_start_bound_push: 1e-3        # IPPT预热边界推送系数，默认1e-3，用于初始化控制量边界，热启动时，将初始点向变量边界 “推” 的最小距离

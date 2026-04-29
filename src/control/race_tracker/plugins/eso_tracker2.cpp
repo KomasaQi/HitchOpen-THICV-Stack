@@ -122,7 +122,7 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     logParamLoad("delta_rate_max", nmpc_params_.delta_rate_max, 1.5);
     logParamLoad("delta_rate_min", nmpc_params_.delta_rate_min, -1.5);
     // 代价函数权重 ——
-    logParamLoad("Q_x",nmpc_params_.Q(0,0), 10000.0); 
+    logParamLoad("Q_x",nmpc_params_.Q(0,0), 10001.0); 
     logParamLoad("Q_y",nmpc_params_.Q(1,1), 10000.0);          // 纵向位置误差权重
     logParamLoad("Q_theta",nmpc_params_.Q(2,2), 5000.0);       // 航向角误差权重
     logParamLoad("Q_vy",nmpc_params_.Q(3,3), 100.0);          // 侧向速度权重
@@ -232,6 +232,10 @@ void ESOTracker2::computeControl(
     calculate_trailer_kinematics(delta_f, curr_vx, curr_r, obs_dt);
     double curr_gamma = -gamma_;
     double curr_r_t = r_t_;
+    
+    // 输出估计的挂车转角（转换为角度便于观察）
+    ROS_INFO("\033[36m[%s] 估计挂车转角: %.3f rad (%.1f deg)\033[0m", 
+                      getName().c_str(), curr_gamma, curr_gamma * 180.0 / M_PI);
 
     // 3. EKF横向速度估计
     ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, M, obs_dt);
@@ -266,7 +270,7 @@ void ESOTracker2::computeControl(
     } else {
         // [修改] 启用纯跟踪兜底
         raw_delta_cmd = computePurePursuitSteering(*path, curr_x, curr_y, curr_theta, 6.0);
-        ROS_WARN_THROTTLE(1.0, "[%s] NMPC 求解失败，启用纯跟踪保护: %.3f", getName().c_str(), raw_delta_cmd);
+        ROS_ERROR("[%s] NMPC 求解失败，启用纯跟踪保护: %.3f", getName().c_str(), raw_delta_cmd);
     }
     raw_delta_cmd = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, raw_delta_cmd));
     const double d_delta_max = nmpc_params_.delta_rate_max * obs_dt;
@@ -392,9 +396,8 @@ casadi::DM ESOTracker2::process_race_path(const race_msgs::Path& input_path, con
     
     // 1. 生成基于实时车速的动态距离向量 s_target
     std::vector<double> s_target(nmpc_params_.N + 1);
-    double preview_factor = 1.5; // 增加预瞄距离因子
     for (int i = 0; i <= nmpc_params_.N; ++i) {
-        s_target[i] = calc_vx * nmpc_params_.dt * i * preview_factor;
+        s_target[i] = calc_vx * nmpc_params_.dt * i;
     }
 
     // 2. 截取原始路径的最大长度 
@@ -554,7 +557,7 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
 
     // RLS递推
     double max_alpha = alpha.cwiseAbs().maxCoeff();
-    if (max_alpha > 1e-4 && max_alpha < 0.15 && abs(curr_ay) > 0.1) {
+    if (max_alpha > 0.01 && max_alpha < 0.15 && abs(curr_ay) > 0.1) {
         Vector3d Y = Fy.cwiseAbs();
         Matrix3d Phi = alpha.cwiseAbs().asDiagonal();
 
@@ -579,6 +582,10 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     rls_Cf_est_ = rls_C_out_prev_(0);
     rls_Cr_est_ = rls_C_out_prev_(1);
     rls_Ct_est_ = rls_C_out_prev_(2);
+    
+    // 输出侧偏刚度估计值（橙色）
+    ROS_INFO("[%s] \033[33m侧偏刚度估计: Cf=%.1f N/rad, Cr=%.1f N/rad, Ct=%.1f N/rad\033[0m", 
+                      getName().c_str(), rls_Cf_est_, rls_Cr_est_, rls_Ct_est_);
 }
 
 // ESO观测器（保留原函数名，更新为Matlab实现）
@@ -810,7 +817,7 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
 
         auto end_time = std::chrono::high_resolution_clock::now();//打印求解耗时
         std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
-        ROS_INFO("[%s] NMPC 求解成功! 耗时: %.2f ms", getName().c_str(), elapsed.count());
+        ROS_INFO("\033[32m[%s] NMPC 求解成功! 耗时: %.2f ms\033[0m", getName().c_str(), elapsed.count());
         
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
         solver_.has_prev_sol = true;
@@ -822,7 +829,7 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
 
          auto end_time = std::chrono::high_resolution_clock::now();//求解失败的耗时
        std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
-       ROS_WARN("[%s] NMPC 求解失败! 耗时: %.2f ms, 原因: %s", getName().c_str(), elapsed.count(), e.what());
+       ROS_WARN("\033[31m[%s] NMPC 求解失败! 耗时: %.2f ms, 原因: %s\033[0m", getName().c_str(), elapsed.count(), e.what());
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
         return false;
