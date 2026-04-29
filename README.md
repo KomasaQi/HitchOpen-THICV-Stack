@@ -528,7 +528,11 @@ xxxx 说明 TODO
 
 1.生成小卡车
 ```bash
-roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0"
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0" # 跑圈初始常规位置
+```
+如果需在卡车测试轨迹的倒数第二个弯前生成，使用如下位置指令：
+```bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-46.78,35.68,0.0,0.0,0.0,-90.0" # 倒数第二个弯前位置
 ```
 别忘记手动倒退挂接挂车！(接上挂车可以往前开几步，逃离红绿灯支配恐惧)。如下图挂上罐子/挂车：
 ![one_tracker_DFCV](/tutorial/images/one_tracker_DFCV.png)
