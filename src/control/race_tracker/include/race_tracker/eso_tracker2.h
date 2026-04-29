@@ -157,6 +157,14 @@ private:
     double rls_Cf_est_;
     double rls_Cr_est_;
     double rls_Ct_est_;
+    double rls_Cf_est_min_;
+    double rls_Cr_est_min_;
+    double rls_Ct_est_min_;
+    double rls_Cf_est_max_;
+    double rls_Cr_est_max_;
+    double rls_Ct_est_max_;
+
+
 
     // 挂车状态变量（新增）
     double gamma_ = 0.0;
@@ -169,6 +177,10 @@ private:
     double ipopt_warm_start_bound_push_;
     double ipopt_warm_start_slack_bound_push_;
     double ipopt_warm_start_mult_bound_push_;
+
+    // 求解器设定
+    double integration_grade_;
+
 
 };
 

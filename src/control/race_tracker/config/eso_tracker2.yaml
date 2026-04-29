@@ -35,7 +35,7 @@ eso_tracker2:
   Q_theta: 5000.0        # 航向角误差权重
   Q_vy: 100.0            # 侧向速度权重
   Q_r: 800.0             # 横摆角速度权重
-  Q_delta: 1000.0      # 未使用该权重项
+  Q_delta: 100.0      # 未使用该权重项
   Q_rt: 1.0              # 挂车状态权重
   Q_gamma: 1.0           # 挂车状态权重
   Q_R: 10.0              # 控制量权重 
@@ -53,15 +53,23 @@ eso_tracker2:
   ipopt_warm_start_mult_bound_push: 1e-3   # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
 
   # —— 参数估计中参数 ——
-  rls_Cf_est: 250000.0;          # 挂车前轴刚度初始值（N/m）
-  rls_Cr_est: 1000000.0;         # 挂车后轴刚度初始值（N/m）
-  rls_Ct_est: 400000.0;          # 挂车横摆转动惯量初始值（kg·m²）
+  rls_Cf_est: 200000.0;          # 挂车前轴刚度初始值（N/m）
+  rls_Cr_est: 750000.0;         # 挂车后轴刚度初始值（N/m）
+  rls_Ct_est: 160000.0;          # 挂车横摆转动惯量初始值（kg·m²）
   rls_w1_prev: 0.0;              # 挂车横摆角初始值（rad）
   rls_w1_dot_prev: 0.0;          # 挂车横摆角速度初始值（rad/s）
+  rls_Cf_est_min: 50000.0;     # 挂车前轴刚度最小值（N/m）
+  rls_Cr_est_min: 100000.0;      # 挂车后轴刚度最小值（N/m）
+  rls_Ct_est_min: 50000.0;      # 挂车横摆转动惯量最小值（kg·m²）
+  rls_Cf_est_max: 500000.0;     # 挂车前轴刚度最大值（N/m）
+  rls_Cr_est_max: 2000000.0;    # 挂车后轴刚度最大值（N/m）
+  rls_Ct_est_max: 200000.0;     # 挂车横摆转动惯量最大值（kg·m²）
+
+  # 积分求解参数
+  integration_grade: 1.0  # 积分求解参数，默认2.0（RK2积分）
 
 
 
-# 纵向 PID 控制器（保持原样，无需修改）
 pid_controller:
   kp: 0.6
   ki: 0.05

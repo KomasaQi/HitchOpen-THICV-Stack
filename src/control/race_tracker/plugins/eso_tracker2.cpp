@@ -85,6 +85,12 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("rls_Ct_est", rls_Ct_est_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
     nh_nmpc.param("rls_w1_prev", rls_w1_prev_, 0.0);              // 挂车横摆角初始值（rad）
     nh_nmpc.param("rls_w1_dot_prev", rls_w1_dot_prev_, 0.0);        // 挂车横摆角速度初始值（rad/s）
+    nh_nmpc.param("rls_Cf_est_max", rls_Cf_est_max_, 500000.0);          // 挂车前轴刚度最大值（N/m）
+    nh_nmpc.param("rls_Cr_est_max", rls_Cr_est_max_, 2000000.0);          // 挂车后轴刚度最大值（N/m）
+    nh_nmpc.param("rls_Ct_est_max", rls_Ct_est_max_, 200000.0);          // 挂车横摆转动惯量最大值（kg·m²）
+    nh_nmpc.param("rls_Cf_est_min", rls_Cf_est_min_, 50000.0);          // 挂车前轴刚度最小值（N/m）
+    nh_nmpc.param("rls_Cr_est_min", rls_Cr_est_min_, 100000.0);          // 挂车后轴刚度最小值（N/m）
+    nh_nmpc.param("rls_Ct_est_min", rls_Ct_est_min_, 50000.0);          // 挂车横摆转动惯量最小值（kg·m²）
 
     //  —— IPOPT求解器参数 ——
     nh_nmpc.param("ipopt_max_iter", ipopt_max_iter_, 100.0);                      // IPPT最大迭代次数，默认100次
@@ -94,7 +100,8 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("ipopt_warm_start_slack_bound_push", ipopt_warm_start_slack_bound_push_, 1e-3);  // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
     nh_nmpc.param("ipopt_warm_start_mult_bound_push", ipopt_warm_start_mult_bound_push_, 1e-3);   // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
 
-
+    // 加载—— 求解器设定 ——
+    nh_nmpc.param("integration_grade", integration_grade_, 2.0);          // 求解器积分阶数，默认2阶
 
 
 
@@ -139,6 +146,16 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     logParamLoad("rls_Ct_est", rls_Ct_est_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
     logParamLoad("rls_w1_prev", rls_w1_prev_, 0.0);              // 挂车横摆角初始值（rad）
     logParamLoad("rls_w1_dot_prev", rls_w1_dot_prev_, 0.0);        // 挂车横摆角速度初始值（rad/s）
+    logParamLoad("rls_Cf_est_max", rls_Cf_est_max_, 500000.0);          // 挂车前轴刚度最大值（N/m）
+    logParamLoad("rls_Cr_est_max", rls_Cr_est_max_, 200000.0);          // 挂车后轴刚度最大值（N/m）
+    logParamLoad("rls_Ct_est_max", rls_Ct_est_max_, 200000.0);          // 挂车横摆转动惯量最大值（kg·m²）
+    logParamLoad("rls_Cf_est_min", rls_Cf_est_min_, 50000.0);          // 挂车前轴刚度最小值（N/m）
+    logParamLoad("rls_Cr_est_min", rls_Cr_est_min_, 100000.0);          // 挂车后轴刚度最小值（N/m）
+    logParamLoad("rls_Ct_est_min", rls_Ct_est_min_, 50000.0);          // 挂车横摆转动惯量最小值（kg·m²）
+    logParamLoad("integration_grade", integration_grade_, 2.0);          // 求解器积分阶数，默认2阶
+
+
+
     // IPOPT
     logParamLoad("ipopt_max_iter", ipopt_max_iter_, 100.0);                      // IPPT最大迭代次数，默认100次
     logParamLoad("ipopt_acceptable_tol", ipopt_acceptable_tol_, 1e-2);               // IPPT可接受解的容差，默认1e-2
@@ -569,9 +586,9 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
         rls_Ct_est_ += K(2,0)*error(0) + K(2,1)*error(1) + K(2,2)*error(2);
 
         // 物理限幅
-        rls_Cf_est_ = max(min(rls_Cf_est_, 5e5), 0.5e5);
-        rls_Cr_est_ = max(min(rls_Cr_est_, 20e5), 1.0e5);
-        rls_Ct_est_ = max(min(rls_Ct_est_, 18e5), 1.0e5);
+        rls_Cf_est_ = max(min(rls_Cf_est_, rls_Cf_est_max_), rls_Cf_est_min_);
+        rls_Cr_est_ = max(min(rls_Cr_est_, rls_Cr_est_max_), rls_Cr_est_min_);
+        rls_Ct_est_ = max(min(rls_Ct_est_, rls_Ct_est_max_), rls_Ct_est_min_);
 
         rls_P_ = (Matrix3d::Identity() - K*Phi) * rls_P_ / lamda;
     }
@@ -741,12 +758,33 @@ void ESOTracker2::buildNMPSolver() {
         MX st = solver_.X(Slice(), k), con = U_full(Slice(), k);
         MX h = solver_.P_h_hat * pow(0.85, k);
 
-        // RK4积分（保留原逻辑）
-        MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
-        MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
-        MX k3 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k2, con, solver_.P_vx, h, solver_.P_dyn_params);
-        MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params);
-        solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt/6 * (k1 + 2*k2 + 2*k3 + k4));
+        if (integration_grade_ >= 0.5 && integration_grade_ < 1.5) { // Euler前向积分
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params));
+        }
+
+        else if (integration_grade_ >= 1.5 && integration_grade_ < 2.5) { // RK2积分
+            // RK2积分（新增）
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * k2);
+        }
+        else if (integration_grade_ >= 3.5 && integration_grade_ < 4.5) { // RK4积分
+            // RK4积分（保留原逻辑）
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k3 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k2, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params);
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt/6 * (k1 + 2*k2 + 2*k3 + k4));
+        }
+        else {
+            // 报错：integration_grade_不在有效范围内，无法选择积分方法
+            throw std::runtime_error("integration_grade_不在有效范围内，无法选择积分方法");
+        }
+
+
+
+
+
 
         // 代价函数（扩展挂车项）
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
