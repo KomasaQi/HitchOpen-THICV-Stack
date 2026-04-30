@@ -143,6 +143,10 @@ private:
     ros::Time start_time_;
     double last_final_cmd_;
     
+     // 动态预瞄参数
+    double min_lookahead_distance_;
+    double lookahead_speed_coeff_;
+
     // --- 核心参数结构体 ---
     NMPCParams nmpc_params_;
     SupervisorParams supervisor_params_;

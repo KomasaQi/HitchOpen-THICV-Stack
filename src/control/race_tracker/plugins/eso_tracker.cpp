@@ -62,6 +62,9 @@ ESOTracker::ESOTracker() {
     rls_r_dot_pre_ = 0.0;
     rls_Cf_est_ = 250000.0;
     rls_Cr_est_ = 1000000.0;
+
+    min_lookahead_distance_ = 6.0;  // 默认最小预瞄距 6m
+    lookahead_speed_coeff_ = 0.7;   // 默认速度系数 0.7
 }
 
 // -----------------------------------------------------------------------------
@@ -126,7 +129,9 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("startup_time", supervisor_params_.startup_time, 5.0);
     nh_super.param("blend_speed_low", supervisor_params_.blend_speed_low, 4.1667);
     nh_super.param("blend_speed_high", supervisor_params_.blend_speed_high, 5.0);
-    nh_super.param("lookahead_distance", supervisor_params_.lookahead_distance, 6.0);
+    nh_super.param("min_lookahead_distance", min_lookahead_distance_, 6.0);
+    nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
+
 
     // -------------------------------------------------------------------------
     // 后处理与打印
@@ -292,7 +297,7 @@ void ESOTracker::computeControl(
     // ==========================================================
     double pp_safe_cmd_ = 0.0;
     double L = nmpc_params_.lf + nmpc_params_.lr; //轴距
-    double lookahead_dist = supervisor_params_.lookahead_distance; 
+    double lookahead_dist = min_lookahead_distance_ + lookahead_speed_coeff_ * curr_vx;
     
     // 找目标点
     int nearest_idx = find_nearest_path_point(curr_x, curr_y, *path);
@@ -316,7 +321,6 @@ void ESOTracker::computeControl(
     double ty = path->points[target_idx].pose.position.y;
     double dx = tx - curr_x;
     double dy = ty - curr_y;
-    
     double local_x = cos(curr_theta) * dx + sin(curr_theta) * dy;
     double local_y = -sin(curr_theta) * dx + cos(curr_theta) * dy;
 
@@ -329,7 +333,7 @@ void ESOTracker::computeControl(
     
     // 打印调试信息
     if (blend_alpha_ < 0.01) {
-        ROS_INFO_THROTTLE(0.5, "[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Delta: %.3f rad", local_x, local_y, pp_safe_cmd_);
+        ROS_INFO_THROTTLE(0.5, "[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead Dist: %.2f m | Delta: %.3f rad", local_x, local_y, lookahead_dist, pp_safe_cmd_);
     } else if (blend_alpha_ > 0.99) {
         ROS_INFO_THROTTLE(2.0, "[%s] 高速模式 (%.1f km/h)", getName().c_str(), curr_vx_raw * 3.6);
     } else {
