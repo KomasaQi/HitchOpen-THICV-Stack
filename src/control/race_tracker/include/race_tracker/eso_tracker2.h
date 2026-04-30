@@ -184,6 +184,9 @@ private:
     // 求解器设定
     double integration_grade_;
 
+    // 动态预瞄参数
+    double min_lookahead_distance_;
+    double lookahead_speed_coeff_;
 
 };
 

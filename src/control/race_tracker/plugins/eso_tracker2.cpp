@@ -108,6 +108,12 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     rls_Cr_est_ = rls_Cr_est_default_;
     rls_Ct_est_ = rls_Ct_est_default_;
 
+
+    // 加载—— 动态预瞄参数 ——
+    nh_nmpc.param("min_lookahead_distance", min_lookahead_distance_, 3.0);
+    nh_nmpc.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);
+    
+
     // 打印加载的参数
     // NMPC核心参数
     logParamLoad("nx",nmpc_params_.nx, 8);
@@ -156,6 +162,10 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     logParamLoad("rls_Cr_est_min", rls_Cr_est_min_, 100000.0);          // 挂车后轴刚度最小值（N/m）
     logParamLoad("rls_Ct_est_min", rls_Ct_est_min_, 50000.0);          // 挂车横摆转动惯量最小值（kg·m²）
     logParamLoad("integration_grade", integration_grade_, 2.0);          // 求解器积分阶数，默认2阶
+    // pure pursuit 参数 用于兜底控制
+    logParamLoad("min_lookahead_distance", min_lookahead_distance_, 3.0);          // 最小预瞄距离，默认3m
+    logParamLoad("lookahead_speed_coeff", lookahead_speed_coeff_, 0.5);          // 预瞄速度系数，默认0.5
+    
 
 
 
@@ -268,6 +278,10 @@ void ESOTracker2::computeControl(
     esoCompute(curr_r, curr_delta, obs_dt);
     double h_hat_total = eso_x2_ + (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz * curr_delta;
     double d_pure_trailer = h_hat_total;
+    
+    // 输出ESO观测结果（紫色）
+    ROS_INFO("[%s] \033[35mESO观测结果: x1(横摆角速度)=%.4f rad/s, x2(扰动)=%.4f, h_hat_total=%.4f\033[0m", 
+                      getName().c_str(), eso_x1_, eso_x2_, h_hat_total);
 
     // 6. 构建8维状态向量，调用求解器
     std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r, 
@@ -289,7 +303,8 @@ void ESOTracker2::computeControl(
         raw_delta_cmd = control_output[0];
     } else {
         // [修改] 启用纯跟踪兜底
-        raw_delta_cmd = computePurePursuitSteering(*path, curr_x, curr_y, curr_theta, 6.0);
+        double lookahead_dist = min_lookahead_distance_+ lookahead_speed_coeff_ * curr_vx;
+        raw_delta_cmd = computePurePursuitSteering(*path, curr_x, curr_y, curr_theta, lookahead_dist);
         ROS_ERROR("[%s] NMPC 求解失败，启用纯跟踪保护: %.3f", getName().c_str(), raw_delta_cmd);
     }
     raw_delta_cmd = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, raw_delta_cmd));
@@ -704,7 +719,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_trailor = (Fyt_hy1 * lr) / Iz1;
     MX d_vy = (Fyf*cos(delta) + Fyr + Fyt_hy1) / m1 - vx * r;
     MX Mh = hx * Fyt_hy1 - hy * Fyt_hx1;
-    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 + h_dist; - r_dot_2DOF - d_trailor;
+    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 + h_dist*0; // - r_dot_2DOF - d_trailor;
 
     // 挂车动力学
     MX Fyt_hy2 = -Fyt;

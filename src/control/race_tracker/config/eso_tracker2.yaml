@@ -5,7 +5,7 @@ eso_tracker2:
   nu: 1                 # 控制量维度 [delta_des] 单前轴转向
   
   # 预测与控制步长配置
-  prediction_step: 20    # NMPC预测步长 (N)
+  prediction_step: 25    # NMPC预测步长 (N)
   sparse_control_step: 5 # 稀疏控制量步数 (Nc)
   
   # 控制时间与频率
@@ -22,7 +22,7 @@ eso_tracker2:
   lt: 3.4               # 挂车质心到铰接点距离 (m)
   L2: 7.9               # 挂车铰接点到后轴距离 (m)
   lh: 0.0               # 铰接点相对牵引车质心的纵向偏移 (m)
-  T_lag: 0.2            # 转向系统滞后时间常数 (s)
+  T_lag: 0.1            # 转向系统滞后时间常数 (s)
 
   # —— 控制量边界约束 ——
   min_steer: -0.6        # 前轴最小转向角 (rad)
@@ -54,20 +54,24 @@ eso_tracker2:
   ipopt_warm_start_mult_bound_push: 1e-3   # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
 
   # —— 参数估计中参数 ——
-  rls_Cf_est: 200000.0;          # 挂车前轴刚度初始值（N/m）
-  rls_Cr_est: 750000.0;         # 挂车后轴刚度初始值（N/m）
-  rls_Ct_est: 160000.0;          # 挂车横摆转动惯量初始值（kg·m²）
-  rls_w1_prev: 0.0;              # 挂车横摆角初始值（rad）
-  rls_w1_dot_prev: 0.0;          # 挂车横摆角速度初始值（rad/s）
-  rls_Cf_est_min: 50000.0;     # 挂车前轴刚度最小值（N/m）
-  rls_Cr_est_min: 100000.0;      # 挂车后轴刚度最小值（N/m）
-  rls_Ct_est_min: 50000.0;      # 挂车横摆转动惯量最小值（kg·m²）
-  rls_Cf_est_max: 300000.0;     # 挂车前轴刚度最大值（N/m）
-  rls_Cr_est_max: 2000000.0;    # 挂车后轴刚度最大值（N/m）
-  rls_Ct_est_max: 200000.0;     # 挂车横摆转动惯量最大值（kg·m²）
+  rls_Cf_est: 150000.0          # 挂车前轴刚度初始值（N/m）
+  rls_Cr_est: 750000.0         # 挂车后轴刚度初始值（N/m）
+  rls_Ct_est: 160000.0          # 挂车横摆转动惯量初始值（kg·m²）
+  rls_w1_prev: 0.0              # 挂车横摆角初始值（rad）
+  rls_w1_dot_prev: 0.0          # 挂车横摆角速度初始值（rad/s）
+  rls_Cf_est_min: 50000.0     # 挂车前轴刚度最小值（N/m）
+  rls_Cr_est_min: 100000.0      # 挂车后轴刚度最小值（N/m）
+  rls_Ct_est_min: 50000.0      # 挂车横摆转动惯量最小值（kg·m²）
+  rls_Cf_est_max: 150000.0     # 挂车前轴刚度最大值（N/m）
+  rls_Cr_est_max: 2000000.0    # 挂车后轴刚度最大值（N/m）
+  rls_Ct_est_max: 200000.0     # 挂车横摆转动惯量最大值（kg·m²）
 
   # 积分求解参数
   integration_grade: 4.0  # 积分求解参数，默认2.0（RK2积分）
+
+  # 兜底控制Pure Pursuit动态预瞄参数
+  min_lookahead_distance: 6.0  # 最小预瞄距离，默认6m
+  lookahead_speed_coeff: 0.7  # 预瞄速度系数，默认0.7
 
 
 
