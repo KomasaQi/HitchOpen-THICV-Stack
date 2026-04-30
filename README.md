@@ -523,8 +523,6 @@ rostopic hz /liorf_localization/mapping/odometry
 
 #### 4.4.5 东风项目半挂车仿真启动流程
 
-xxxx 说明 TODO
-
 
 1.生成小卡车
 ```bash
@@ -572,6 +570,11 @@ rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREE
 ```
 注意：如果一开始挂接了挂车，不要忘记回到Rviz按下B切换到控制器控制喔~不然小车就跑不起来哒
 ![eso_tracker_DFCV](/tutorial/images/eso_tracker_DFCV.png)
+
+如果想要查看跟踪误差，可以显示车辆状态的子话题
+```bash
+rostopic echo /race/vehicle_state/tracking # 是车辆状态的子话题，包含横向、航向和速度误差
+```
 
 xxx 其他启动项目 TODO
 

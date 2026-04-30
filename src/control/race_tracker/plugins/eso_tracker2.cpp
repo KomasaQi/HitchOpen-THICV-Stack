@@ -49,8 +49,9 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Iz", nmpc_params_.Iz, 50000.0);
     nh_nmpc.param("lf", nmpc_params_.lf, 2.0);
     nh_nmpc.param("lr", nmpc_params_.lr, 2.135);
-    nh_nmpc.param("m_t", nmpc_params_.m_t, 7570.0);
-    nh_nmpc.param("Iz_t", nmpc_params_.Iz_t, 150000.0);
+    nh_nmpc.param("m_t_empty", nmpc_params_.m_t, 7570.0);
+    nh_nmpc.param("Iz_t_empty", nmpc_params_.Iz_t, 150000.0);
+    nh_nmpc.param("m_t_total", nmpc_params_.m_t_total, 39500.0);
     nh_nmpc.param("lt", nmpc_params_.lt, 3.4);
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
     nh_nmpc.param("lh", nmpc_params_.lh, 0.0);
@@ -80,9 +81,9 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Kiz", nmpc_params_.Kiz, 5.1);      // 横摆转动惯量比例系数
 
     // 加载—— 参数估计中参数 ——
-    nh_nmpc.param("rls_Cf_est", rls_Cf_est_, 250000.0);          // 挂车前轴刚度初始值（N/m）
-    nh_nmpc.param("rls_Cr_est", rls_Cr_est_, 1000000.0);         // 挂车后轴刚度初始值（N/m）
-    nh_nmpc.param("rls_Ct_est", rls_Ct_est_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
+    nh_nmpc.param("rls_Cf_est", rls_Cf_est_default_, 250000.0);          // 挂车前轴刚度初始值（N/m）
+    nh_nmpc.param("rls_Cr_est", rls_Cr_est_default_, 1000000.0);         // 挂车后轴刚度初始值（N/m）
+    nh_nmpc.param("rls_Ct_est", rls_Ct_est_default_, 400000.0);          // 挂车横摆转动惯量初始值（kg·m²）
     nh_nmpc.param("rls_w1_prev", rls_w1_prev_, 0.0);              // 挂车横摆角初始值（rad）
     nh_nmpc.param("rls_w1_dot_prev", rls_w1_dot_prev_, 0.0);        // 挂车横摆角速度初始值（rad/s）
     nh_nmpc.param("rls_Cf_est_max", rls_Cf_est_max_, 500000.0);          // 挂车前轴刚度最大值（N/m）
@@ -103,7 +104,9 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     // 加载—— 求解器设定 ——
     nh_nmpc.param("integration_grade", integration_grade_, 2.0);          // 求解器积分阶数，默认2阶
 
-
+    rls_Cf_est_ = rls_Cf_est_default_; // 将默认参数赋予变量
+    rls_Cr_est_ = rls_Cr_est_default_;
+    rls_Ct_est_ = rls_Ct_est_default_;
 
     // 打印加载的参数
     // NMPC核心参数
@@ -206,7 +209,7 @@ void ESOTracker2::computeControl(
     double curr_ay = vehicle_status->acc.linear.y;
     double curr_r = vehicle_status->vel.angular.z;
     double curr_delta = vehicle_status->lateral.steering_angle;
-    double M = nmpc_params_.m + nmpc_params_.m_t; // 总质量（新增）
+    double M = nmpc_params_.m + nmpc_params_.m_t_total; // 总质量（新增）
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));//增加
     
@@ -441,9 +444,9 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
     double d = nmpc_params_.lt;
     double L2 = nmpc_params_.L2;
     double m1 = nmpc_params_.m;
-    double m2 = M - m1;
+    double m2 = nmpc_params_.m_t_total;
     double Iz1 = nmpc_params_.Iz;
-    double Iz2 = nmpc_params_.Iz_t +  nmpc_params_.Kiz*(m2/nmpc_params_.m_t);
+    double Iz2 = nmpc_params_.Iz_t +  nmpc_params_.Kiz*(m2-nmpc_params_.m_t);
     double Cf = rls_Cf_est_;
     double Cr = rls_Cr_est_;
     double Ct = rls_Ct_est_;
@@ -513,9 +516,9 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
 void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,double curr_r, 
                                       double curr_ay, double curr_gamma, double curr_r_t, double M, double dt) {
     if (curr_vx < 5.0) {
-        rls_Cf_est_ = 250000.0;
-        rls_Cr_est_ = 1000000.0;
-        rls_Ct_est_ = 400000.0;
+        rls_Cf_est_ = rls_Cf_est_default_;
+        rls_Cr_est_ = rls_Cr_est_default_;
+        rls_Ct_est_ = rls_Ct_est_default_;
         rls_P_ = Matrix3d::Identity() * 1e6;
         return;
     }
@@ -527,9 +530,9 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     double lr2 = nmpc_params_.L2 - lf2;
     double lh = nmpc_params_.lh;
     double m1 = nmpc_params_.m;
-    double m2 = M - m1;
+    double m2 = nmpc_params_.m_t_total;
     double Iz1 = nmpc_params_.Iz;
-    double Iz2 = nmpc_params_.Iz_t + 5*(m2/nmpc_params_.m_t);
+    double Iz2 = nmpc_params_.Iz_t + nmpc_params_.Kiz*(m2-nmpc_params_.m_t);
 
     // 横摆角加速度滤波
     double alpha_filter = 0.3;

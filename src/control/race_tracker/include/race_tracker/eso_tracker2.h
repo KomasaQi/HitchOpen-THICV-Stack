@@ -30,6 +30,7 @@ struct NMPCParams {
     // 挂车参数（新增）
     double m_t;
     double Iz_t;
+    double m_t_total;
     double lh;
     double lt;
     double L2;
@@ -163,7 +164,9 @@ private:
     double rls_Cf_est_max_;
     double rls_Cr_est_max_;
     double rls_Ct_est_max_;
-
+    double rls_Cf_est_default_;
+    double rls_Cr_est_default_;
+    double rls_Ct_est_default_;
 
 
     // 挂车状态变量（新增）
