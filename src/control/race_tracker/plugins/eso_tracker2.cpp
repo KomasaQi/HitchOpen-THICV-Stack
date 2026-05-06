@@ -276,7 +276,7 @@ void ESOTracker2::computeControl(
 
     // 5. ESO观测器计算
     esoCompute(curr_r, curr_delta, obs_dt);
-    double h_hat_total = eso_x2_ + (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz * curr_delta;
+    double h_hat_total = eso_x2_;
     double d_pure_trailer = h_hat_total;
     
     // 输出ESO观测结果（紫色）
@@ -290,8 +290,8 @@ void ESOTracker2::computeControl(
 
     // 7. 绑定NMPC运行时参数（扩展为10维），必须在求解前设置
     std::vector<double> dyn_params = {
-        nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr,
-        rls_Cf_est_, rls_Cr_est_, M, nmpc_params_.Iz_t, nmpc_params_.lt, rls_Ct_est_
+        nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr,rls_Cf_est_,
+         rls_Cr_est_, M, nmpc_params_.Iz_t, nmpc_params_.lt, rls_Ct_est_, nmpc_params_.L2
     };
     solver_.opti.set_value(solver_.P_vx, curr_vx);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);
@@ -638,6 +638,7 @@ void ESOTracker2::esoCompute(double curr_r, double curr_delta, double dt) {
     eso_x2_ += (B2 * error_eso) * dt;
 }
 
+
 // 预瞄曲率与运动学转角（新增内部函数）
 double ESOTracker2::calculate_curvature_and_steering(const Vector2d& p1, const Vector2d& p2, 
                                                   const Vector2d& p3, double L1) {
@@ -674,64 +675,71 @@ void ESOTracker2::calculate_trailer_kinematics(double delta_f, double curr_vx, d
     gamma_ += gamma_dot * dt;
 }
 
-// 挂车动力学模型
 MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
-                                    const MX& vx, const MX& h_dist,
-                                    const MX& dyn_params) {
+                                     const MX& vx, const MX& h_dist,
+                                     const MX& dyn_params) {
     MX theta = state(2), vy = state(3), r = state(4), delta = state(5);
     MX r_t = state(6), gamma = state(7);
 
-    // 10维动力学参数
     MX m1 = dyn_params(0), Iz1 = dyn_params(1), lf = dyn_params(2), lr = dyn_params(3);
     MX Cf = dyn_params(4), Cr = dyn_params(5), M = dyn_params(6), Iz2 = dyn_params(7);
-    MX lt = dyn_params(8), Ct = dyn_params(9);
+    MX lt = dyn_params(8), Ct = dyn_params(9), L2 = dyn_params(10);
     MX m2 = M - m1;
 
-    MX vx_safe = fmax(vx, 3.0); 
-
-    // 牵引车侧向力
+    MX vx_safe = fmax(vx, 0.5); 
+    MX cos_gamma = fmax(cos(gamma), 0.005); 
+    MX sin_gamma = sin(gamma);
+    // 1. 轮胎侧偏角与力计算
     MX alpha_f = delta - atan2((vy + lf * r), vx_safe);
     MX alpha_r = -atan2((vy - lr * r), vx_safe);
     MX Fyf = Cf * alpha_f;
     MX Fyr = Cr * alpha_r;
-
-    // 牵引车2DOF横摆加速度
-    MX r_dot_2DOF = (lf*Fyf*cos(delta) - lr*Fyr) / Iz1;
-
-    // 铰接点速度
-    MX vx_h1 = vx_safe;
-    MX vy_h1 = vy - lr * r;
-    MX vx_h2 = vx_h1 * cos(gamma) + vy_h1 * sin(gamma);
-    MX vy_h2 = -vx_h1 * sin(gamma) + vy_h1 * cos(gamma);
-
-    // 挂车质心速度与侧向力
-    MX vx2 = vx_h2;
-    MX vy2 = vy_h2 - lt * r_t;
-    MX alpha_t = -atan2(vy2, vx2);
+    // 挂车车轴处侧偏力
+    MX vy_h1 = vy - lr * r; 
+    MX vy_axle = -vx_safe * sin_gamma + vy_h1 * cos_gamma - L2 * r_t; 
+    MX alpha_t = -atan2(vy_axle, vx_safe);
     MX Fyt = Ct * alpha_t;
+    // 牵引车自身的合外力与力矩
+    MX Y1 = Fyf * cos(delta) + Fyr;
+    MX N1 = lf * Fyf * cos(delta) - lr * Fyr;
+    // 2. 铰接力 Hy 分离推导 (Hy = Hy_const + Hy_dyn * d_r_t)
+    MX Hy_const = -((L2 - lt) * Fyt) / (lt * cos_gamma);
+    MX Hy_dyn   = -Iz2 / (lt * cos_gamma);
+    // 3. 牵引车加速度分离推导 
+    // 横移加速度 d_vy = d_vy_const + d_vy_dyn * d_r_t
+    MX d_vy_const = (Y1 - m1 * vx * r + Hy_const) / m1;
+    MX d_vy_dyn   = Hy_dyn / m1;
+    // 横摆加速度 d_r = d_r_const + d_r_dyn * d_r_t
+    MX d_r_const = (N1 - lr * Hy_const) / Iz1;
+    MX d_r_dyn   = (-lr * Hy_dyn) / Iz1;
+    // 挂车因速度产生的向心加速度外项
+    MX a_y2_ext = vx_safe * r * cos_gamma + vy_h1 * r * sin_gamma;
+    // 平衡方程右侧常数项基础值 (由 Fyt 和向心力组成)
+    MX RHS_trailer = (L2 / lt) * Fyt - m2 * a_y2_ext;
+    // 将 d_vy 和 d_r 代入平移方程，提取出 d_r_t 的系数
+    MX coeff_drt = m2 * cos_gamma * d_vy_dyn 
+                 - m2 * lr * cos_gamma * d_r_dyn 
+                 - (m2 * lt + Iz2 / lt);
 
-    // 铰接力分解
-    MX Fyt_hy1 = Fyt * cos(gamma);
-    MX Fyt_hx1 = -Fyt * sin(gamma);
-    MX hx = -lr, hy = 0;
+    // 将 d_vy 和 d_r 的常数部分移到方程右侧，计算最终的方程右边(RHS)
+    MX RHS_total = RHS_trailer 
+                 - m2 * cos_gamma * d_vy_const 
+                 + m2 * lr * cos_gamma * d_r_const;
 
-    // 牵引车动力学
-    MX d_trailor = (Fyt_hy1 * lr) / Iz1;
-    MX d_vy = (Fyf*cos(delta) + Fyr + Fyt_hy1) / m1 - vx * r;
-    MX Mh = hx * Fyt_hy1 - hy * Fyt_hx1;
-    MX d_r = (lf*Fyf*cos(delta) - lr*Fyr + Mh) / Iz1 + h_dist*0; // - r_dot_2DOF - d_trailor;
+    // 解得挂车横摆加速度
+    MX d_r_t = RHS_total / coeff_drt;
 
-    // 挂车动力学
-    MX Fyt_hy2 = -Fyt;
-    MX Mr = -lt * Fyt_hy2;
-    MX d_r_t = Mr / Iz2;
+    // 5. 回代求取牵引车加速度
+    MX d_vy = d_vy_const + d_vy_dyn * d_r_t;
+    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist; // 加入ESO或外部扰动
 
-    // 运动学状态
+    // 6. 运动学状态更新
     MX d_gamma = r - r_t;
     MX d_x = vx * cos(theta) - vy * sin(theta);
     MX d_y = vx * sin(theta) + vy * cos(theta);
     MX d_theta = r;
     MX d_delta = (cmd_delta - delta) / nmpc_params_.T_lag;
+
     std::vector<MX> state_derivatives = {d_x, d_y, d_theta, d_vy, d_r, d_delta, d_r_t, d_gamma};
 
     return vertcat(state_derivatives);
@@ -749,7 +757,7 @@ void ESOTracker2::buildNMPSolver() {
     solver_.P_vx = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
     solver_.P_h_hat = solver_.opti.parameter(1);
-    solver_.P_dyn_params = solver_.opti.parameter(10); // 扩展为10维
+    solver_.P_dyn_params = solver_.opti.parameter(11); // 扩展为10维
 
     // 控制量稀疏化
     MX U_full = MX::zeros(nu, N);
@@ -798,11 +806,6 @@ void ESOTracker2::buildNMPSolver() {
             // 报错：integration_grade_不在有效范围内，无法选择积分方法
             throw std::runtime_error("integration_grade_不在有效范围内，无法选择积分方法");
         }
-
-
-
-
-
 
         // 代价函数（扩展挂车项）
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
