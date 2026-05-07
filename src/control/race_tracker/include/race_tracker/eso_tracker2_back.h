@@ -25,8 +25,6 @@ struct SupervisorParams {
     double blend_speed_low;
     double blend_speed_high;
     double lookahead_distance;
-    double standstill_speed;      // 极低速/静止阈值：不输出零转角，而是保持纯跟踪保护
-    double nmpc_speed_floor;      // NMPC/观测器内部使用的最低等效纵向速度，避免低速奇异
 };
 
 // 扩展NMPC参数（兼容原结构，新增挂车参数）

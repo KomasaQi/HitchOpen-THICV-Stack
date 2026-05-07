@@ -284,7 +284,7 @@ void ESOTracker::computeControl(
     // 无论什么模式，都调用NMPC求解，保持热启动状态
     bool nmpc_solve_success = solveNMPC(nmpc_state, waypoints_dm, control_output);
     if (nmpc_solve_success) {
-        nmpc_safe_cmd_ = control_output[0];
+        nmpc_safe_cmd_ = control_output[0]; 
     } else {
         // 求解失败时，用上一帧的有效输出兜底
         nmpc_safe_cmd_ = current_cmd_;

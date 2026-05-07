@@ -78,8 +78,6 @@ supervisor_config:
   startup_time: 5.0              # 启动强制纯跟踪时间 (s)
   blend_speed_low: 4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
   blend_speed_high: 5.0           # 融合 -> NMPC 切换车速 (18 km/h)
-  standstill_speed: 0.05          # 极低速阈值：低于该速度时强制纯跟踪，不输出固定零转角
-  nmpc_speed_floor: 1.0           # NMPC/观测器内部最低等效车速，避免低速模型奇异
   
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
   min_lookahead_distance: 6.0        # 前视距离 (m)
