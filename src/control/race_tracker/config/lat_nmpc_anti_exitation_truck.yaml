@@ -1,0 +1,88 @@
+nmpc_anti_exitation_controller:
+  # ===== problem size =====
+  nx: 4
+  nu: 1
+
+  # 建议先用 N=16, Nc=4；若高速度跟踪不够，再改 N=20, Nc=5。
+  prediction_step: 20
+  use_sparse_control: true
+  sparse_control_step: 5
+
+  # ===== model =====
+  sampling_time: 0.05
+  wheelbase: 0.30
+  front_steer_time_constant: 0.18
+  gravity: 9.806
+  max_lateral_acceleration: 1.80
+  min_front_steer: -0.25
+  max_front_steer: 0.25
+
+  # Jetson 快速模式：Euler + tan(delta)≈delta；航向误差保留 wrap 保护，避免 ±pi 跳变。
+  integrate_degree: 1
+  use_linear_tan: true
+  use_heading_wrap_cost: true
+  shift_warm_start: true
+
+  # ===== reference resampling =====
+  # 低速稳定性的关键：参考点按 vx*dt 的可达距离重采样，而不是 nearest+k。
+  use_speed_based_reference: true
+  ref_min_step: 0.03
+  ref_max_step: 0.35
+  ref_speed_scale: 1.0
+  ref_nearest_search_radius: 2.0
+  unwrap_reference_yaw: true
+
+  # ===== low speed fallback / soft switching =====
+  # 0~0.55 m/s: 纯 Pure Pursuit；0.55~1.15 m/s: PP 与 NMPC 平滑混合；>1.15 m/s: NMPC。
+  enable_low_speed_pp: true
+  pp_only_speed: 0.55
+  nmpc_full_speed: 1.15
+  pp_lookahead_min: 0.32
+  pp_lookahead_gain: 0.74
+  pp_lookahead_max: 1.10
+  pp_max_steer_low_speed: 0.18
+  pp_rate_limit: 0.20
+  output_rate_limit: 0.18
+  low_speed_delta_limit: 0.20
+  fallback_to_pp_on_fail: true
+
+  # ===== weights =====
+  # 稀疏控制下不要把增量权重设成 1e5~1e6，否则求解慢且容易僵硬。
+  weight_position: 18.0
+  weight_heading: 28.0
+  weight_front_steer: 3.0
+  weight_front_steer_control: 0.3
+  weight_front_steer_rate: 0.5
+  weight_steering_increment: 500.0
+  weight_first_delta_change: 120.0
+  weight_terminal_position: 45.0
+  weight_terminal_heading: 50.0
+
+  # ===== Qband anti-excitation =====
+  # 模型车尺寸较小，耦合晃动主频率约 1.5 Hz。
+  # 这里不对稀疏阶梯控制量本身做频率惩罚，而是对预测横向加速度 ay(k) 的 1.5 Hz 频带能量做惩罚/软约束。
+  enable_qband_penalty: true
+  enable_qband_soft_constraint: true
+  enable_qband_hard_constraint: false
+  enable_preview_qband_weight: true
+  qband_center_frequency: 1.50
+  qband_bandwidth_frequency: 0.65
+  qband_weight_base: 68.0
+  qband_preview_scale_min: 0.30
+  qband_preview_scale_max: 8.0
+  qband_preview_ay_threshold: 0.55
+  qband_preview_ay_range: 0.90
+  qband_energy_limit: 0.20
+  qband_energy_soft_weight: 80.0
+  qband_softplus_eps: 0.000001
+  qband_hard_constraint_slack: 0.05
+
+  # ===== IPOPT for real-time embedded use =====
+  # 若仍失败：先把 ipopt_max_iter 提到 25，不要直接提到 100+。
+  ipopt_max_iter: 40
+  ipopt_tol: 0.002
+  ipopt_acceptable_tol: 0.02
+  ipopt_acceptable_iter: 2
+  ipopt_max_cpu_time: 0.045
+  expand_nlp: true
+  print_solver_time: false

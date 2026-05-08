@@ -5,7 +5,7 @@ nmpc_accel_const_controller:
   prediction_step: 15
   sparse_control_step: 2
 
-  front_steer_time_constant: 0.1
+  front_steer_time_constant: 0.2
   sampling_time: 0.1
   wheelbase: 0.3
   gravity: 9.806

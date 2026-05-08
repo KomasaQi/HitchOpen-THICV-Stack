@@ -563,7 +563,7 @@ roslaunch competition_timer competition_timer.launch
 ```
 - 设置限速
 ``` bash
-rosparam set /competition_timer/flag G10
+rosparam set /competition_timer/flag G20
 ```
 启动跟踪控制节点
 ``` bash
@@ -603,6 +603,8 @@ rosrun fw_pkg speed_filter.py
 - 戚笑景 Komasa Qi （清华大学）
 - 何瑞坤 He Ruikun （辽宁工业大学）
 - 邹恒多 Zou Hengduo （清华大学）
+- 龚林豪 Gong Linhao (江苏理工学院)
+- 王坤鹏 Wang Kunpeng (长安大学)
 - 扶尚宇 Fu Shangyu （清华大学）
 - 邱逸凡 Qiu Yifan （中国农业大学）
 - 黄梓谦 Huang Ziqian （华南理工大学）

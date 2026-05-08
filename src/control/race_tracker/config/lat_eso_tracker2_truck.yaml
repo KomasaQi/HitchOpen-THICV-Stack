@@ -1,0 +1,89 @@
+# NMPC横向控制器参数配置
+eso_tracker2:       
+  # 状态与控制维度配置
+  nx: 8                 # 【修改】状态维度 → 8维 [x, y, theta, vy, r, delta, r_t, gamma]
+  nu: 1                 # 控制量维度 [delta_des] 单前轴转向
+  
+  # 预测与控制步长配置
+  prediction_step: 20    # NMPC预测步长 (N)
+  sparse_control_step: 5 # 稀疏控制量步数 (Nc)
+  
+  # 控制时间与频率
+  sampling_time: 0.05   # 采样时间 (s)
+  
+  # —— 车辆核心动力学参数（含挂车） ——
+  m: 10.0            # 牵引车质量 (kg)
+  Iz: 1.0           # 牵引车横摆转动惯量 (kg·m²)
+  lf: 0.1               # 牵引车质心到前轴距离 (m)
+  lr: 0.2             # 牵引车质心到后轴距离 (m)
+  m_t_empty: 7.0           # 空挂车质量（kg）
+  Iz_t_empty: 2.5        # 挂车横摆转动惯量 (kg·m²)
+  m_t_total: 40.0      # 加上货物的总质量 （kg）
+  lt: 0.3               # 挂车质心到铰接点距离 (m)
+  L2: 0.6               # 挂车铰接点到后轴距离 (m)
+  lh: 0.0               # 铰接点相对牵引车质心的纵向偏移 (m)
+  T_lag: 0.1            # 转向系统滞后时间常数 (s)
+
+  # —— 控制量边界约束 ——
+  min_steer: -0.25        # 前轴最小转向角 (rad)
+  max_steer: 0.25         # 前轴最大转向角 (rad)
+  delta_rate_max: 1.5    # 最大转向角速度 (rad/s)
+  delta_rate_min: -1.5   # 最小转向角速度 (rad/s)
+
+  # # —— 代价函数权重 ——
+  Q_x: 1000.0           # 横向位置误差权重
+  Q_y: 1000.0           # 纵向位置误差权重 // 未用到
+  Q_theta: 5000.0        # 航向角误差权重
+  Q_vy: 100.0            # 侧向速度权重
+  Q_r: 800.0             # 横摆角速度权重
+  Q_delta: 1.0           # 未使用该权重项
+  Q_rt: 1.0              # 挂车状态权重
+  Q_gamma: 1.0           # 挂车状态权重
+  Q_R: 10.0              # 控制量权重 
+  Q_dR: 5000000.0         # 控制增量权重 (平滑性)
+
+  # # —— 参数估计中参数 ——
+  Kiz: 0.1               # 横摆转动惯量比例系数
+
+  # —— NMPC控制器参数 ——
+  ipopt_max_iter: 50                      # IPPT最大迭代次数，默认100次
+  ipopt_acceptable_tol: 0.05               # IPPT可接受解的容差，默认1e-2
+  ipopt_acceptable_iter: 3                 # IPPT可接受迭代次数，默认5次 连续 5 次迭代满足 acceptable_tol 即可停止
+  ipopt_warm_start_bound_push: 0.001        # IPPT预热边界推送系数，默认1e-3，用于初始化控制量边界，热启动时，将初始点向变量边界 “推” 的最小距离
+  ipopt_warm_start_slack_bound_push: 0.001  # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
+  ipopt_warm_start_mult_bound_push: 0.001   # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
+
+  # —— 参数估计中参数 ——
+  rls_Cf_est: 180.0          # 挂车前轴刚度初始值（N/m）
+  rls_Cr_est: 300.0         # 挂车后轴刚度初始值（N/m）
+  rls_Ct_est: 250.0          # 挂车横摆转动惯量初始值（kg·m²）
+  rls_w1_prev: 0.0              # 挂车横摆角初始值（rad）
+  rls_w1_dot_prev: 0.0          # 挂车横摆角速度初始值（rad/s）
+  rls_Cf_est_min: 10.0     # 挂车前轴刚度最小值（N/m）
+  rls_Cr_est_min: 50.0      # 挂车后轴刚度最小值（N/m）
+  rls_Ct_est_min: 10.0      # 挂车横摆转动惯量最小值（kg·m²）
+  rls_Cf_est_max: 15000.0     # 挂车前轴刚度最大值（N/m）
+  rls_Cr_est_max: 80000.0    # 挂车后轴刚度最大值（N/m）
+  rls_Ct_est_max: 20000.0     # 挂车横摆转动惯量最大值（kg·m²）
+
+  # 积分求解参数
+  integration_grade: 1.0  # 积分求解参数，默认2.0（RK2积分）
+
+  
+# ==============================================================================
+#                        逻辑切换与纯跟踪配置
+# ==============================================================================
+supervisor_config:
+  # --- 模式切换逻辑 ---
+  startup_time: 5.0              # 启动强制纯跟踪时间 (s)
+  blend_speed_low: 0.3        # 纯跟踪 -> 融合 切换车速 (1 km/h)
+  blend_speed_high: 0.417           # 融合 -> NMPC 切换车速 (1.5 km/h)
+  standstill_speed: 0.05          # 极低速阈值：低于该速度时强制纯跟踪，不输出固定零转角
+  nmpc_speed_floor: 0.05           # NMPC/观测器内部最低等效车速，避免低速模型奇异
+  
+  # --- 纯跟踪 (Pure Pursuit) 参数 ---
+  min_lookahead_distance: 0.4        # 前视距离 (m)
+  lookahead_speed_coeff: 0.7        # 预瞄速度系数，默认0.7
+
+
+

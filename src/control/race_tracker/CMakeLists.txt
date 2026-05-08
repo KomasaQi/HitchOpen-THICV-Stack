@@ -51,6 +51,9 @@ add_library(nmpc_accel_const_controller plugins/nmpc_accel_const_controller.cpp)
 add_library(anti_rollover_controller plugins/anti_rollover_controller.cpp)
 add_library(pid_tracker plugins/pid_tracker.cpp)
 add_library(const_throttle_controller plugins/const_throttle_controller.cpp)
+add_library(eso_tracker plugins/eso_tracker.cpp)
+add_library(eso_tracker2 plugins/eso_tracker2.cpp)
+add_library(nmpc_anti_exitation_controller plugins/nmpc_anti_exitation_controller.cpp)
 
 
 # Link against the base class library
@@ -74,6 +77,18 @@ target_link_libraries(anti_rollover_controller ${catkin_LIBRARIES}
   ${catkin_INCLUDE_DIRS}
   /usr/local/lib/libcasadi.so)
 target_include_directories(anti_rollover_controller PRIVATE /usr/local/include)
+target_link_libraries(eso_tracker ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(eso_tracker PRIVATE /usr/local/include)
+target_link_libraries(eso_tracker2 ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(eso_tracker2 PRIVATE /usr/local/include)
+target_link_libraries(nmpc_anti_exitation_controller ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(nmpc_anti_exitation_controller PRIVATE /usr/local/include)
 
 # Make the plugins known to ROS
 install(TARGETS
@@ -86,6 +101,9 @@ install(TARGETS
   nmpc_accel_const_controller
   pid_tracker
   anti_rollover_controller
+  eso_tracker
+  eso_tracker2
+  nmpc_anti_exitation_controller
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

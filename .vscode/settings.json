@@ -129,5 +129,6 @@
         "dense": "cpp",
         "charconv": "cpp"
     },
-    "cmake.sourceDirectory": "/home/jetson/komasa/HitchOpen-THICV-Stack/src/implementation/rviz_satellite"
+    "cmake.sourceDirectory": "/home/jetson/komasa/HitchOpen-THICV-Stack/src/common/competition_timer",
+    "Codegeex.RepoIndex": true
 }

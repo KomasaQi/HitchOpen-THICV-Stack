@@ -59,6 +59,16 @@
     </class>
 </library>
 
+<library path="lib/libnmpc_anti_exitation_controller">
+    <class name="race_tracker::NMPCAntiExitationController"
+           type="race_tracker::NMPCAntiExitationController"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            Anti-rollover NMPC controller for lateral control by constrainting lateral acceleration exitation in prediction horizon.
+        </description>
+    </class>
+</library>
+
 <library path="lib/libpid_tracker">
     <class name="race_tracker::PIDTracker"
            type="race_tracker::PIDTracker"
@@ -75,6 +85,26 @@
            base_class_type="race_tracker::ControllerPluginBase">
         <description>
             Constant throttle controller for longitudinal control.
+        </description>
+    </class>
+</library>
+
+<library path="lib/libeso_tracker">
+    <class name="race_tracker::ESOTracker"
+           type="race_tracker::ESOTracker"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            ESO tracker for lateral control of semi-trailer truck, originally designed for DFCV project.
+        </description>
+    </class>
+</library>
+
+<library path="lib/libeso_tracker2">
+    <class name="race_tracker::ESOTracker2"
+           type="race_tracker::ESOTracker2"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            ESO tracker for lateral control of semi-trailer truck, originally designed for DFCV project.
         </description>
     </class>
 </library>
