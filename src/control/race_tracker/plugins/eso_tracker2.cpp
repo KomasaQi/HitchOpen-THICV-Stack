@@ -71,8 +71,7 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
     nh_nmpc.param("lh", nmpc_params_.lh, 0.0);
     nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.1);
-    m_t_total_default_ = nmpc_params_.m_t_total;
-    m_t_empty_default_ = nmpc_params_.m_t;
+
     // 加载—— 控制量边界约束 ——
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.6);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.6);
@@ -249,15 +248,9 @@ void ESOTracker2::computeControl(
     const double curr_ay = vehicle_status->acc.linear.y;
     const double curr_r = vehicle_status->vel.angular.z;
     double curr_delta = vehicle_status->lateral.steering_angle;
-    // 根据收到的车辆状态更新挂车载货质量
-    if (vehicle_status->trailer.mass > m_t_empty_default_) {
-        nmpc_params_.m_t_total = vehicle_status->trailer.mass;
-        ROS_INFO("[%s] 更新挂车总质量: %.2f kg", getName().c_str(), nmpc_params_.m_t_total);
-
-    } else {
-        nmpc_params_.m_t_total = m_t_total_default_;
-        ROS_WARN("[%s] 收到异常挂车质量为%.2f kg , 使用默认挂车总质量: %.2f kg", getName().c_str(), vehicle_status->trailer.mass, nmpc_params_.m_t_total);
-    }
+    // 根据收到的车辆状态更新整车质量 
+    if (vehicle_status->mass > 1)
+    nmpc_params_.m_t_total = vehicle_status->mass;
     const double M = nmpc_params_.m + nmpc_params_.m_t_total;
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
@@ -604,7 +597,7 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
 // FF-RLS侧偏刚度辨识（保留原函数名，替换为3刚度辨识）
 void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,double curr_r, 
                                       double curr_ay, double curr_gamma, double curr_r_t, double M, double dt) {
-    if (curr_vx < 5.0) {
+    if (curr_vx < 1.0) {
         rls_Cf_est_ = rls_Cf_est_default_;
         rls_Cr_est_ = rls_Cr_est_default_;
         rls_Ct_est_ = rls_Ct_est_default_;
@@ -612,7 +605,7 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
         return;
     }
 
-    double lamda = 0.995;
+    double lamda = 0.99999; // 遗忘因子，接近1表示慢速遗忘
     double lf1 = nmpc_params_.lf;
     double lr1 = nmpc_params_.lr;
     double lf2 = nmpc_params_.lt;
@@ -659,34 +652,37 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     Vector2d V2 = rot.inverse() * b_vec;
     double V2_x_safe = max(V2(0), 1.0);
 
-    double alpha1 = atan((vy_est + lf1*curr_r)/vx1_safe) - curr_delta;
-    double alpha2 = atan((vy_est - lr1*curr_r)/vx1_safe);
+    double alpha1 = curr_delta - atan((vy_est + lf1*curr_r)/vx1_safe);
+    double alpha2 = -atan((vy_est - lr1*curr_r)/vx1_safe);
     double alpha3 = -atan((V2(1) - lr2*curr_r_t)/V2_x_safe);
     Vector3d alpha(alpha1, alpha2, alpha3);
 
     // RLS递推
+    // 建议保留条件判断中的绝对值（cwiseAbs 和 abs），以确保左转和右转都能正常触发递推
     double max_alpha = alpha.cwiseAbs().maxCoeff();
-    if (max_alpha > 0.01 && max_alpha < 0.15 && abs(curr_ay) > 0.1) {
-        Vector3d Y = Fy.cwiseAbs();
-        Matrix3d Phi = alpha.cwiseAbs().asDiagonal();
-
-        Matrix3d K = rls_P_ * Phi.transpose() * (lamda*Matrix3d::Identity() + Phi*rls_P_*Phi.transpose()).inverse();
-        Vector3d error = Y - Phi * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_);
+    if (max_alpha > 0.01 && max_alpha < 0.15 && std::abs(curr_ay) > 0.1) {
         
+        // 【修改点】：去掉了侧向力和侧偏角的绝对值，使用带符号的原始数据进行计算
+        Vector3d Y = Fy; 
+        Matrix3d Phi = alpha.asDiagonal();
+        // 增益矩阵计算
+        Matrix3d K = rls_P_ * Phi.transpose() * (lamda*Matrix3d::Identity() + Phi*rls_P_*Phi.transpose()).inverse();
+        // 误差计算（带符号）
+        Vector3d error = Y - Phi * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_);
+        // 状态更新
         rls_Cf_est_ += K(0,0)*error(0) + K(0,1)*error(1) + K(0,2)*error(2);
         rls_Cr_est_ += K(1,0)*error(0) + K(1,1)*error(1) + K(1,2)*error(2);
         rls_Ct_est_ += K(2,0)*error(0) + K(2,1)*error(1) + K(2,2)*error(2);
-
         // 物理限幅
-        rls_Cf_est_ = max(min(rls_Cf_est_, rls_Cf_est_max_), rls_Cf_est_min_);
-        rls_Cr_est_ = max(min(rls_Cr_est_, rls_Cr_est_max_), rls_Cr_est_min_);
-        rls_Ct_est_ = max(min(rls_Ct_est_, rls_Ct_est_max_), rls_Ct_est_min_);
-
+        rls_Cf_est_ = std::max(std::min(rls_Cf_est_, rls_Cf_est_max_), rls_Cf_est_min_);
+        rls_Cr_est_ = std::max(std::min(rls_Cr_est_, rls_Cr_est_max_), rls_Cr_est_min_);
+        rls_Ct_est_ = std::max(std::min(rls_Ct_est_, rls_Ct_est_max_), rls_Ct_est_min_);
+        // 协方差矩阵更新
         rls_P_ = (Matrix3d::Identity() - K*Phi) * rls_P_ / lamda;
     }
 
     // 输出平滑
-    double smooth_factor = 0.1;
+    double smooth_factor = 0.01;
     rls_C_out_prev_ = smooth_factor * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_) + (1 - smooth_factor) * rls_C_out_prev_;
     rls_Cf_est_ = rls_C_out_prev_(0);
     rls_Cr_est_ = rls_C_out_prev_(1);
@@ -808,7 +804,8 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist; // 加入ESO或外部扰动
 
     // 6. 运动学状态更新
-    MX d_gamma = r - r_t;
+    // MX d_gamma = r - r_t;
+    MX d_gamma = r_t - r; // 挂车相对转角变化率
     MX d_x = vx * cos(theta) - vy * sin(theta);
     MX d_y = vx * sin(theta) + vy * cos(theta);
     MX d_theta = r;
