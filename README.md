@@ -575,7 +575,13 @@ rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREE
 ```bash
 rostopic echo /race/vehicle_state/tracking # 是车辆状态的子话题，包含横向、航向和速度误差
 ```
-
+高速地图加载
+```bash
+roslaunch race_global_static_planner race_global_carla_town05_truck.launch
+``` 
+```bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="23.7,187.1,0.0,0.0,0.0,0.0"
+```
 xxx 其他启动项目 TODO
 
 

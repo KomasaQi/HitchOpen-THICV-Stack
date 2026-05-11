@@ -243,7 +243,7 @@ void ESOTracker::computeControl(
         blend_alpha_ = 0.0;
         ROS_INFO_THROTTLE(1.0, "[STARTUP] 预热中: %.1f / %.1f s | 纯跟踪锁定", time_elapsed, supervisor_params_.startup_time);
     } else {
-        // 后：恢复原有车速切换逻辑
+        // 恢复原有车速切换逻辑
         if (curr_vx_raw <= supervisor_params_.blend_speed_low) {
             blend_alpha_ = 0.0;
         } else if (curr_vx_raw >= supervisor_params_.blend_speed_high) {
@@ -594,8 +594,8 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
 void ESOTracker::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,
                                                 double curr_r, double curr_ay, double dt) {
     
-    if (curr_vx < 5.0) {
-        rls_P_f_ = 1e5; rls_P_r_ = 1e5; 
+    if (curr_vx < 3.0) {
+        rls_P_f_ = 2e5; rls_P_r_ = 1e6; 
         return;
     }
 
@@ -613,26 +613,24 @@ void ESOTracker::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr
 
     bool excite_flag = (abs(curr_ay) > 0.1);
     
-    if (excite_flag && (abs(alpha_f) > 0.004)) {
-        double phi = abs(alpha_f), e = abs(Fy_f_obs) - phi * rls_theta_f_;
+    if (excite_flag && (abs(alpha_f) > 0.003)) {
+        double phi = alpha_f, e = Fy_f_obs - phi * rls_theta_f_;
         double K = (rls_P_f_ * phi) / (0.99 + phi * rls_P_f_ * phi);
         rls_theta_f_ += K * e;
         rls_P_f_ = (1.0 / 0.99) * (rls_P_f_ - K * phi * rls_P_f_) + 0.001;
     } else rls_P_f_ = std::min(rls_P_f_, 1e7);
 
     if (excite_flag && (abs(alpha_r) > 0.003)) {
-        double phi = abs(alpha_r), e = abs(Fy_r_obs) - phi * rls_theta_r_;
+        double phi = alpha_r, e = Fy_r_obs - phi * rls_theta_r_;
         double K = (rls_P_r_ * phi) / (0.99 + phi * rls_P_r_ * phi);
         rls_theta_r_ += K * e;
         rls_P_r_ = (1.0 / 0.99) * (rls_P_r_ - K * phi * rls_P_r_) + 0.001;
     } else rls_P_r_ = std::min(rls_P_r_, 1e7);
 
-    
-    rls_Cf_est_ = std::max(200000.0, std::min(rls_theta_f_, 1e8));
-    rls_Cr_est_ = std::max(1e6, std::min(rls_theta_r_, 5e8));
-}
-
-void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt) {
+    rls_Cf_est_ = std::max(nmpc_params_.Cf_min, std::min(rls_theta_f_, nmpc_params_.Cf_max));
+    rls_Cr_est_ = std::max(nmpc_params_.Cr_min, std::min(rls_theta_r_, nmpc_params_.Cr_max));
+    }
+void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt){
     double b_eso = (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz;
     double error_eso = curr_r - eso_x1_;
     eso_x1_ += (b_eso * curr_delta + 20.0 * error_eso + eso_x2_) * dt;
@@ -775,7 +773,9 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
 
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
-        ROS_INFO("[%s] NMPC 求解成功! 耗时: %.2f ms", getName().c_str(), elapsed.count());
+      //  ROS_INFO("[%s] NMPC 求解成功! 耗时: %.2f ms", getName().c_str(), elapsed.count());
+        ROS_INFO("[%s] NMPC 求解成功! \033[1;32m耗时: %.2f ms\033[0m, \033[38;5;208mCf_est: %.2f, Cr_est: %.2f\033[0m",
+        getName().c_str(), elapsed.count(), rls_Cf_est_, rls_Cr_est_);
 
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
         solver_.has_prev_sol = true;
