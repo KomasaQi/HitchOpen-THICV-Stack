@@ -21,7 +21,7 @@ ESOTracker2::ESOTracker2() {
     ekf_P_ = Matrix4d::Identity() * 1.0;
     // RLS初始化（FF-RLS）
     rls_P_ = Matrix3d::Identity() * 1e6;
-    rls_C_out_prev_ = Vector3d(2e5, 4e5, 6e5);
+    rls_C_out_prev_ = Vector3d(2e5, 10e5, 3e5);
     // 原ESO变量初始化
     eso_x1_ = 0.0;
     eso_x2_ = 0.0;
@@ -71,6 +71,8 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
     nh_nmpc.param("lh", nmpc_params_.lh, 0.0);
     nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.1);
+    m_t_total_default_ = nmpc_params_.m_t_total;
+    m_t_empty_default_ = nmpc_params_.m_t;
 
     // 加载—— 控制量边界约束 ——
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.6);
@@ -248,10 +250,15 @@ void ESOTracker2::computeControl(
     const double curr_ay = vehicle_status->acc.linear.y;
     const double curr_r = vehicle_status->vel.angular.z;
     double curr_delta = vehicle_status->lateral.steering_angle;
-    // 根据收到的车辆状态更新整车质量 
-    if (vehicle_status->mass > 1)
-    nmpc_params_.m_t_total = vehicle_status->mass;
-    const double M = nmpc_params_.m + nmpc_params_.m_t_total;
+     // 根据收到的车辆状态更新挂车载货质量
+    if (vehicle_status->trailer.mass > m_t_empty_default_) {
+        nmpc_params_.m_t_total = vehicle_status->trailer.mass;
+        ROS_INFO("[%s] 更新挂车总质量: %.2f kg", getName().c_str(), nmpc_params_.m_t_total);
+
+    } else {
+        nmpc_params_.m_t_total = m_t_total_default_;
+        ROS_WARN("[%s] 收到异常挂车质量为%.2f kg , 使用默认挂车总质量: %.2f kg", getName().c_str(), vehicle_status->trailer.mass, nmpc_params_.m_t_total);
+    }
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
 
@@ -292,10 +299,10 @@ void ESOTracker2::computeControl(
     ROS_INFO_THROTTLE(0.5, "\033[36m[%s] 估计挂车转角: %.3f rad (%.1f deg)\033[0m",
                       getName().c_str(), curr_gamma, curr_gamma * 180.0 / M_PI);
 
-    ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, M, obs_dt);
+    ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, nmpc_params_.m_t_total, obs_dt);
     const double vy_est = ekf_x_hat_(0);
 
-    rlsIdentifyStiffness(curr_vx, vy_est, curr_delta, curr_r, curr_ay, curr_gamma, curr_r_t, M, obs_dt);
+    rlsIdentifyStiffness(curr_vx, vy_est, curr_delta, curr_r, curr_ay, curr_gamma, curr_r_t, nmpc_params_.m_t_total, obs_dt);
 
     esoCompute(curr_r, curr_delta, obs_dt);
     const double h_hat_total = eso_x2_;
@@ -327,7 +334,7 @@ void ESOTracker2::computeControl(
 
     std::vector<double> dyn_params = {
         nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr, rls_Cf_est_,
-        rls_Cr_est_, M, nmpc_params_.Iz_t, nmpc_params_.lt, rls_Ct_est_, nmpc_params_.L2
+        rls_Cr_est_, nmpc_params_.m_t_total, nmpc_params_.Iz_t, nmpc_params_.lt, rls_Ct_est_, nmpc_params_.L2
     };
     solver_.opti.set_value(solver_.P_vx, curr_vx);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);
