@@ -15,6 +15,7 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
+#include <std_msgs/Float64.h>
 
 namespace race_tracker {
 
@@ -146,6 +147,7 @@ private:
 
 private:
   // --- 状态与持久化变量 ---
+    ros::Publisher gamma_pub_; // Publisher for articulation angle
     NMPCParams nmpc_params_;
     NMPSolver solver_;
     SupervisorParams supervisor_params_;
@@ -195,6 +197,11 @@ private:
     double gamma_ = 0.0;
     double r_t_ = 0.0;
 
+    double m_t_total_default_;
+    double m_t_empty_default_;
+
+
+
     // ipopt求解器参数
     double ipopt_max_iter_;
     double ipopt_acceptable_tol_;
@@ -202,6 +209,8 @@ private:
     double ipopt_warm_start_bound_push_;
     double ipopt_warm_start_slack_bound_push_;
     double ipopt_warm_start_mult_bound_push_;
+
+
 
     // 求解器设定
     double integration_grade_;

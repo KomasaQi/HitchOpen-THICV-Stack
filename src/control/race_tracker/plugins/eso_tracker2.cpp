@@ -71,7 +71,8 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("L2", nmpc_params_.L2, 7.9);
     nh_nmpc.param("lh", nmpc_params_.lh, 0.0);
     nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.1);
-
+    m_t_total_default_ = nmpc_params_.m_t_total;
+    m_t_empty_default_ = nmpc_params_.m_t;
     // 加载—— 控制量边界约束 ——
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.6);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.6);
@@ -205,6 +206,10 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     
     // 构建CasADi求解器（保留原函数名）
     buildNMPSolver();
+
+    // 初始化铰接角发布器
+    gamma_pub_ = nh.advertise<std_msgs::Float64>("/race/gamma_angle", 1);
+
     ROS_INFO("[%s] 控制器初始化完成（挂车版）", getName().c_str());
     return true;
 }
@@ -232,6 +237,7 @@ void ESOTracker2::computeControl(
     const ros::Time current_time = ros::Time::now();
     const double obs_dt = std::max(dt, 0.01);
 
+
     // 提取当前状态
     const double curr_x = vehicle_status->pose.position.x;
     const double curr_y = vehicle_status->pose.position.y;
@@ -243,6 +249,15 @@ void ESOTracker2::computeControl(
     const double curr_ay = vehicle_status->acc.linear.y;
     const double curr_r = vehicle_status->vel.angular.z;
     double curr_delta = vehicle_status->lateral.steering_angle;
+    // 根据收到的车辆状态更新挂车载货质量
+    if (vehicle_status->trailer.mass > m_t_empty_default_) {
+        nmpc_params_.m_t_total = vehicle_status->trailer.mass;
+        ROS_INFO("[%s] 更新挂车总质量: %.2f kg", getName().c_str(), nmpc_params_.m_t_total);
+
+    } else {
+        nmpc_params_.m_t_total = m_t_total_default_;
+        ROS_WARN("[%s] 收到异常挂车质量为%.2f kg , 使用默认挂车总质量: %.2f kg", getName().c_str(), vehicle_status->trailer.mass, nmpc_params_.m_t_total);
+    }
     const double M = nmpc_params_.m + nmpc_params_.m_t_total;
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
@@ -372,6 +387,11 @@ void ESOTracker2::computeControl(
     control_msg->lateral.steering_angle = final_cmd;
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
+
+    // 发布铰接角
+    std_msgs::Float64 gamma_msg;
+    gamma_msg.data = gamma_;
+    gamma_pub_.publish(gamma_msg);
 }
 
 // ---------------------- 路径处理与辅助函数----------------------
