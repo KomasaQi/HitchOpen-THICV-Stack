@@ -21,7 +21,7 @@ ESOTracker2::ESOTracker2() {
     ekf_P_ = Matrix4d::Identity() * 1.0;
     // RLS初始化（FF-RLS）
     rls_P_ = Matrix3d::Identity() * 1e6;
-    rls_C_out_prev_ = Vector3d(2e5, 10e5, 3e5);
+    // rls_C_out_prev_ = Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_);
     // 原ESO变量初始化
     eso_x1_ = 0.0;
     eso_x2_ = 0.0;
@@ -124,7 +124,7 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     rls_Cf_est_ = rls_Cf_est_default_; // 将默认参数赋予变量
     rls_Cr_est_ = rls_Cr_est_default_;
     rls_Ct_est_ = rls_Ct_est_default_;
-
+    rls_C_out_prev_ = Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_);
 
     // 加载—— 动态预瞄参数 ——
     nh_nmpc.param("min_lookahead_distance", min_lookahead_distance_, 3.0);
@@ -689,7 +689,7 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     }
 
     // 输出平滑
-    double smooth_factor = 0.01;
+    double smooth_factor = 1.0;
     rls_C_out_prev_ = smooth_factor * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_) + (1 - smooth_factor) * rls_C_out_prev_;
     rls_Cf_est_ = rls_C_out_prev_(0);
     rls_Cr_est_ = rls_C_out_prev_(1);
