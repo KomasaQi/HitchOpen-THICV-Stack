@@ -398,7 +398,7 @@ void ESOTracker2::computeControl(
     est_msg.data[3] = h_hat_total;     // ESO扰动估计
     est_msg.data[4] = rls_Cf_est_;     // RLS Cf
     est_msg.data[5] = rls_Cr_est_;     // RLS Cr
-    est_msg.data[6] = rls_Ct_est_;     // RLS Ct
+    est_msg.data[6] = rls_Ct_est_;     // RLS Ct        
     est_pub_.publish(est_msg);
 
 }
