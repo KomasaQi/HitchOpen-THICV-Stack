@@ -209,7 +209,8 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     buildNMPSolver();
 
     // 初始化铰接角发布器
-    gamma_pub_ = nh.advertise<std_msgs::Float64>("/race/gamma_angle", 1);
+    est_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/race/estimation_states", 1);
+
 
     ROS_INFO("[%s] 控制器初始化完成（挂车版）", getName().c_str());
     return true;
@@ -388,10 +389,18 @@ void ESOTracker2::computeControl(
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
 
-    // 发布铰接角
-    std_msgs::Float64 gamma_msg;
-    gamma_msg.data = gamma_;
-    gamma_pub_.publish(gamma_msg);
+    // 发布估计状态
+    std_msgs::Float64MultiArray est_msg;
+    est_msg.data.resize(7);
+    est_msg.data[0] = curr_r_t;        // 挂车横摆率
+    est_msg.data[1] = -gamma_;        // 铰接角
+    est_msg.data[2] = vy_est;          // 牵引车侧向速度
+    est_msg.data[3] = h_hat_total;     // ESO扰动估计
+    est_msg.data[4] = rls_Cf_est_;     // RLS Cf
+    est_msg.data[5] = rls_Cr_est_;     // RLS Cr
+    est_msg.data[6] = rls_Ct_est_;     // RLS Ct
+    est_pub_.publish(est_msg);
+
 }
 
 // ---------------------- 路径处理与辅助函数----------------------
@@ -689,7 +698,7 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     }
 
     // 输出平滑
-    double smooth_factor = 1.0;
+    double smooth_factor = 0.1;
     rls_C_out_prev_ = smooth_factor * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_) + (1 - smooth_factor) * rls_C_out_prev_;
     rls_Cf_est_ = rls_C_out_prev_(0);
     rls_Cr_est_ = rls_C_out_prev_(1);
@@ -808,7 +817,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
 
     // 5. 回代求取牵引车加速度
     MX d_vy = d_vy_const + d_vy_dyn * d_r_t;
-    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist; // 加入ESO或外部扰动
+    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist*0; // 加入ESO或外部扰动
 
     // 6. 运动学状态更新
     // MX d_gamma = r - r_t;
@@ -847,13 +856,13 @@ void ESOTracker2::buildNMPSolver() {
         current_idx = end_idx;
     }
 
-    //转角变化率约束（新增）
-    double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
-    double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
-    solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
-    for (int i=1; i<Nc; i++) {
-        solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(i) - solver_.U_sparse(i-1), max_dU));
-    }
+    // //转角变化率约束（新增）
+    // double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
+    // double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
+    // solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
+    // for (int i=1; i<Nc; i++) {
+    //     solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(i) - solver_.U_sparse(i-1), max_dU));
+    // }
 
     MX J = 0.0;
     solver_.opti.subject_to(solver_.X(Slice(), 0) == solver_.P_x0);

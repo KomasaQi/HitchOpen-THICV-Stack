@@ -155,7 +155,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
 
     // 构建 CasADi 求解器
     buildNMPSolver();
-
+    // 初始化发布器
+    est_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/race/eso_estimation_states", 1);    
     ROS_INFO("[%s] 控制器初始化完成", getName().c_str());
     return true;
 }
@@ -363,6 +364,17 @@ void ESOTracker::computeControl(
 
     // 更新上一帧模式状态
     is_high_speed_last_ = is_current_high_speed;
+
+    std_msgs::Float64MultiArray est_msg;
+    est_msg.data.resize(6);
+    est_msg.data[0] = curr_r;           // 当前横摆角速度
+    est_msg.data[1] = vy_est;           // 侧向速度
+    est_msg.data[2] = eso_x2_;          // ESO_x2
+    est_msg.data[3] = d_pure_trailer;   // 纯扰动
+    est_msg.data[4] = rls_Cf_est_;      // 前轴侧偏刚度
+    est_msg.data[5] = rls_Cr_est_;      // 后轴侧偏刚度
+
+    est_pub_.publish(est_msg);
 }
 
 // ---------------------- 路径处理与辅助函数 ----------------------

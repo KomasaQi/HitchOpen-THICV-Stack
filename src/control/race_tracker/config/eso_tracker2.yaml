@@ -16,9 +16,9 @@ eso_tracker2:
   Iz: 50000.0           # 牵引车横摆转动惯量 (kg·m²)
   lf: 2.0               # 牵引车质心到前轴距离 (m)
   lr: 2.135             # 牵引车质心到后轴距离 (m)
-  m_t_empty: 7570.0           # 空挂车质量（kg）
-  Iz_t_empty: 150000.0        # 挂车横摆转动惯量 (kg·m²)
-  m_t_total: 29500.0      # 挂车加上货物的总质量 （kg）
+  m_t_empty: 7570.0     # 空挂车质量（kg）
+  Iz_t_empty: 150000.0  # 挂车横摆转动惯量 (kg·m²)
+  m_t_total: 29500.0    # 挂车加上货物的总质量 （kg）
   lt: 3.4               # 挂车质心到铰接点距离 (m)
   L2: 7.9               # 挂车铰接点到后轴距离 (m)
   lh: 0.0               # 铰接点相对牵引车质心的纵向偏移 (m)
@@ -54,17 +54,17 @@ eso_tracker2:
   ipopt_warm_start_mult_bound_push: 1e-3   # IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
 
   # —— 参数估计中参数 ——
-  rls_Cf_est: 270000.0          # 挂车前轴刚度初始值（N/m）
-  rls_Cr_est: 1040000.0         # 挂车后轴刚度初始值（N/m）
-  rls_Ct_est: 1540000.0          # 挂车横摆转动惯量初始值（kg·m²）
+  rls_Cf_est: 300000.0          # 挂车前轴刚度初始值（N/m）
+  rls_Cr_est: 770000.0         # 挂车后轴刚度初始值（N/m）
+  rls_Ct_est: 500000.0          # 挂车横摆转动惯量初始值（kg·m²）
   rls_w1_prev: 0.0              # 挂车横摆角初始值（rad）
   rls_w1_dot_prev: 0.0          # 挂车横摆角速度初始值（rad/s）
-  rls_Cf_est_min: 269999.0     # 挂车前轴刚度最小值（N/m）
-  rls_Cr_est_min: 1039999.0      # 挂车后轴刚度最小值（N/m）
-  rls_Ct_est_min: 1539999.0      # 挂车横摆转动惯量最小值（kg·m²）
-  rls_Cf_est_max: 270001.0     # 挂车前轴刚度最大值（N/m）
-  rls_Cr_est_max: 1040001.0    # 挂车后轴刚度最大值（N/m）
-  rls_Ct_est_max: 1540001.0     # 挂车横摆转动惯量最大值（kg·m²）
+  rls_Cf_est_min: 50000.0     # 挂车前轴刚度最小值（N/m）
+  rls_Cr_est_min: 100000.0      # 挂车后轴刚度最小值（N/m）
+  rls_Ct_est_min: 100000.0      # 挂车横摆转动惯量最小值（kg·m²）
+  rls_Cf_est_max: 400000.0     # 挂车前轴刚度最大值（N/m）
+  rls_Cr_est_max: 2000000.0    # 挂车后轴刚度最大值（N/m）
+  rls_Ct_est_max: 2000000.0     # 挂车横摆转动惯量最大值（kg·m²）
 
   # 积分求解参数
   integration_grade: 4.0  # 积分求解参数，默认2.0（RK2积分）

@@ -15,7 +15,7 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
-#include <std_msgs/Float64.h>
+#include <std_msgs/Float64MultiArray.h>
 
 namespace race_tracker {
 
@@ -147,7 +147,7 @@ private:
 
 private:
   // --- 状态与持久化变量 ---
-    ros::Publisher gamma_pub_; // Publisher for articulation angle
+    ros::Publisher est_pub_; // Publisher for estimated states
     NMPCParams nmpc_params_;
     NMPSolver solver_;
     SupervisorParams supervisor_params_;

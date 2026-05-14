@@ -15,6 +15,8 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
+#include <std_msgs/Float64MultiArray.h>
+
 
 namespace race_tracker {
 
@@ -136,7 +138,7 @@ private:
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
 private:
-
+    ros::Publisher est_pub_;//发布话题
     bool is_high_speed_last_;
     double blend_alpha_;
     double nmpc_safe_cmd_;
