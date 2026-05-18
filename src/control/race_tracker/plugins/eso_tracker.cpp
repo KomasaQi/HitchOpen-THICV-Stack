@@ -52,6 +52,12 @@ ESOTracker::ESOTracker() {
     // UKF
     ukf_x_est_ = Vector2d::Zero();
     ukf_P_est_ = (Matrix2d() << 1.0, 0.0, 0.0, 0.1).finished();
+    // EKF对照用
+    // EKF 初始化（对照用）
+    ekf_x_hat_ = Eigen::Vector4d::Zero();
+    ekf_P_ = Eigen::Matrix4d::Identity();
+    vy_ekf_est_ = 0.0;
+
 
     // RLS
     rls_P_f_ = 1e5;
@@ -229,6 +235,13 @@ void ESOTracker::computeControl(
     // 3. ESO (始终更新)
     esoCompute(curr_r, curr_delta, obs_dt);
 
+    // 参照参数引入对照输出
+    calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
+    const double curr_gamma = -gamma_;
+    const double curr_r_t = r_t_;
+    ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, 350000.0, obs_dt);
+    const double vy = ekf_x_hat_(0);
+
     // ==========================================================
     // 启动阶段：使用 supervisor_params_
     // ==========================================================
@@ -366,13 +379,16 @@ void ESOTracker::computeControl(
     is_high_speed_last_ = is_current_high_speed;
 
     std_msgs::Float64MultiArray est_msg;
-    est_msg.data.resize(6);
+    est_msg.data.resize(9);
     est_msg.data[0] = curr_r;           // 当前横摆角速度
     est_msg.data[1] = vy_est;           // 侧向速度
     est_msg.data[2] = eso_x2_;          // ESO_x2
     est_msg.data[3] = d_pure_trailer;   // 纯扰动
-    est_msg.data[4] = rls_Cf_est_;      // 前轴侧偏刚度
-    est_msg.data[5] = rls_Cr_est_;      // 后轴侧偏刚度
+    est_msg.data[4] = r_t_;             // 挂车横摆率
+    est_msg.data[5] = -gamma_;          // 铰接角
+    est_msg.data[6] = vy;               // 方案二侧向速度估计
+    est_msg.data[7] = rls_Cf_est_;      // 前轴侧偏刚度
+    est_msg.data[8] = rls_Cr_est_;      // 后轴侧偏刚度
 
     est_pub_.publish(est_msg);
 }
@@ -805,6 +821,124 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
         return false;
     }
 }
+
+// 新增函数，状态估计与方案二做对照
+void ESOTracker::ekfEstimateVy(double curr_vx,double curr_delta,double curr_ay,double curr_r,double M,double dt) {
+    (void)M;  // 当前未使用，保留接口兼容
+
+    // ==============================
+    // 0) 基础保护
+    // ==============================
+    const double vx_safe = std::max(std::abs(curr_vx), 1.0);
+    const double dt_safe = std::max(dt, 0.05);
+
+    // ==============================
+    // 1) 车辆/挂车经验参数（固定值）
+    // ==============================
+    // 主车参数（已有）
+    const double a   = nmpc_params_.lf;
+    const double b   = nmpc_params_.lr;
+    const double m1  = nmpc_params_.m;
+    const double Iz1 = nmpc_params_.Iz;
+
+    // 缺失参数 -> 固定经验值（可后续再调）
+    const double c   = b;         // 铰接点到主车质心近似，经验取 lr
+    const double d   = 3.4;       // 挂车质心到铰接点距离[m]
+    const double L2  = 7.9;       // 挂车等效轴距[m]
+    const double m2  = 35000.0;   // 挂车总质量[kg]
+    const double Iz2 = 150000.0+10.0*m2;  // 挂车偏航转动惯量[kg*m^2]
+
+    // 轮胎侧偏刚度
+    const double Cf = 250000.0;
+    const double Cr = 1000000.0;
+    const double Ct = 400000.0;   // 采用的固定值同方案二便于对照
+
+// --- 显式使用 Eigen:: 前缀，避免与 casadi::Matrix 冲突 ---
+    Eigen::Matrix3d M_mat;
+    M_mat << m1 + m2,  -m2*c,        -m2*d,
+            -m2*c,     Iz1 + m2*c*c,  m2*c*d,
+            -m2*d,     m2*c*d,        Iz2 + m2*d*d;
+
+    Eigen::Matrix<double, 3, 4> K;
+    K(0,0) = -(Cf+Cr+Ct)/curr_vx;
+    K(0,1) = -(a*Cf - b*Cr - c*Ct)/curr_vx - (m1+m2)*curr_vx;
+    K(0,2) = (L2*Ct)/curr_vx;
+    K(0,3) = -Ct;
+    K(1,0) = -(a*Cf - b*Cr - c*Ct)/curr_vx;
+    K(1,1) = -(a*a*Cf + b*b*Cr + c*c*Ct)/curr_vx + m2*c*curr_vx;
+    K(1,2) = -(c*L2*Ct)/curr_vx;
+    K(1,3) = c*Ct;
+    K(2,0) = (L2*Ct)/curr_vx;
+    K(2,1) = -(c*L2*Ct)/curr_vx + m2*d*curr_vx;
+    K(2,2) = -(L2*L2*Ct)/curr_vx;
+    K(2,3) = L2*Ct;
+
+    Eigen::Matrix<double, 3, 1> D;
+    D << Cf, a*Cf, 0.0;
+
+    Eigen::Matrix4d A_sys;
+    A_sys.block(0,0,3,4) = M_mat.inverse() * K;
+    A_sys.row(3) << 0, 1, -1, 0;
+    Eigen::Vector4d B_sys;
+    B_sys.block(0,0,3,1) = M_mat.inverse() * D;
+    B_sys(3) = 0.0;
+
+    // EKF预测步骤
+    Eigen::Vector4d x_dot = A_sys * ekf_x_hat_ + B_sys * curr_delta;
+    Eigen::Vector4d x_pred = ekf_x_hat_ + x_dot * dt;
+    Eigen::Matrix4d Phi = Eigen::Matrix4d::Identity() + A_sys * dt;
+    Eigen::Matrix4d Q;
+    Q << 0.005,0,0,0, 0,0.01,0,0, 0,0,0.05,0, 0,0,0,0.01;
+    Eigen::Matrix4d P_pred = Phi * ekf_P_ * Phi.transpose() + Q;
+    P_pred = 0.5 * (P_pred + P_pred.transpose());
+
+    // --- 完整定义 H_sys 和 K_gain，确保在作用域内 ---
+    Eigen::Matrix<double, 2, 4> H_sys;
+    // 关键修正：使用 RowVector4d（行向量）
+    H_sys.row(0) = A_sys.row(0) + Eigen::RowVector4d(0, curr_vx, 0, 0); 
+    H_sys.row(1) << 0, 1, 0, 0; // 观测r
+    
+    Eigen::Vector2d D_obs;
+    D_obs << B_sys(0) * curr_delta, 0.0;
+
+    Eigen::Vector2d z_pred = H_sys * x_pred + D_obs;
+    Eigen::Vector2d z_meas;
+    z_meas << curr_ay, curr_r;
+    
+    Eigen::Matrix2d R;
+    R << 1.0,0, 0,0.05;
+    
+    // 完整定义 K_gain
+    Eigen::Matrix<double, 4, 2> K_gain = P_pred * H_sys.transpose() * (H_sys * P_pred * H_sys.transpose() + R).inverse();
+
+    // 状态与协方差更新
+    ekf_x_hat_ = x_pred + K_gain * (z_meas - z_pred);
+    ekf_P_ = (Eigen::Matrix4d::Identity() - K_gain * H_sys) * P_pred;
+}
+
+void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, double dt) {
+    const double L2 = 7.9;
+    const double Lh = 0.0;          // 建议用参数，不要写死0
+    const double vx = std::max(curr_vx, 1.0);
+
+    // 牵引车横摆率直接采用状态量，并做轻微低通抑制噪声
+    const double tau_r = 0.08;                  // 可调: 0.05~0.15
+    if (!r_filter_initialized_) {
+        r_tractor_filt_ = curr_r;
+        r_filter_initialized_ = true;
+    }
+    const double alpha_r = dt / (tau_r + dt);
+    r_tractor_filt_ = (1.0 - alpha_r) * r_tractor_filt_ + alpha_r * curr_r;
+    const double r_tractor = r_tractor_filt_;
+
+    // 挂车横摆率运动学估计
+    r_t_ = (vx * std::sin(gamma_) + Lh * r_tractor * std::cos(gamma_)) / L2;
+
+    // 铰接角动态（保持你当前约定: gamma_dot = r - r_t）
+    const double gamma_dot = r_tractor - r_t_;
+    gamma_ += gamma_dot * dt;
+}
+
 
 } // namespace race_tracker
 

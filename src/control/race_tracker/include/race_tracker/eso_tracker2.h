@@ -136,7 +136,8 @@ private:
                                             const Eigen::Vector2d& p2, 
                                             const Eigen::Vector2d& p3, 
                                             double L1);
-    void calculate_trailer_kinematics(double delta_f, double curr_vx, double curr_r, double dt);
+    void calculate_trailer_kinematics(double curr_vx, double curr_r, double dt);
+
 
     // --- [新增] 纯跟踪兜底保护函数 ---
     double computePurePursuitSteering(const race_msgs::Path& path,
@@ -155,6 +156,9 @@ private:
     ros::Time start_time_;
 
     double current_cmd_ = 0.0;
+    double r_tractor_filt_ = 0.0;
+    bool r_filter_initialized_ = false;
+
 
 
     // --- 模式切换与软过渡变量（新增，参考ESOTracker） ---

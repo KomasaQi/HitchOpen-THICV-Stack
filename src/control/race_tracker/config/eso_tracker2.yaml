@@ -59,12 +59,12 @@ eso_tracker2:
   rls_Ct_est: 500000.0          # 挂车横摆转动惯量初始值（kg·m²）
   rls_w1_prev: 0.0              # 挂车横摆角初始值（rad）
   rls_w1_dot_prev: 0.0          # 挂车横摆角速度初始值（rad/s）
-  rls_Cf_est_min: 50000.0     # 挂车前轴刚度最小值（N/m）
-  rls_Cr_est_min: 100000.0      # 挂车后轴刚度最小值（N/m）
-  rls_Ct_est_min: 100000.0      # 挂车横摆转动惯量最小值（kg·m²）
+  rls_Cf_est_min: 270000.0     # 挂车前轴刚度最小值（N/m）
+  rls_Cr_est_min: 750000.0      # 挂车后轴刚度最小值（N/m）
+  rls_Ct_est_min: 400000.0      # 挂车横摆转动惯量最小值（kg·m²）
   rls_Cf_est_max: 400000.0     # 挂车前轴刚度最大值（N/m）
-  rls_Cr_est_max: 2000000.0    # 挂车后轴刚度最大值（N/m）
-  rls_Ct_est_max: 2000000.0     # 挂车横摆转动惯量最大值（kg·m²）
+  rls_Cr_est_max: 1000000.0    # 挂车后轴刚度最大值（N/m）
+  rls_Ct_est_max: 500000.0     # 挂车横摆转动惯量最大值（kg·m²）
 
   # 积分求解参数
   integration_grade: 4.0  # 积分求解参数，默认2.0（RK2积分）

@@ -553,7 +553,7 @@ roslaunch race_global_static_planner race_global_carla_town10_truck.launch
 再在一个新的终端里面运行控制算法eso_tracker/eso_tracker2，都是横向控制，前者为2DOF模型，后者为3DOF模型（多挂车横摆角速度）。任选一个运行就可以啦。
 ```bash
 roslaunch race_tracker eso_tracker_carla.launch
-roslaunch race_tracker eso_tracker2_carla.launch
+  roslaunch race_tracker eso_tracker2_carla.launch
 ```
 5.半挂小车启动！
 

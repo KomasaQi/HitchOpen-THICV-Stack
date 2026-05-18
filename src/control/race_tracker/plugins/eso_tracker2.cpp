@@ -192,8 +192,6 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_super.param("min_lookahead_distance", min_lookahead_distance_, 6.0);
     nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
 
-
-
     // IPOPT
     logParamLoad("ipopt_max_iter", ipopt_max_iter_, 100.0);                      // IPPT最大迭代次数，默认100次
     logParamLoad("ipopt_acceptable_tol", ipopt_acceptable_tol_, 1e-2);               // IPPT可接受解的容差，默认1e-2
@@ -202,16 +200,12 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     logParamLoad("ipopt_warm_start_slack_bound_push", ipopt_warm_start_slack_bound_push_, 1e-3);  // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对松弛变量
     logParamLoad("ipopt_warm_start_mult_bound_push", ipopt_warm_start_mult_bound_push_, 1e-3);   // IPPT预热边界松弛系数，默认1e-3，用于初始化控制量边界,针对拉格朗日乘子
 
-
     start_time_ = ros::Time::now(); // 记录控制器启动时间
     
     // 构建CasADi求解器（保留原函数名）
     buildNMPSolver();
-
     // 初始化铰接角发布器
     est_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/race/estimation_states", 1);
-
-
     ROS_INFO("[%s] 控制器初始化完成（挂车版）", getName().c_str());
     return true;
 }
@@ -236,17 +230,13 @@ void ESOTracker2::computeControl(
         return;
     }
 
-    const ros::Time current_time = ros::Time::now();
-    const double obs_dt = std::max(dt, 0.01);
-
-
     // 提取当前状态
     const double curr_x = vehicle_status->pose.position.x;
     const double curr_y = vehicle_status->pose.position.y;
     const double curr_theta = vehicle_status->euler.yaw;
     const double curr_vx_raw = vehicle_status->vel.linear.x;
     const double v_abs = std::abs(curr_vx_raw);
-    const double vx_floor = std::max(0.1, supervisor_params_.nmpc_speed_floor);
+    const double vx_floor = std::max(1.0, supervisor_params_.nmpc_speed_floor);
     const double curr_vx = std::max(v_abs, vx_floor);   // NMPC/观测器内部速度，避免低速奇异
     const double curr_ay = vehicle_status->acc.linear.y;
     const double curr_r = vehicle_status->vel.angular.z;
@@ -264,6 +254,8 @@ void ESOTracker2::computeControl(
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
 
     static ros::Time last_control_time = ros::Time(0);
+    ros::Time current_time = ros::Time::now();
+    
     if (last_control_time.toSec() != 0.0 && (current_time - last_control_time).toSec() > 0.2) {
         ROS_WARN("[%s] 检测到控制重连，清空历史记忆与热启动！", getName().c_str());
         solver_.has_prev_sol = false;
@@ -280,6 +272,8 @@ void ESOTracker2::computeControl(
     }
     last_control_time = current_time;
 
+    const double obs_dt = std::max(dt, 0.01); 
+
     if (rls_w1_prev_ == 0.0 && curr_r != 0.0) {
         rls_w1_prev_ = curr_r;
     }
@@ -287,21 +281,22 @@ void ESOTracker2::computeControl(
     // 1. 路径处理始终执行：低速也生成参考，保证 PP 与 NMPC 热启动一致
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
-    Vector2d p1(waypoints_dm(0,0), waypoints_dm(1,0));
-    Vector2d p2(waypoints_dm(0,1), waypoints_dm(1,1));
-    Vector2d p3(waypoints_dm(0,2), waypoints_dm(1,2));
-    const double tractor_L = nmpc_params_.lf + nmpc_params_.lr;
-    const double delta_f = calculate_curvature_and_steering(p1, p2, p3, tractor_L);
+    // Vector2d p1(waypoints_dm(0,0), waypoints_dm(1,0));
+    // Vector2d p2(waypoints_dm(0,1), waypoints_dm(1,1));
+    // Vector2d p3(waypoints_dm(0,2), waypoints_dm(1,2));
+    // const double tractor_L = nmpc_params_.lf + nmpc_params_.lr;
+    // const double delta_f = calculate_curvature_and_steering(p1, p2, p3, tractor_L);
 
     // 2. 观测器/估计器始终更新，但内部速度使用 vx_floor 防止低速分母异常
-    calculate_trailer_kinematics(delta_f, curr_vx, curr_r, obs_dt);
+    calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
     const double curr_gamma = -gamma_;
     const double curr_r_t = r_t_;
     ROS_INFO_THROTTLE(0.5, "\033[36m[%s] 估计挂车转角: %.3f rad (%.1f deg)\033[0m",
                       getName().c_str(), curr_gamma, curr_gamma * 180.0 / M_PI);
 
     ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, nmpc_params_.m_t_total, obs_dt);
-    const double vy_est = ekf_x_hat_(0);
+    // const double vy_est = ekf_x_hat_(0);
+    const double vy_est = 0.0;
 
     rlsIdentifyStiffness(curr_vx, vy_est, curr_delta, curr_r, curr_ay, curr_gamma, curr_r_t, nmpc_params_.m_t_total, obs_dt);
 
@@ -586,6 +581,7 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
     Eigen::Matrix4d Q;
     Q << 0.005,0,0,0, 0,0.01,0,0, 0,0,0.05,0, 0,0,0,0.01;
     Eigen::Matrix4d P_pred = Phi * ekf_P_ * Phi.transpose() + Q;
+    P_pred = 0.5 * (P_pred + P_pred.transpose());
 
     // --- 完整定义 H_sys 和 K_gain，确保在作用域内 ---
     Eigen::Matrix<double, 2, 4> H_sys;
@@ -599,6 +595,7 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
     Eigen::Vector2d z_pred = H_sys * x_pred + D_obs;
     Eigen::Vector2d z_meas;
     z_meas << curr_ay, curr_r;
+    
     Eigen::Matrix2d R;
     R << 1.0,0, 0,0.05;
     
@@ -613,7 +610,7 @@ void ESOTracker2::ekfEstimateVy(double curr_vx, double curr_delta, double curr_a
 // FF-RLS侧偏刚度辨识（保留原函数名，替换为3刚度辨识）
 void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,double curr_r, 
                                       double curr_ay, double curr_gamma, double curr_r_t, double M, double dt) {
-    if (curr_vx < 1.0) {
+    if (curr_vx < 3.0) {
         rls_Cf_est_ = rls_Cf_est_default_;
         rls_Cr_est_ = rls_Cr_est_default_;
         rls_Ct_est_ = rls_Ct_est_default_;
@@ -700,7 +697,7 @@ void ESOTracker2::rlsIdentifyStiffness(double curr_vx, double vy_est, double cur
     // 输出平滑
     double smooth_factor = 0.1;
     rls_C_out_prev_ = smooth_factor * Vector3d(rls_Cf_est_, rls_Cr_est_, rls_Ct_est_) + (1 - smooth_factor) * rls_C_out_prev_;
-    rls_Cf_est_ = rls_C_out_prev_(0);
+    rls_Cf_est_ = rls_C_out_prev_(0);   
     rls_Cr_est_ = rls_C_out_prev_(1);
     rls_Ct_est_ = rls_C_out_prev_(2);
     
@@ -726,40 +723,45 @@ void ESOTracker2::esoCompute(double curr_r, double curr_delta, double dt) {
 
 
 // 预瞄曲率与运动学转角（新增内部函数）
-double ESOTracker2::calculate_curvature_and_steering(const Vector2d& p1, const Vector2d& p2, 
-                                                  const Vector2d& p3, double L1) {
-    double x1 = p1(0), y1 = p1(1);
-    double x2 = p2(0), y2 = p2(1);
-    double x3 = p3(0), y3 = p3(1);
+// double ESOTracker2::calculate_curvature_and_steering(const Vector2d& p1, const Vector2d& p2, 
+//                                                   const Vector2d& p3, double L1) {
+//     double x1 = p1(0), y1 = p1(1);
+//     double x2 = p2(0), y2 = p2(1);
+//     double x3 = p3(0), y3 = p3(1);
 
-    double a = sqrt(pow(x2-x1,2) + pow(y2-y1,2));
-    double b = sqrt(pow(x3-x2,2) + pow(y3-y2,2));
-    double c = sqrt(pow(x3-x1,2) + pow(y3-y1,2));
+//     double a = sqrt(pow(x2-x1,2) + pow(y2-y1,2));
+//     double b = sqrt(pow(x3-x2,2) + pow(y3-y2,2));
+//     double c = sqrt(pow(x3-x1,2) + pow(y3-y1,2));
 
-    if (a < 1e-6 || b < 1e-6 || c < 1e-6) return 0.0;
+//     if (a < 1e-6 || b < 1e-6 || c < 1e-6) return 0.0;
 
-    double cross_prod = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
-    double kappa = (2 * cross_prod) / (a * b * c);
-    return atan(L1 * kappa);
-}
+//     double cross_prod = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
+//     double kappa = (2 * cross_prod) / (a * b * c);
+//     return atan(L1 * kappa);
+// }
+void ESOTracker2::calculate_trailer_kinematics(double curr_vx, double curr_r, double dt) {
+    const double L2 = nmpc_params_.L2;
+    const double Lh = nmpc_params_.lh;          // 建议用参数，不要写死0
+    const double vx = std::max(curr_vx, 0.5);
 
-// 挂车运动学状态预估（新增内部函数）
-void ESOTracker2::calculate_trailer_kinematics(double delta_f, double curr_vx, double curr_r, double dt) {
-    double L1 = nmpc_params_.lf + nmpc_params_.lr;
-    double L2 = nmpc_params_.L2;
-    double Lh = 0.0;
-    double vx = max(curr_vx, 0.5);
-    double Tau = 0.15;
-    double K = 1.0;
+    // 牵引车横摆率直接采用状态量，并做轻微低通抑制噪声
+    const double tau_r = 0.08;                  // 可调: 0.05~0.15
+    if (!r_filter_initialized_) {
+        r_tractor_filt_ = curr_r;
+        r_filter_initialized_ = true;
+    }
+    const double alpha_r = dt / (tau_r + dt);
+    r_tractor_filt_ = (1.0 - alpha_r) * r_tractor_filt_ + alpha_r * curr_r;
+    const double r_tractor = r_tractor_filt_;
 
-    double r_raw = (vx * tan(delta_f)) / L1;
-    double alpha = dt / (Tau + dt);
-    double r_filtered = (1 - alpha) * curr_r + alpha * K * r_raw;
+    // 挂车横摆率运动学估计
+    r_t_ = (vx * std::sin(gamma_) + Lh * r_tractor * std::cos(gamma_)) / L2;
 
-    r_t_ = (vx * sin(gamma_) + Lh * r_filtered * cos(gamma_)) / L2;
-    double gamma_dot = r_filtered - r_t_;
+    // 铰接角动态（保持你当前约定: gamma_dot = r - r_t）
+    const double gamma_dot = r_tractor - r_t_;
     gamma_ += gamma_dot * dt;
 }
+
 
 MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
                                      const MX& vx, const MX& h_dist,
@@ -817,7 +819,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
 
     // 5. 回代求取牵引车加速度
     MX d_vy = d_vy_const + d_vy_dyn * d_r_t;
-    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist*0; // 加入ESO或外部扰动
+    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist; // 加入ESO或外部扰动
 
     // 6. 运动学状态更新
     // MX d_gamma = r - r_t;
@@ -856,13 +858,6 @@ void ESOTracker2::buildNMPSolver() {
         current_idx = end_idx;
     }
 
-    // //转角变化率约束（新增）
-    // double max_dU = nmpc_params_.delta_rate_max * nmpc_params_.dt;
-    // double min_dU = nmpc_params_.delta_rate_min * nmpc_params_.dt;
-    // solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(0) - solver_.P_u_prev, max_dU));
-    // for (int i=1; i<Nc; i++) {
-    //     solver_.opti.subject_to(solver_.opti.bounded(min_dU, solver_.U_sparse(i) - solver_.U_sparse(i-1), max_dU));
-    // }
 
     MX J = 0.0;
     solver_.opti.subject_to(solver_.X(Slice(), 0) == solver_.P_x0);

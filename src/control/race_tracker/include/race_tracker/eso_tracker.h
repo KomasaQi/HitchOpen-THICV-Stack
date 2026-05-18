@@ -137,6 +137,10 @@ private:
     
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
 
+    // 构建状态估计与方案二对比
+    void calculate_trailer_kinematics(double curr_vx, double curr_r, double dt);
+    void ekfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double M, double dt);
+
 private:
     ros::Publisher est_pub_;//发布话题
     bool is_high_speed_last_;
@@ -163,6 +167,15 @@ private:
     // UKF相关
     Eigen::Vector2d ukf_x_est_;
     Eigen::Matrix2d ukf_P_est_;
+    // 新增EKF对照用
+    Eigen::Vector4d ekf_x_hat_;
+    Eigen::Matrix4d ekf_P_;
+    double vy_ekf_est_{0.0};
+    // 挂车状态估计参照
+    double r_tractor_filt_ = 0.0;
+    bool r_filter_initialized_ = false;
+    double gamma_ = 0.0;
+    double r_t_ = 0.0;
 
     // RLS相关
     double rls_P_f_;
