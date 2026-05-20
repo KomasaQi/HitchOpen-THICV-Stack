@@ -237,7 +237,7 @@ void ESOTracker::computeControl(
 
     // 参照参数引入对照输出
     calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
-    const double curr_gamma = -gamma_;
+    const double curr_gamma = gamma_;
     const double curr_r_t = r_t_;
     ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, 350000.0, obs_dt);
     const double vy = ekf_x_hat_(0);
@@ -278,6 +278,7 @@ void ESOTracker::computeControl(
     double Fyf_curr = rls_Cf_est_ * alpha_f_curr;
     double Fyr_curr = rls_Cr_est_ * alpha_r_curr;
     double r_dot_nominal = (nmpc_params_.lf * Fyf_curr * cos(curr_delta) - nmpc_params_.lr * Fyr_curr) / nmpc_params_.Iz;
+    Model_r_ = curr_r + r_dot_nominal * obs_dt; 
     double b_eso = (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz;
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
@@ -380,12 +381,12 @@ void ESOTracker::computeControl(
 
     std_msgs::Float64MultiArray est_msg;
     est_msg.data.resize(9);
-    est_msg.data[0] = curr_r;           // 当前横摆角速度
+    est_msg.data[0] = Model_r_;         // 模型输出横摆角速度
     est_msg.data[1] = vy_est;           // 侧向速度
     est_msg.data[2] = eso_x2_;          // ESO_x2
     est_msg.data[3] = d_pure_trailer;   // 纯扰动
     est_msg.data[4] = r_t_;             // 挂车横摆率
-    est_msg.data[5] = -gamma_;          // 铰接角
+    est_msg.data[5] = gamma_;          // 铰接角
     est_msg.data[6] = vy;               // 方案二侧向速度估计
     est_msg.data[7] = rls_Cf_est_;      // 前轴侧偏刚度
     est_msg.data[8] = rls_Cr_est_;      // 后轴侧偏刚度
@@ -685,6 +686,7 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_theta = r;
     MX d_delta = (cmd_delta - delta) / nmpc_params_.T_lag;
 
+
     return vertcat(d_x, d_y, d_theta, d_vy, d_r, d_delta);
 }
 
@@ -932,10 +934,10 @@ void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, dou
     const double r_tractor = r_tractor_filt_;
 
     // 挂车横摆率运动学估计
-    r_t_ = (vx * std::sin(gamma_) + Lh * r_tractor * std::cos(gamma_)) / L2;
+    r_t_ = -(vx * std::sin(gamma_) + Lh * r_tractor * std::cos(gamma_)) / L2;
 
-    // 铰接角动态（保持你当前约定: gamma_dot = r - r_t）
-    const double gamma_dot = r_tractor - r_t_;
+    // 铰接角动态
+    const double gamma_dot = r_t_ - r_tractor;
     gamma_ += gamma_dot * dt;
 }
 

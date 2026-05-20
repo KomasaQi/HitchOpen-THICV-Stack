@@ -164,6 +164,9 @@ private:
     double eso_x1_;
     double eso_x2_;
 
+    //输出模型计算量
+    double Model_r_;
+
     // UKF相关
     Eigen::Vector2d ukf_x_est_;
     Eigen::Matrix2d ukf_P_est_;
