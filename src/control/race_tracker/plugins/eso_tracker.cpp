@@ -162,7 +162,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     // 构建 CasADi 求解器
     buildNMPSolver();
     // 初始化发布器
-    est_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/race/eso_estimation_states", 1);    
+    est_pub_ = nh.advertise<race_msgs::ESOEstimation>("/race/eso_estimation_states", 1);    
     ROS_INFO("[%s] 控制器初始化完成", getName().c_str());
     return true;
 }
@@ -240,7 +240,7 @@ void ESOTracker::computeControl(
     const double curr_gamma = gamma_;
     const double curr_r_t = r_t_;
     ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, 350000.0, obs_dt);
-    const double vy = ekf_x_hat_(0);
+    const double vy_est2 = ekf_x_hat_(0);
 
     // ==========================================================
     // 启动阶段：使用 supervisor_params_
@@ -278,7 +278,7 @@ void ESOTracker::computeControl(
     double Fyf_curr = rls_Cf_est_ * alpha_f_curr;
     double Fyr_curr = rls_Cr_est_ * alpha_r_curr;
     double r_dot_nominal = (nmpc_params_.lf * Fyf_curr * cos(curr_delta) - nmpc_params_.lr * Fyr_curr) / nmpc_params_.Iz;
-    Model_r_ = curr_r + r_dot_nominal * obs_dt; 
+    Model_r1_ = curr_r + r_dot_nominal * obs_dt; 
     double b_eso = (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz;
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
@@ -379,17 +379,16 @@ void ESOTracker::computeControl(
     // 更新上一帧模式状态
     is_high_speed_last_ = is_current_high_speed;
 
-    std_msgs::Float64MultiArray est_msg;
-    est_msg.data.resize(9);
-    est_msg.data[0] = Model_r_;         // 模型输出横摆角速度
-    est_msg.data[1] = vy_est;           // 侧向速度
-    est_msg.data[2] = eso_x2_;          // ESO_x2
-    est_msg.data[3] = d_pure_trailer;   // 纯扰动
-    est_msg.data[4] = r_t_;             // 挂车横摆率
-    est_msg.data[5] = gamma_;          // 铰接角
-    est_msg.data[6] = vy;               // 方案二侧向速度估计
-    est_msg.data[7] = rls_Cf_est_;      // 前轴侧偏刚度
-    est_msg.data[8] = rls_Cr_est_;      // 后轴侧偏刚度
+    race_msgs::ESOEstimation est_msg;
+    est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
+    est_msg.vy_est1 = vy_est;                  // 侧向速度
+    est_msg.eso_x2 = eso_x2_;                  // ESO_x2
+    est_msg.d_pure_trailer = d_pure_trailer;   // 纯扰动
+    est_msg.r_t = r_t_;                        // 挂车横摆率
+    est_msg.gamma_angle = gamma_;                    // 铰接角
+    est_msg.vy_est2  = vy_est2;                // 方案二侧向速度估计
+    est_msg.Cf_est = rls_Cf_est_;              // 前轴侧偏刚度
+    est_msg.Cr_est = rls_Cr_est_;              // 后轴侧偏刚度
 
     est_pub_.publish(est_msg);
 }

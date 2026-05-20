@@ -15,7 +15,7 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
-#include <std_msgs/Float64MultiArray.h>
+#include <race_msgs/ESOEstimation.h>
 
 
 namespace race_tracker {
@@ -165,7 +165,7 @@ private:
     double eso_x2_;
 
     //输出模型计算量
-    double Model_r_;
+    double Model_r1_;
 
     // UKF相关
     Eigen::Vector2d ukf_x_est_;

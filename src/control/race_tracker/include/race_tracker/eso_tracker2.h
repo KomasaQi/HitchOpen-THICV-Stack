@@ -15,7 +15,7 @@
 #include <race_msgs/VehicleStatus.h>
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
-#include <std_msgs/Float64MultiArray.h>
+#include <race_msgs/ESOEstimation.h>
 
 namespace race_tracker {
 
