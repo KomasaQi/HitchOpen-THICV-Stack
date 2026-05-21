@@ -1,8 +1,8 @@
 # Project1 
 float64 model_r1
 float64 vy_est1
-float64 eso_x2
-float64 d_pure_trailer
+float64 eso1_total
+float64 eso1_pure
 float64 Cf_est
 float64 Cr_est
 
@@ -11,7 +11,9 @@ float64 model_r2
 float64 vy_est2
 float64 gamma_angle
 float64 r_t
-float64 h_dist
+float64 eso2_total
 float64 Cf_est2
 float64 Cr_est2
 float64 Ct_est2
+
+float64 kappa

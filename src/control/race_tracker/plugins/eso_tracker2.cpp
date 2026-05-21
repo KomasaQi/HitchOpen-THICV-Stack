@@ -281,11 +281,6 @@ void ESOTracker2::computeControl(
     // 1. 路径处理始终执行：低速也生成参考，保证 PP 与 NMPC 热启动一致
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
-    // Vector2d p1(waypoints_dm(0,0), waypoints_dm(1,0));
-    // Vector2d p2(waypoints_dm(0,1), waypoints_dm(1,1));
-    // Vector2d p3(waypoints_dm(0,2), waypoints_dm(1,2));
-    // const double tractor_L = nmpc_params_.lf + nmpc_params_.lr;
-    // const double delta_f = calculate_curvature_and_steering(p1, p2, p3, tractor_L);
 
     // 2. 观测器/估计器始终更新，但内部速度使用 vx_floor 防止低速分母异常
     calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
@@ -389,7 +384,7 @@ void ESOTracker2::computeControl(
     est_msg.r_t = curr_r_t;        // 挂车横摆率
     est_msg.gamma_angle = gamma_;        // 铰接角
     est_msg.vy_est2 = vy_est;          // 牵引车侧向速度
-    est_msg.h_dist = h_hat_total;     // ESO扰动估计
+    est_msg.eso2_total = h_hat_total;     // ESO扰动估计
     est_msg.Cf_est2 = rls_Cf_est_;     // RLS Cf
     est_msg.Cr_est2 = rls_Cr_est_;     // RLS Cr
     est_msg.Ct_est2 = rls_Ct_est_;     // RLS Ct
@@ -789,6 +784,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     // 牵引车自身的合外力与力矩
     MX Y1 = Fyf * cos(delta) + Fyr;
     MX N1 = lf * Fyf * cos(delta) - lr * Fyr;
+    MX r_dot1 = N1 / Iz1;
     // 2. 铰接力 Hy 分离推导 (Hy = Hy_const + Hy_dyn * d_r_t)
     MX Hy_const = -((L2 - lt) * Fyt) / (lt * cos_gamma);
     MX Hy_dyn   = -Iz2 / (lt * cos_gamma);
@@ -1020,7 +1016,6 @@ double ESOTracker2::computePurePursuitSteering(const race_msgs::Path& path,
     // 5. 限幅保护
     return std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp));
 }
-
 
 } // namespace race_tracker
 

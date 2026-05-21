@@ -228,6 +228,8 @@ void ESOTracker::computeControl(
     double obs_vx = std::max(std::abs(curr_vx_raw), 1.0);
     ukfEstimateVy(obs_vx, curr_delta, curr_ay, curr_r, obs_dt);
     double vy_est = ukf_x_est_(0);
+    double vy_est1 = ukf_x_est_(0);
+    // double vy_est = 0.0;
 
     // 2. RLS (始终更新)
     rlsIdentifyStiffness(obs_vx, vy_est, curr_delta, curr_r, curr_ay, obs_dt);
@@ -286,6 +288,11 @@ void ESOTracker::computeControl(
     // 路径处理（始终计算）
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
+    double ref_kappa = 0.0;
+    if (waypoints_dm.size2() > 0) {
+    ref_kappa = static_cast<double>(waypoints_dm(3,0));
+    }
+
     std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
 
@@ -382,14 +389,14 @@ void ESOTracker::computeControl(
     race_msgs::ESOEstimation est_msg;
     est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
     est_msg.vy_est1 = vy_est;                  // 侧向速度
-    est_msg.eso_x2 = eso_x2_;                  // ESO_x2
-    est_msg.d_pure_trailer = d_pure_trailer;   // 纯扰动
-    est_msg.r_t = r_t_;                        // 挂车横摆率
+    est_msg.eso1_total = eso_x2_;                  // ESO_x2
+    est_msg.eso1_pure = d_pure_trailer;   // 纯扰动
+    est_msg.r_t = r_t_;                            // 挂车横摆率
     est_msg.gamma_angle = gamma_;                    // 铰接角
     est_msg.vy_est2  = vy_est2;                // 方案二侧向速度估计
     est_msg.Cf_est = rls_Cf_est_;              // 前轴侧偏刚度
     est_msg.Cr_est = rls_Cr_est_;              // 后轴侧偏刚度
-
+    est_msg.kappa = ref_kappa;                 // 参考曲率
     est_pub_.publish(est_msg);
 }
 
@@ -742,7 +749,8 @@ void ESOTracker::buildNMPSolver() {
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
         MX e_theta = atan2(sin(solver_.X(2, k+1) - ref_theta), cos(solver_.X(2, k+1) - ref_theta));
 
-        J += nmpc_params_.Q(0,0) * (pow(solver_.X(0, k+1) - ref_x, 2) + pow(solver_.X(1, k+1) - ref_y, 2));
+        J += nmpc_params_.Q(0,0) * pow(solver_.X(0, k+1) - ref_x, 2);
+        J += nmpc_params_.Q(1,1) * pow(solver_.X(1, k+1) - ref_y, 2);
         J += nmpc_params_.Q(2,2) * pow(e_theta, 2);
         J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - solver_.P_vx * ref_kappa, 2);
         J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1), 2);

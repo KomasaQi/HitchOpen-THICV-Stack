@@ -166,6 +166,7 @@ private:
 
     //输出模型计算量
     double Model_r1_;
+    double kappa_;
 
     // UKF相关
     Eigen::Vector2d ukf_x_est_;
