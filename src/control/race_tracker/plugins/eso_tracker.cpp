@@ -288,10 +288,7 @@ void ESOTracker::computeControl(
     // 路径处理（始终计算）
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
-    double ref_kappa = 0.0;
-    if (waypoints_dm.size2() > 0) {
-    ref_kappa = static_cast<double>(waypoints_dm(3,0));
-    }
+    double kappa = static_cast<double>(waypoints_dm(3,1));
 
     std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
@@ -396,7 +393,7 @@ void ESOTracker::computeControl(
     est_msg.vy_est2  = vy_est2;                // 方案二侧向速度估计
     est_msg.Cf_est = rls_Cf_est_;              // 前轴侧偏刚度
     est_msg.Cr_est = rls_Cr_est_;              // 后轴侧偏刚度
-    est_msg.kappa = ref_kappa;                 // 参考曲率
+    est_msg.kappa = kappa;                 // 参考曲率
     est_pub_.publish(est_msg);
 }
 

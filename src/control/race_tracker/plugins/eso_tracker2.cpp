@@ -379,6 +379,11 @@ void ESOTracker2::computeControl(
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
 
+    // 状态参数对照输出
+    double yaw_rate_model = computeCoupledYawRateModel(
+    curr_vx, vy_est, curr_r, curr_delta, curr_r_t, curr_gamma, h_hat_total, obs_dt);
+    model_r2_ = yaw_rate_model;
+
     // 发布估计状态
     race_msgs::ESOEstimation est_msg;
     est_msg.r_t = curr_r_t;        // 挂车横摆率
@@ -388,6 +393,7 @@ void ESOTracker2::computeControl(
     est_msg.Cf_est2 = rls_Cf_est_;     // RLS Cf
     est_msg.Cr_est2 = rls_Cr_est_;     // RLS Cr
     est_msg.Ct_est2 = rls_Ct_est_;     // RLS Ct
+    est_msg.model_r2 = model_r2_;     // 模型预测横摆率
     est_pub_.publish(est_msg);
 
 }
@@ -793,7 +799,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_vy_const = (Y1 - m1 * vx * r + Hy_const) / m1;
     MX d_vy_dyn   = Hy_dyn / m1;
     // 横摆加速度 d_r = d_r_const + d_r_dyn * d_r_t
-    MX d_r_const = (N1 - lr * Hy_const) / Iz1;
+    MX d_r_const = (N1 - lr * Hy_const) / Iz1 + h_dist; // 加入ESO或外部扰动;
     MX d_r_dyn   = (-lr * Hy_dyn) / Iz1;
     // 挂车因速度产生的向心加速度外项
     MX a_y2_ext = vx_safe * r * cos_gamma + vy_h1 * r * sin_gamma;
@@ -814,7 +820,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
 
     // 5. 回代求取牵引车加速度
     MX d_vy = d_vy_const + d_vy_dyn * d_r_t;
-    MX d_r  = d_r_const + d_r_dyn * d_r_t + h_dist; // 加入ESO或外部扰动
+    MX d_r  = d_r_const + d_r_dyn * d_r_t ;
 
     // 6. 运动学状态更新
     // MX d_gamma = r - r_t;
@@ -1016,6 +1022,69 @@ double ESOTracker2::computePurePursuitSteering(const race_msgs::Path& path,
     // 5. 限幅保护
     return std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp));
 }
+
+// 对照参数输出（横摆）
+double ESOTracker2::computeCoupledYawRateModel(double vx, double vy, double r, double delta,
+                                               double r_t, double gamma, double h_dist, double dt) {
+    const double m1 = nmpc_params_.m;
+    const double Iz1 = nmpc_params_.Iz;
+    const double lf = nmpc_params_.lf;
+    const double lr = nmpc_params_.lr;
+
+    const double M  = nmpc_params_.m_t_total;
+    const double m2 = M - m1;
+    const double Iz2 = nmpc_params_.Iz_t + nmpc_params_.Kiz * (M - nmpc_params_.m_t);
+    const double lt = nmpc_params_.lt;
+    const double L2 = nmpc_params_.L2;
+
+    const double Cf = rls_Cf_est_;
+    const double Cr = rls_Cr_est_;
+    const double Ct = rls_Ct_est_;
+
+    const double vx_safe = std::max(vx, 0.5);
+    double cos_gamma = std::cos(gamma);
+    if (std::abs(cos_gamma) < 0.005) cos_gamma = (cos_gamma >= 0 ? 0.005 : -0.005);
+    const double sin_gamma = std::sin(gamma);
+
+    const double alpha_f = delta - std::atan2(vy + lf * r, vx_safe);
+    const double alpha_r = -std::atan2(vy - lr * r, vx_safe);
+    const double Fyf = Cf * alpha_f;
+    const double Fyr = Cr * alpha_r;
+
+    const double vy_h1 = vy - lr * r;
+    const double vy_axle = -vx_safe * sin_gamma + vy_h1 * cos_gamma - L2 * r_t;
+    const double alpha_t = -std::atan2(vy_axle, vx_safe);
+    const double Fyt = Ct * alpha_t;
+
+    const double Y1 = Fyf * std::cos(delta) + Fyr;
+    const double N1 = lf * Fyf * std::cos(delta) - lr * Fyr;
+
+    const double Hy_const = -((L2 - lt) * Fyt) / (lt * cos_gamma);
+    const double Hy_dyn   = -Iz2 / (lt * cos_gamma);
+
+    const double d_vy_const = (Y1 - m1 * vx_safe * r + Hy_const) / m1;
+    const double d_vy_dyn   = Hy_dyn / m1;
+
+    const double d_r_const = (N1 - lr * Hy_const) / Iz1 + h_dist; //ESO扰动引入
+    const double d_r_dyn   = (-lr * Hy_dyn) / Iz1;
+
+    const double a_y2_ext = vx_safe * r * cos_gamma + vy_h1 * r * sin_gamma;
+    const double rhs_trailer = (L2 / lt) * Fyt - m2 * a_y2_ext;
+
+    const double coeff_drt = m2 * cos_gamma * d_vy_dyn
+                           - m2 * lr * cos_gamma * d_r_dyn
+                           - (m2 * lt + Iz2 / lt);
+
+    const double rhs_total = rhs_trailer
+                           - m2 * cos_gamma * d_vy_const
+                           + m2 * lr * cos_gamma * d_r_const;
+
+    const double d_r_t = rhs_total / coeff_drt;
+    const double d_r = d_r_const + d_r_dyn * d_r_t;
+
+    return r + d_r * dt;   // 模型一步预测横摆角速度
+}
+
 
 } // namespace race_tracker
 

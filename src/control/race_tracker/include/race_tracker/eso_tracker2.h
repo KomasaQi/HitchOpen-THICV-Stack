@@ -145,6 +145,10 @@ private:
                                       double curr_theta, double lookahead_dist);
 
     std::vector<double> vehicleStatusToStateVector(const race_msgs::VehicleStatus& status);
+    // 对照参数输出（横摆）
+    double computeCoupledYawRateModel(double vx, double vy, double r, double delta,
+                                               double r_t, double gamma, double h_dist, double dt);
+
 
 private:
   // --- 状态与持久化变量 ---
@@ -204,8 +208,6 @@ private:
     double m_t_total_default_;
     double m_t_empty_default_;
 
-
-
     // ipopt求解器参数
     double ipopt_max_iter_;
     double ipopt_acceptable_tol_;
@@ -214,14 +216,15 @@ private:
     double ipopt_warm_start_slack_bound_push_;
     double ipopt_warm_start_mult_bound_push_;
 
-
-
     // 求解器设定
     double integration_grade_;
 
     // 动态预瞄参数
     double min_lookahead_distance_;
     double lookahead_speed_coeff_;
+
+    // 状态参数对照输出
+    double model_r2_;
 
 };
 
