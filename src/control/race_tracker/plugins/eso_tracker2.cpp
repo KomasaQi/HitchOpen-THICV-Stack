@@ -84,15 +84,16 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Q_x", nmpc_params_.Q(0,0), 10000.0);          // 横向位置误差权重
     nh_nmpc.param("Q_y", nmpc_params_.Q(1,1), 10000.0);          // 纵向位置误差权重
     nh_nmpc.param("Q_theta", nmpc_params_.Q(2,2), 5000.0);       // 航向角误差权重
-    nh_nmpc.param("Q_vy", nmpc_params_.Q(3,3), 100.0);          // 侧向速度权重
-    nh_nmpc.param("Q_r", nmpc_params_.Q(4,4), 800.0);          // 横摆角速度权重
-    nh_nmpc.param("Q_delta", nmpc_params_.Q(5,5), 1000.0);      // 未使用该权重项
-    nh_nmpc.param("Q_rt", nmpc_params_.Q(6,6), 1.0);      // 挂车状态权重
-    nh_nmpc.param("Q_gamma", nmpc_params_.Q(7,7), 1.0);      // 挂车状态权重
+    nh_nmpc.param("Q_vy", nmpc_params_.Q(3,3), 100.0);           // 侧向速度权重
+    nh_nmpc.param("Q_r", nmpc_params_.Q(4,4), 800.0);            // 横摆角速度权重
+    nh_nmpc.param("Q_delta", nmpc_params_.Q(5,5), 1000.0);       // 未使用该权重项
 
+    nh_nmpc.param("Q_rt", nmpc_params_.Q(6,6), 1.0);             // 挂车状态权重
+    nh_nmpc.param("Q_gamma", nmpc_params_.Q(7,7), 1.0);          // 挂车状态权重
+    nh_nmpc.param("Q_gamma_dot", nmpc_params_.Q(8,8), 1.0);      // 挂车状态权重
 
-    nh_nmpc.param("Q_R", nmpc_params_.R, 10.0);      // 控制量权重 
-    nh_nmpc.param("Q_dR", nmpc_params_.dR, 100000.0);      // 控制增量权重 (平滑性)
+    nh_nmpc.param("Q_R", nmpc_params_.R, 10.0);                  // 控制量权重 
+    nh_nmpc.param("Q_dR", nmpc_params_.dR, 100000.0);            // 控制增量权重 (平滑性)
 
     //  —— 参数估计中参数 ——
     nh_nmpc.param("Kiz", nmpc_params_.Kiz, 5.1);      // 横摆转动惯量比例系数
@@ -895,15 +896,17 @@ void ESOTracker2::buildNMPSolver() {
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
         MX e_theta = atan2(sin(solver_.X(2, k+1) - ref_theta), cos(solver_.X(2, k+1) - ref_theta));
         MX r_ref = solver_.P_vx * ref_kappa;
-        MX gamma_dot_actual = solver_.X(4, k+1) - solver_.X(6, k+1);
+        MX gamma_dot_actual = solver_.X(6, k+1) - solver_.X(4, k+1);
 
-        J += nmpc_params_.Q(0,0) * (pow(solver_.X(0, k+1) - ref_x, 2) + pow(solver_.X(1, k+1) - ref_y, 2));
+        J += nmpc_params_.Q(0,0) * pow(solver_.X(0, k+1) - ref_x, 2);
+        J += nmpc_params_.Q(1,1) * pow(solver_.X(1, k+1) - ref_y, 2);
         J += nmpc_params_.Q(2,2) * pow(e_theta, 2);
-        J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - r_ref, 2);
         J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1), 2);
-        // J += nmpc_params_.Q_gamma * pow(solver_.X(7, k+1), 2);
-        // J += nmpc_params_.Q_r_t * pow(solver_.X(6, k+1) - r_ref, 2);
-        // J += nmpc_params_.Q_gamma_rate * pow(gamma_dot_actual, 2);
+        J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - r_ref, 2);
+
+        // J += nmpc_params_.Q(5,5) * pow(solver_.X(5, k+1), 2);
+        // J += nmpc_params_.Q(6,6) * pow(solver_.X(6, k+1) - r_ref, 2);
+        J += nmpc_params_.Q(7,7) * pow(gamma_dot_actual, 2);
         J += nmpc_params_.R * pow(con, 2);
     }
     // 控制量平滑项（保留原逻辑）
