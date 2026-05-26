@@ -8,6 +8,7 @@
 #include <cmath>
 #include <memory>
 #include <tf/transform_datatypes.h>
+#include <array>
 
 // ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
@@ -62,6 +63,7 @@ struct NMPCParams {
     double delta_min;       
     // 代价函数权重（扩展为8维，支持挂车状态）
     Eigen::Matrix<double, 8, 8> Q = Eigen::Matrix<double, 8, 8>::Zero();
+    double dgamma;
     double R;
     double dR;
     double Kiz; // 横摆转动惯量比例系数
@@ -116,7 +118,9 @@ private:
     void rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,double curr_r,
                               double curr_ay, double curr_gamma, double curr_r_t, double M, double dt);
     // 保留原ESO函数名，实现替换为Matlab逻辑
-    void esoCompute(double curr_r, double curr_delta, double dt);
+    // void esoCompute(double curr_r, double curr_delta, double dt);
+    void esoCompute(double curr_vy,double curr_r, double curr_delta, double curr_gamma, double curr_r_t, double curr_vx,double dt);
+    double calcNominalYawAccel(double curr_vy,double curr_r,double curr_delta,double curr_r_t,double curr_gamma,double curr_vx);
 
     double normalizeAngle(double angle);
 
@@ -175,6 +179,7 @@ private:
     // ESO观测器（保留原变量名）
     double eso_x1_ = 0.0;
     double eso_x2_ = 0.0;
+    bool eso_initialized_ = false;
 
     // 原UKF变量替换为EKF变量
     Eigen::Vector4d ekf_x_hat_;  // [vy, r, r_t, gamma]
