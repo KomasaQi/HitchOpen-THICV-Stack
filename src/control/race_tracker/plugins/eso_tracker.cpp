@@ -128,6 +128,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0); // 
 
+
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
     // -------------------------------------------------------------------------
@@ -137,6 +138,9 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("blend_speed_high", supervisor_params_.blend_speed_high, 5.0);
     nh_super.param("min_lookahead_distance", min_lookahead_distance_, 6.0);
     nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
+    nh_super.param("control_time", control_time_, 0.05);
+    nh_super.param("control_delay_sec", control_delay_sec_, 0.2);
+
 
 
     // -------------------------------------------------------------------------
@@ -202,7 +206,7 @@ void ESOTracker::computeControl(
     static ros::Time last_control_time = ros::Time(0);
     ros::Time current_time = ros::Time::now();
 
-    if (last_control_time.toSec() != 0.0 && (current_time - last_control_time).toSec() > 0.2) {
+    if (last_control_time.toSec() != 0.0 && (current_time - last_control_time).toSec() > 1) {     //5-28原本是0.02，现在改成1
         ROS_WARN("[%s] 检测到控制重连，清空观测器记忆！", getName().c_str());
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
@@ -218,7 +222,7 @@ void ESOTracker::computeControl(
     }
     last_control_time = current_time;
 
-    const double obs_dt = std::max(dt, 0.01); 
+    const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限，0.05设置了上限   5-28修改
 
     if (rls_r_prev_ == 0.0 && curr_r != 0.0) {
         rls_r_prev_ = curr_r;
@@ -289,6 +293,9 @@ void ESOTracker::computeControl(
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
     double kappa = static_cast<double>(waypoints_dm(3,1));
+    double theta = static_cast<double>(waypoints_dm(2,0));
+    double r_ref = curr_vx * kappa;
+    double vy_model = curr_vx * sin(theta) + vy_est * cos(theta);
 
     std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
@@ -345,11 +352,23 @@ void ESOTracker::computeControl(
 
     // 纯跟踪公式
     double ld = std::max(lookahead_dist, sqrt(local_x*local_x + local_y*local_y));
-    double delta_pp = atan2(2.0 * L * local_y, ld * ld);
+    double delta_pp_raw = atan2(2.0 * L * local_y, ld * ld);
+    delta_pp_raw = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp_raw));
 
-    delta_pp = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp));
-    pp_safe_cmd_ = delta_pp;
-    
+     // ---- 时延队列处理 ----
+    pp_cmd_queue_.push_back(delta_pp_raw);
+    // 计算队列的最大容量 (时延秒数 / 控制周期)
+    size_t max_queue_size = static_cast<size_t>(std::max(1.0, control_delay_sec_ / control_time_));
+
+    if (pp_cmd_queue_.size() > max_queue_size) {
+        // 取出队列最前端（即历史时刻）的控制量作为当前输出
+        pp_safe_cmd_ = pp_cmd_queue_.front();
+        pp_cmd_queue_.pop_front();
+    } else {
+        // 初始阶段队列未填满时，可以直接输出当前值，或者输出 0
+        pp_safe_cmd_ = delta_pp_raw;
+    }
+
     // 打印调试信息
     if (blend_alpha_ < 0.01) {
         ROS_INFO_THROTTLE(0.5, "[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead Dist: %.2f m | Delta: %.3f rad", local_x, local_y, lookahead_dist, pp_safe_cmd_);
@@ -386,14 +405,17 @@ void ESOTracker::computeControl(
     race_msgs::ESOEstimation est_msg;
     est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
     est_msg.vy_est1 = vy_est;                  // 侧向速度
-    est_msg.eso1_total = eso_x2_;                  // ESO_x2
-    est_msg.eso1_pure = d_pure_trailer;   // 纯扰动
-    est_msg.r_t = r_t_;                            // 挂车横摆率
-    est_msg.gamma_angle = gamma_;                    // 铰接角
+    est_msg.eso1_total = eso_x2_;              // ESO_x2
+    est_msg.eso1_pure = d_pure_trailer;        // 纯扰动
+    est_msg.r_t = r_t_;                        // 挂车横摆率
+    est_msg.gamma_angle = gamma_;              // 铰接角
     est_msg.vy_est2  = vy_est2;                // 方案二侧向速度估计
     est_msg.Cf_est = rls_Cf_est_;              // 前轴侧偏刚度
     est_msg.Cr_est = rls_Cr_est_;              // 后轴侧偏刚度
-    est_msg.kappa = kappa;                 // 参考曲率
+    est_msg.kappa = kappa;                     // 参考曲率
+    est_msg.r_ref = r_ref;                     // 参考横摆率
+    est_msg.theta = theta;                     // 参考航向角
+    est_msg.vy_model = vy_model;               // 侧向速度模型
     est_pub_.publish(est_msg);
 }
 

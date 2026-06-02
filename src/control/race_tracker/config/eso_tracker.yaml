@@ -15,12 +15,12 @@ eso_tracker:
   T_lag: 0.2                    # 转向系统滞后时间 (s)
   
   # --- 3. 轮胎模型参数 (RLS辨识初始值 & 上下限) ---
-  Cf: 250000.0                  # 前轴侧偏刚度初始值 (N/rad)
-  Cr: 1000000.0                 # 后轴侧偏刚度初始值 (N/rad)
-  Cf_min: 100000.0              # RLS辨识下限
-  Cf_max: 400000.0              # RLS辨识上限 (1e7)
-  Cr_min: 100000.0             # RLS辨识下限
-  Cr_max: 2000000.0             # RLS辨识上限 (5e7)
+  Cf: 270000.0                  # 前轴侧偏刚度初始值 (N/rad)
+  Cr: 800000.0                 # 后轴侧偏刚度初始值 (N/rad)
+  Cf_min: 270000.0              # RLS辨识下限
+  Cf_max: 270000.0              # RLS辨识上限 (1e7)
+  Cr_min: 800000.0             # RLS辨识下限
+  Cr_max: 800000.0             # RLS辨识上限 (5e7)
 
   # --- 4. 控制量约束 ---
   min_steer: -0.5               # 最小转向角 (rad)
@@ -34,7 +34,7 @@ eso_tracker:
   Q_r: 800.0                     # 横摆角速度权重
   Q_delta: 0.0                   # 转向角权重
   R: 2000.0                      # 控制量大小权重
-  dR: 1500000.0                  # 控制增量权重 (平滑性)
+  dR: 2000000.0                  # 控制增量权重 (平滑性)
 
 # ==============================================================================
 #                        逻辑切换与纯跟踪配置
@@ -42,13 +42,15 @@ eso_tracker:
 supervisor_config:
   # --- 模式切换逻辑 ---
   startup_time: 5.0              # 启动强制纯跟踪时间 (s)
-  blend_speed_low: 4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
-  blend_speed_high: 5.0           # 融合 -> NMPC 切换车速 (18 km/h)
+  blend_speed_low: 30   #4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
+  blend_speed_high: 33   #5.0           # 融合 -> NMPC 切换车速 (18 km/h)
   
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
   min_lookahead_distance: 6.0        # 前视距离 (m)
-  lookahead_speed_coeff: 0.7        # 预瞄速度系数，默认0.7
-  
+  lookahead_speed_coeff: 0.7          # 预瞄速度系数，默认0.7
+  control_delay_sec: 0.2             # 纯跟踪时延迟系数
+  control_time: 0.05                   # 控制频率20Hz
+
 #纵向
 pid_controller:
   kp: 0.6

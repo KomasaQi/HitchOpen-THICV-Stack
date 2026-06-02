@@ -8,6 +8,7 @@
 #include <cmath>
 #include <memory>
 #include <tf/transform_datatypes.h>
+#include <deque>
 
 // ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
@@ -167,6 +168,9 @@ private:
     //输出模型计算量
     double Model_r1_;
     double kappa_;
+    double r_ref;
+    double theta;
+    double vy_model;
 
     // UKF相关
     Eigen::Vector2d ukf_x_est_;
@@ -190,6 +194,11 @@ private:
     double rls_r_dot_pre_;
     double rls_Cf_est_;
     double rls_Cr_est_;
+
+    // 在类中添加以下成员变量
+    std::deque<double> pp_cmd_queue_;
+    double control_time_;
+    double control_delay_sec_; 
 };
 
 } // namespace race_tracker
