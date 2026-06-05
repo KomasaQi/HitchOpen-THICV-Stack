@@ -78,3 +78,13 @@
         </description>
     </class>
 </library>
+
+<library path="lib/libltv_tracker">
+    <class name="race_tracker::LTVTracker"
+           type="race_tracker::LTVTracker"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            LTV tracker for lateral control of semi-trailer truck, from Dr.Ma Liutao in Wuhan University of Technology for DFCV project.
+        </description>
+    </class>
+</library>

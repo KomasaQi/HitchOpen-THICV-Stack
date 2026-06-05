@@ -1,4 +1,4 @@
-#include "race_tracker/eso_tracker.h"
+#include "race_tracker/ltv_tracker.h"
 #include <pluginlib/class_list_macros.h>
 #include <ros/console.h>
 #include <numeric>
@@ -29,9 +29,9 @@ void NMPCParams::updateQMatrix() {
 }
 
 // -----------------------------------------------------------------------------
-// ESOTracker 构造函数 (初始化所有变量)
+// LTVTracker 构造函数 (初始化所有变量)
 // -----------------------------------------------------------------------------
-ESOTracker::ESOTracker() {
+LTVTracker::LTVTracker() {
     // --- 1. 基础状态初始化 ---
     is_high_speed_last_ = false;
     blend_alpha_ = 0.0;
@@ -76,8 +76,8 @@ ESOTracker::ESOTracker() {
 // -----------------------------------------------------------------------------
 // 插件初始化 
 // -----------------------------------------------------------------------------
-bool ESOTracker::initialize(ros::NodeHandle& nh) {
-    ros::NodeHandle nh_nmpc(nh, "eso_tracker");
+bool LTVTracker::initialize(ros::NodeHandle& nh) {
+    ros::NodeHandle nh_nmpc(nh, "ltv_tracker");
     ROS_INFO("[%s] NMPC 控制器命名空间: %s", getName().c_str(), nh_nmpc.getNamespace().c_str());
 
     // -------------------------------------------------------------------------
@@ -174,7 +174,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
 // -----------------------------------------------------------------------------
 // 核心控制循环 
 // -----------------------------------------------------------------------------
-void ESOTracker::computeControl(
+void LTVTracker::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
     const race_msgs::PathConstPtr& path,
     race_msgs::Control* control_msg,
@@ -284,11 +284,10 @@ void ESOTracker::computeControl(
     double Fyf_curr = rls_Cf_est_ * alpha_f_curr;
     double Fyr_curr = rls_Cr_est_ * alpha_r_curr;
     double r_dot_nominal = (nmpc_params_.lf * Fyf_curr * cos(curr_delta) - nmpc_params_.lr * Fyr_curr) / nmpc_params_.Iz;
+    Model_r1_ = curr_r + r_dot_nominal * obs_dt; 
     double b_eso = (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz;
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
-    double r_dot_model = r_dot_nominal + d_pure_trailer;
-    Model_r1_ = curr_r + r_dot_model * obs_dt;
 
     // 路径处理（始终计算）
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
@@ -298,9 +297,7 @@ void ESOTracker::computeControl(
     double r_ref = curr_vx * kappa;
     double vy_model = curr_vx * sin(theta) + vy_est * cos(theta);
 
-    // NMPC 现在工作在“自车体坐标系”：原点为自车当前位置，x 轴沿自车当前航向。
-    // 因此初始 x,y,theta 均为 0；vy/r/delta 仍为实际物理量。
-    std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r, curr_delta};
+    std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
 
     // NMPC参数绑定（始终更新）
@@ -423,29 +420,13 @@ void ESOTracker::computeControl(
 }
 
 // ---------------------- 路径处理与辅助函数 ----------------------
-double ESOTracker::normalizeAngle(double angle) {
+double LTVTracker::normalizeAngle(double angle) {
     while (angle > M_PI) angle -= 2 * M_PI;
     while (angle < -M_PI) angle += 2 * M_PI;
     return angle;
 }
 
-namespace {
-// 计算 a 相对 b 的最短角度差，结果恒落在 [-pi, pi]。
-// 等价于 atan2(sin(a-b), cos(a-b))，消除 ±pi 缠绕造成的跳变。
-inline double angleDiff(double a, double b) {
-    double d = a - b;
-    while (d > M_PI)  d -= 2.0 * M_PI;
-    while (d < -M_PI) d += 2.0 * M_PI;
-    return d;
-}
-
-// 体坐标系变换的原点（自车当前位置）。由 process_race_path 在每帧调用前设置，
-// 供 interpolate_path_segment 把全局位置参考转换为体坐标系。控制器单实例串行调用，安全。
-double g_ref_x0 = 0.0;
-double g_ref_y0 = 0.0;
-} // anonymous namespace
-
-double ESOTracker::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
+double LTVTracker::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     tf::Quaternion tf_quat(q.x, q.y, q.z, q.w);
     tf::Matrix3x3 rot_matrix(tf_quat);
     double roll, pitch, yaw;
@@ -453,7 +434,7 @@ double ESOTracker::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     return yaw;
 }
 
-int ESOTracker::find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path) {
+int LTVTracker::find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path) {
     double min_dist_sq = std::numeric_limits<double>::max();
     int nearest_idx = 0;
     for (size_t i = 0; i < path.points.size(); ++i) {
@@ -467,7 +448,7 @@ int ESOTracker::find_nearest_path_point(const double x0, const double y0, const 
     return nearest_idx;
 }
 
-std::vector<double> ESOTracker::calculate_cumulative_distance(const race_msgs::Path& path, int start_idx) {
+std::vector<double> LTVTracker::calculate_cumulative_distance(const race_msgs::Path& path, int start_idx) {
     std::vector<double> cum_dist;
     cum_dist.push_back(0.0);
     double current_total = 0.0;
@@ -481,7 +462,7 @@ std::vector<double> ESOTracker::calculate_cumulative_distance(const race_msgs::P
     return cum_dist;
 }
 
-std::vector<double> ESOTracker::linear_interpolate(const std::vector<double>& s_original, 
+std::vector<double> LTVTracker::linear_interpolate(const std::vector<double>& s_original, 
                                                             const std::vector<double>& val_original, 
                                                             const std::vector<double>& s_target) {
     std::vector<double> val_target(s_target.size(), val_original.empty() ? 0.0 : val_original[0]);
@@ -501,39 +482,24 @@ std::vector<double> ESOTracker::linear_interpolate(const std::vector<double>& s_
     return val_target;
 }
 
-casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
+casadi::DM LTVTracker::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
                                                 int start_idx, int end_idx, const std::vector<double>& s_target, double yaw0) {
-    // yaw0 = 自车当前航向 curr_theta（由 process_race_path 透传 current_state[2]）。
-    const double veh_yaw = yaw0;
-
     std::vector<double> s_orig, x_orig, y_orig, theta_orig, kappa_orig;
-
-    // 关键修改：把每个参考点的航向都用 angleDiff 表示为“相对自车当前航向”的量，
-    // 再在 s 方向上连续解缠绕(unwrap)，得到一条连续、且锚定在 0 附近的参考航向曲线。
-    // 这样无论自车朝向是 0、±pi/2 还是 ±pi，参考航向都不会跨越 ±pi 折叠边界，
-    // 从源头消除 ±pi/2 附近的航向突变与稳态误差放大问题。
-    double theta_prev = 0.0;  // 上一个参考点的(相对、已解缠绕)航向
+    
     for (int i = start_idx; i <= end_idx; ++i) {
         const auto& pt = path.points[i];
         s_orig.push_back(cum_dist[i - start_idx]);
         x_orig.push_back(pt.pose.position.x);
         y_orig.push_back(pt.pose.position.y);
-
-        double yaw_abs = quaternion_to_yaw(pt.pose.orientation);
-        // 相对自车航向的航向角（首点会落在 [-pi, pi]）
-        double yaw_rel = angleDiff(yaw_abs, veh_yaw);
-
-        if (theta_orig.empty()) {
-            theta_prev = yaw_rel;                    // 首点直接采用相对航向
-        } else {
-            // 沿弧长连续解缠绕：在上一点基础上加最短增量，保持曲线连续
-            theta_prev += angleDiff(yaw_rel, theta_prev);
-        }
-        theta_orig.push_back(theta_prev);
+        
+        double yaw = quaternion_to_yaw(pt.pose.orientation);
+        if (i == start_idx) yaw0 = yaw; 
+        double diff = normalizeAngle(yaw - (theta_orig.empty() ? yaw0 : theta_orig.back()));
+        theta_orig.push_back((theta_orig.empty() ? yaw0 : theta_orig.back()) + diff);
     }
 
     kappa_orig.resize(theta_orig.size(), 0.0);
-    for (size_t i = 1; i + 1 < theta_orig.size(); ++i) {
+    for (size_t i = 1; i < theta_orig.size() - 1; ++i) {
         double ds = s_orig[i+1] - s_orig[i-1];
         kappa_orig[i] = (ds > 1e-4) ? (theta_orig[i+1] - theta_orig[i-1]) / ds : 0.0;
     }
@@ -543,32 +509,20 @@ casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, con
     auto theta_interp = linear_interpolate(s_orig, theta_orig, s_target);
     auto kappa_interp = linear_interpolate(s_orig, kappa_orig, s_target);
 
-    // 位置参考也转换到“自车体坐标系”（原点为自车当前位置，x 轴沿自车当前航向），
-    // 与相对航向、相对动力学初值 (0,0,0) 保持一致，彻底摆脱全局朝向的影响。
-    const double cos_y = std::cos(veh_yaw);
-    const double sin_y = std::sin(veh_yaw);
     int n_waypoints = s_target.size();
     casadi::DM waypoints = casadi::DM::zeros(4, n_waypoints);
     for (int i = 0; i < n_waypoints; ++i) {
-        double dx = x_interp[i] - g_ref_x0;
-        double dy = y_interp[i] - g_ref_y0;
-        double bx =  cos_y * dx + sin_y * dy;   // 体坐标系纵向
-        double by = -sin_y * dx + cos_y * dy;   // 体坐标系横向
-        waypoints(0, i) = bx;
-        waypoints(1, i) = by;
-        waypoints(2, i) = theta_interp[i];   // 相对自车当前航向、连续解缠绕后的参考航向
+        waypoints(0, i) = x_interp[i];
+        waypoints(1, i) = y_interp[i];
+        waypoints(2, i) = theta_interp[i];
         waypoints(3, i) = kappa_interp[i];
     }
     return waypoints;
 }
 
-casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
+casadi::DM LTVTracker::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
     int nearest_idx = find_nearest_path_point(current_state[0], current_state[1], input_path);
     if (nearest_idx == -1) return casadi::DM::zeros(4, nmpc_params_.N + 1);
-
-    // 设置体坐标系变换原点为自车当前位置，供 interpolate_path_segment 使用
-    g_ref_x0 = current_state[0];
-    g_ref_y0 = current_state[1];
 
     double calc_vx = std::max(current_state[3], 1.0); 
 
@@ -596,7 +550,7 @@ casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, cons
 
 // ---------------------- 核心算法  ----------------------
 
-void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
+void LTVTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
     
     int L = 2;  
     int n_sig = 2*L + 1;
@@ -691,7 +645,7 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
     ukf_P_est_ = 0.5 * (ukf_P_est_ + ukf_P_est_.transpose());
 }
 
-void ESOTracker::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,
+void LTVTracker::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta,
                                                 double curr_r, double curr_ay, double dt) {
     
     if (curr_vx < 3.0) {
@@ -730,14 +684,14 @@ void ESOTracker::rlsIdentifyStiffness(double curr_vx, double vy_est, double curr
     rls_Cf_est_ = std::max(nmpc_params_.Cf_min, std::min(rls_theta_f_, nmpc_params_.Cf_max));
     rls_Cr_est_ = std::max(nmpc_params_.Cr_min, std::min(rls_theta_r_, nmpc_params_.Cr_max));
     }
-void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt){
+void LTVTracker::esoCompute(double curr_r, double curr_delta, double dt){
     double b_eso = (rls_Cf_est_ * nmpc_params_.lf) / nmpc_params_.Iz;
     double error_eso = curr_r - eso_x1_;
     eso_x1_ += (b_eso * curr_delta + 20.0 * error_eso + eso_x2_) * dt;
     eso_x2_ += (100.0 * error_eso) * dt;
 }
 
-MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
+MX LTVTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
                                               const MX& vx, const MX& h_dist, const MX& dyn_params) {
     MX theta = state(2), vy = state(3), r = state(4), delta = state(5);
     MX m_sym = dyn_params(0), Iz_sym = dyn_params(1), lf_sym = dyn_params(2), lr_sym = dyn_params(3);
@@ -761,7 +715,7 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     return vertcat(d_x, d_y, d_theta, d_vy, d_r, d_delta);
 }
 
-void ESOTracker::buildNMPSolver() {
+void LTVTracker::buildNMPSolver() {
     solver_.opti = Opti();
     int nx = nmpc_params_.nx, nu = nmpc_params_.nu, N = nmpc_params_.N, Nc = nmpc_params_.Nc;
 
@@ -812,10 +766,7 @@ void ESOTracker::buildNMPSolver() {
 
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
-        // 体坐标系下，X(2) 与 ref_theta 均为连续、锚定在 0 附近的相对航向，
-        // 不会跨越 ±pi 折叠边界，因此直接作差即可，无需 atan2(sin,cos) 折叠。
-        // 移除折叠后，代价函数对航向误差全程光滑可导，消除 ±pi/2 附近的梯度突变。
-        MX e_theta = solver_.X(2, k+1) - ref_theta;
+        MX e_theta = atan2(sin(solver_.X(2, k+1) - ref_theta), cos(solver_.X(2, k+1) - ref_theta));
 
         J += nmpc_params_.Q(0,0) * pow(solver_.X(0, k+1) - ref_x, 2);
         J += nmpc_params_.Q(1,1) * pow(solver_.X(1, k+1) - ref_y, 2);
@@ -858,7 +809,7 @@ void ESOTracker::buildNMPSolver() {
     solver_.opti.solver("ipopt", opts);
 }
 
-bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
+bool LTVTracker::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                                       std::vector<double>& control_output) {
 
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -900,7 +851,7 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
 }
 
 // 新增函数，状态估计与方案二做对照
-void ESOTracker::ekfEstimateVy(double curr_vx,double curr_delta,double curr_ay,double curr_r,double M,double dt) {
+void LTVTracker::ekfEstimateVy(double curr_vx,double curr_delta,double curr_ay,double curr_r,double M,double dt) {
     (void)M;  // 当前未使用，保留接口兼容
 
     // ==============================
@@ -993,7 +944,7 @@ void ESOTracker::ekfEstimateVy(double curr_vx,double curr_delta,double curr_ay,d
     ekf_P_ = (Eigen::Matrix4d::Identity() - K_gain * H_sys) * P_pred;
 }
 
-void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, double dt) {
+void LTVTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, double dt) {
     const double L2 = 7.9;
     const double Lh = 0.0;          // 建议用参数，不要写死0
     const double vx = std::max(curr_vx, 1.0);
@@ -1019,4 +970,4 @@ void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, dou
 
 } // namespace race_tracker
 
-PLUGINLIB_EXPORT_CLASS(race_tracker::ESOTracker, race_tracker::ControllerPluginBase)
+PLUGINLIB_EXPORT_CLASS(race_tracker::LTVTracker, race_tracker::ControllerPluginBase)

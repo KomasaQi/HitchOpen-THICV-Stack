@@ -155,6 +155,18 @@ target_link_libraries(race_global_static_planner
   ${EIGEN3_LIBRARIES} # 链接eigen3库
 )
 
+add_executable(race_global_quasi_static_planner 
+src/race_global_quasi_static_planner.cpp 
+utils/curvature.cpp 
+utils/angle_norm.cpp
+)
+add_dependencies(race_global_quasi_static_planner ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(race_global_quasi_static_planner
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES} # 链接opencv库
+  ${EIGEN3_LIBRARIES} # 链接eigen3库
+)
+
 
 add_executable(angle_demo test/angle_demo.cpp utils/angle_norm.cpp)
 add_dependencies(angle_demo ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})

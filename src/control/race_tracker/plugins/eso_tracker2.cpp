@@ -227,7 +227,7 @@ void ESOTracker2::computeControl(
         return;
     }
     if (path->points.empty()) {
-        ROS_WARN_THROTTLE(1.0, "[%s] 收到空路径，保持上一帧转角 %.3f rad", getName().c_str(), last_final_cmd_);
+        ROS_WARN("[%s] 收到空路径，保持上一帧转角 %.3f rad", getName().c_str(), last_final_cmd_);
         control_msg->lateral.steering_angle = last_final_cmd_;
         control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
         control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
@@ -291,7 +291,7 @@ void ESOTracker2::computeControl(
     calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
     const double curr_gamma = gamma_;
     const double curr_r_t = r_t_;
-    ROS_INFO_THROTTLE(0.5, "\033[36m[%s] 估计挂车转角: %.3f rad (%.1f deg)\033[0m",
+    ROS_INFO("\033[36m[%s] 估计挂车转角: %.3f rad (%.1f deg)\033[0m",
                       getName().c_str(), curr_gamma, curr_gamma * 180.0 / M_PI);
 
     ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, nmpc_params_.m_t_total, obs_dt);
@@ -304,14 +304,14 @@ void ESOTracker2::computeControl(
     esoCompute(vy_est,curr_r,curr_delta,curr_r_t,curr_gamma,curr_vx,obs_dt);
     const double h_hat_total = eso_x2_;
     const double d_pure_trailer = h_hat_total;
-    ROS_INFO_THROTTLE(0.5, "[%s] \033[35mESO观测结果: x1=%.4f rad/s, x2=%.4f, h_hat_total=%.4f\033[0m",
+    ROS_INFO("[%s] \033[35mESO观测结果: x1=%.4f rad/s, x2=%.4f, h_hat_total=%.4f\033[0m",
                       getName().c_str(), eso_x1_, eso_x2_, h_hat_total);
 
     // 3. 启动/低速/高速软切换权重：0=纯跟踪，1=NMPC
     const double time_elapsed = (current_time - start_time_).toSec();
     if (time_elapsed < supervisor_params_.startup_time) {
         blend_alpha_ = 0.0;
-        ROS_INFO_THROTTLE(1.0, "[%s][STARTUP] 预热 %.1f / %.1f s，纯跟踪锁定",
+        ROS_INFO("[%s][STARTUP] 预热 %.1f / %.1f s，纯跟踪锁定",
                           getName().c_str(), time_elapsed, supervisor_params_.startup_time);
     } else if (v_abs <= supervisor_params_.blend_speed_low) {
         blend_alpha_ = 0.0;
@@ -325,7 +325,10 @@ void ESOTracker2::computeControl(
     const bool is_current_high_speed = (blend_alpha_ >= 0.99);
 
     // 4. NMPC 后台始终尝试求解，低速/启动阶段也刷新热启动；失败时保持上一帧 NMPC 有效值
-    std::vector<double> nmpc_state = {curr_x, curr_y, curr_theta, vy_est, curr_r,
+    // NMPC 现在工作在“自车体坐标系”：原点为自车当前位置，x 轴沿自车当前航向。
+    // 因此初始 x,y,theta 均为 0；vy/r/delta/r_t/gamma 仍为实际物理量
+    // （挂车横摆率 r_t、铰接角 gamma 与全局朝向无关，保持真实值不变）。
+    std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r,
                                       curr_delta, curr_r_t, curr_gamma};
     std::vector<double> control_output(1, nmpc_safe_cmd_);
 
@@ -342,7 +345,7 @@ void ESOTracker2::computeControl(
         nmpc_safe_cmd_ = control_output[0];
     } else {
         nmpc_safe_cmd_ = current_cmd_;
-        ROS_WARN_THROTTLE(0.5, "[%s] NMPC 求解失败，NMPC支路保持上一帧有效输出 %.3f rad",
+        ROS_WARN("[%s] NMPC 求解失败，NMPC支路保持上一帧有效输出 %.3f rad",
                           getName().c_str(), nmpc_safe_cmd_);
     }
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
@@ -354,18 +357,18 @@ void ESOTracker2::computeControl(
 
     if (v_abs <= supervisor_params_.standstill_speed) {
         blend_alpha_ = 0.0;
-        ROS_INFO_THROTTLE(1.0, "[%s][STANDSTILL] v=%.2f m/s，保持纯跟踪保护，不再输出固定零转角",
+        ROS_INFO("[%s][STANDSTILL] v=%.2f m/s，保持纯跟踪保护，不再输出固定零转角",
                           getName().c_str(), curr_vx_raw);
     }
 
     if (blend_alpha_ < 0.01) {
-        ROS_INFO_THROTTLE(0.5, "[%s][PP] v=%.1f km/h | Ld=%.2f m | PP=%.3f | NMPC后台=%s",
+        ROS_INFO("[%s][PP] v=%.1f km/h | Ld=%.2f m | PP=%.3f | NMPC后台=%s",
                           getName().c_str(), curr_vx_raw * 3.6, lookahead_dist, pp_safe_cmd,
                           nmpc_solve_success ? "OK" : "FAIL");
     } else if (blend_alpha_ > 0.99) {
-        ROS_INFO_THROTTLE(1.0, "[%s][NMPC] v=%.1f km/h | cmd=%.3f rad", getName().c_str(), curr_vx_raw * 3.6, nmpc_safe_cmd_);
+        ROS_INFO("[%s][NMPC] v=%.1f km/h | cmd=%.3f rad", getName().c_str(), curr_vx_raw * 3.6, nmpc_safe_cmd_);
     } else {
-        ROS_INFO_THROTTLE(0.5, "[%s][BLEND] v=%.1f km/h | alpha=%.2f | PP=%.3f | NMPC=%.3f",
+        ROS_INFO("[%s][BLEND] v=%.1f km/h | alpha=%.2f | PP=%.3f | NMPC=%.3f",
                           getName().c_str(), curr_vx_raw * 3.6, blend_alpha_, pp_safe_cmd, nmpc_safe_cmd_);
     }
 
@@ -410,6 +413,22 @@ double ESOTracker2::normalizeAngle(double angle) {
     while (angle < -M_PI) angle += 2 * M_PI;
     return angle;
 }
+
+namespace {
+// 计算 a 相对 b 的最短角度差，结果恒落在 [-pi, pi]。
+// 等价于 atan2(sin(a-b), cos(a-b))，消除 ±pi 缠绕造成的跳变。
+inline double angleDiff(double a, double b) {
+    double d = a - b;
+    while (d > M_PI)  d -= 2.0 * M_PI;
+    while (d < -M_PI) d += 2.0 * M_PI;
+    return d;
+}
+
+// 体坐标系变换的原点（自车当前位置）。由 process_race_path 在每帧调用前设置，
+// 供 interpolate_path_segment 把全局位置参考转换为体坐标系。控制器单实例串行调用，安全。
+double g_ref_x0 = 0.0;
+double g_ref_y0 = 0.0;
+} // anonymous namespace
 
 double ESOTracker2::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     tf::Quaternion tf_quat(q.x, q.y, q.z, q.w);
@@ -469,22 +488,38 @@ std::vector<double> ESOTracker2::linear_interpolate(const std::vector<double>& s
 
 casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
                                                          int start_idx, int end_idx,  const std::vector<double>& s_target, double yaw0) {
+    // yaw0 = 自车当前航向 curr_theta（由 process_race_path 透传 current_state[2]）。
+    const double veh_yaw = yaw0;
+
     std::vector<double> s_orig, x_orig, y_orig, theta_orig, kappa_orig;
+
+    // 关键修改：把每个参考点的航向都用 angleDiff 表示为“相对自车当前航向”的量，
+    // 再沿弧长连续解缠绕(unwrap)，得到一条连续、且锚定在 0 附近的参考航向曲线。
+    // 这样无论自车朝向是 0、±pi/2 还是 ±pi，参考航向都不会跨越 ±pi 折叠边界，
+    // 从源头消除 ±pi/2 附近的航向突变与稳态误差放大问题。
+    double theta_prev = 0.0;  // 上一个参考点的(相对、已解缠绕)航向
     for (int i = start_idx; i <= end_idx; ++i) {
         const auto& pt = path.points[i];
         s_orig.push_back(cum_dist[i - start_idx]);
         x_orig.push_back(pt.pose.position.x);   
         y_orig.push_back(pt.pose.position.y);
-        
-        double yaw = quaternion_to_yaw(pt.pose.orientation);
-        if (i == start_idx) yaw0 = yaw; 
-        double diff = normalizeAngle(yaw - (theta_orig.empty() ? yaw0 : theta_orig.back()));
-        theta_orig.push_back((theta_orig.empty() ? yaw0 : theta_orig.back()) + diff);
+
+        double yaw_abs = quaternion_to_yaw(pt.pose.orientation);
+        // 相对自车航向的航向角（首点会落在 [-pi, pi]）
+        double yaw_rel = angleDiff(yaw_abs, veh_yaw);
+
+        if (theta_orig.empty()) {
+            theta_prev = yaw_rel;                    // 首点直接采用相对航向
+        } else {
+            // 沿弧长连续解缠绕：在上一点基础上加最短增量，保持曲线连续
+            theta_prev += angleDiff(yaw_rel, theta_prev);
+        }
+        theta_orig.push_back(theta_prev);
     }
 
     // 简单差分计算曲率 kappa
     kappa_orig.resize(theta_orig.size(), 0.0);
-    for (size_t i = 1; i < theta_orig.size() - 1; ++i) {
+    for (size_t i = 1; i + 1 < theta_orig.size(); ++i) {
         double ds = s_orig[i+1] - s_orig[i-1];
         kappa_orig[i] = (ds > 1e-4) ? (theta_orig[i+1] - theta_orig[i-1]) / ds : 0.0;
     }
@@ -495,12 +530,20 @@ casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, co
     auto theta_interp = linear_interpolate(s_orig, theta_orig, s_target);
     auto kappa_interp = linear_interpolate(s_orig, kappa_orig, s_target);
 
+    // 位置参考也转换到“自车体坐标系”（原点为自车当前位置，x 轴沿自车当前航向），
+    // 与相对航向、相对动力学初值 (x=y=theta=0) 保持一致，彻底摆脱全局朝向的影响。
+    const double cos_y = std::cos(veh_yaw);
+    const double sin_y = std::sin(veh_yaw);
     int n_waypoints = s_target.size();
     casadi::DM waypoints = casadi::DM::zeros(4, n_waypoints);
     for (int i = 0; i < n_waypoints; ++i) {
-        waypoints(0, i) = x_interp[i];
-        waypoints(1, i) = y_interp[i];
-        waypoints(2, i) = theta_interp[i];
+        double dx = x_interp[i] - g_ref_x0;
+        double dy = y_interp[i] - g_ref_y0;
+        double bx =  cos_y * dx + sin_y * dy;   // 体坐标系纵向
+        double by = -sin_y * dx + cos_y * dy;   // 体坐标系横向
+        waypoints(0, i) = bx;
+        waypoints(1, i) = by;
+        waypoints(2, i) = theta_interp[i];   // 相对自车当前航向、连续解缠绕后的参考航向
         waypoints(3, i) = kappa_interp[i];
     }
     return waypoints;
@@ -509,7 +552,11 @@ casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, co
 casadi::DM ESOTracker2::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
     int nearest_idx = find_nearest_path_point(current_state[0], current_state[1], input_path);
     if (nearest_idx == -1) return casadi::DM::zeros(4, nmpc_params_.N + 1);
-    
+
+    // 设置体坐标系变换原点为自车当前位置，供 interpolate_path_segment 使用
+    g_ref_x0 = current_state[0];
+    g_ref_y0 = current_state[1];
+
     // 极低速保护
     double calc_vx = std::max(current_state[3], 0.1); 
     
@@ -782,7 +829,7 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX m2 = M - m1;
 
     MX vx_safe = fmax(vx, 0.5); 
-    MX cos_gamma = fmax(cos(gamma), 0.005); 
+    MX cos_gamma = cos(gamma); 
     MX sin_gamma = sin(gamma);
     // 1. 轮胎侧偏角与力计算
     MX alpha_f = delta - atan2((vy + lf * r), vx_safe);
@@ -901,7 +948,10 @@ void ESOTracker2::buildNMPSolver() {
         // 代价函数（扩展挂车项）
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
-        MX e_theta = atan2(sin(solver_.X(2, k+1) - ref_theta), cos(solver_.X(2, k+1) - ref_theta));
+        // 体坐标系下，X(2) 与 ref_theta 均为连续、锚定在 0 附近的相对航向，
+        // 不会跨越 ±pi 折叠边界，因此直接作差即可，无需 atan2(sin,cos) 折叠。
+        // 移除折叠后，代价函数对航向误差全程光滑可导，消除 ±pi/2 附近的梯度突变。
+        MX e_theta = solver_.X(2, k+1) - ref_theta;
         MX r_ref = solver_.P_vx * ref_kappa;
         MX gamma_dot_actual = solver_.X(6, k+1) - solver_.X(4, k+1);
 
@@ -911,9 +961,9 @@ void ESOTracker2::buildNMPSolver() {
         J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1), 2);
         J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - r_ref, 2);
 
-        J += nmpc_params_.Q(6,6) * pow(solver_.X(5, k+1), 2);
-        J += nmpc_params_.Q(7,7) * pow(solver_.X(6, k+1) - r_ref, 2);
-        J += nmpc_params_.dgamma * pow(gamma_dot_actual, 2);
+        // J += nmpc_params_.Q(6,6) * pow(solver_.X(6, k+1), 2);
+        // J += nmpc_params_.Q(7,7) * pow(solver_.X(7, k+1), 2);
+        // J += nmpc_params_.dgamma * pow(gamma_dot_actual, 2);
         J += nmpc_params_.R * pow(con, 2);
     }
     // 控制量平滑项（保留原逻辑）

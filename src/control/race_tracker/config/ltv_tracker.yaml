@@ -1,11 +1,11 @@
-eso_tracker:  
+ltv_tracker:  
   # --- 1. 基础配置 (维度与时间) ---
   nx: 6                         # 状态维度 [x, y, theta, vy, r, delta]
   nu: 1                         # 控制量维度 [delta_des]
-  prediction_step: 25           # 预测步长 (N)
+  prediction_step: 35           # 预测步长 (N)
   sparse_control_step: 5        # 控制步长 (Nc)
   sampling_time: 0.05           # 采样时间 dt (s)
-  integration_grade: 1.0        # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4
+  integration_grade: 2.0        # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4
 
   # --- 2. 车辆物理参数 ---
   m: 10000.0                    # 车辆质量 (kg)
@@ -16,11 +16,11 @@ eso_tracker:
   
   # --- 3. 轮胎模型参数 (RLS辨识初始值 & 上下限) ---
   Cf: 270000.0                  # 前轴侧偏刚度初始值 (N/rad)
-  Cr: 1200000.0                 # 后轴侧偏刚度初始值 (N/rad)
+  Cr: 800000.0                 # 后轴侧偏刚度初始值 (N/rad)
   Cf_min: 270000.0              # RLS辨识下限
   Cf_max: 270000.0              # RLS辨识上限 (1e7)
-  Cr_min: 1200000.0             # RLS辨识下限
-  Cr_max: 1200000.0             # RLS辨识上限 (5e7)
+  Cr_min: 800000.0             # RLS辨识下限
+  Cr_max: 800000.0             # RLS辨识上限 (5e7)
 
   # --- 4. 控制量约束 ---
   min_steer: -0.5               # 最小转向角 (rad)
@@ -28,10 +28,10 @@ eso_tracker:
 
   # --- 5. 代价函数权重 (Q矩阵 & R矩阵) ---
   Q_x: 1.0                       # 位置X误差权重
-  Q_y: 20000.0                   # 位置Y误差权重
+  Q_y: 10000.0                   # 位置Y误差权重
   Q_theta: 4000.0                # 航向角误差权重
   Q_vy: 1.0                      # 侧向速度权重
-  Q_r: 200.0                     # 横摆角速度权重
+  Q_r: 800.0                     # 横摆角速度权重
   Q_delta: 0.0                   # 转向角权重
   R: 2000.0                      # 控制量大小权重
   dR: 2000000.0                  # 控制增量权重 (平滑性)
@@ -42,8 +42,8 @@ eso_tracker:
 supervisor_config:
   # --- 模式切换逻辑 ---
   startup_time: 5.0              # 启动强制纯跟踪时间 (s)
-  blend_speed_low: 4.1667   #4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
-  blend_speed_high: 5  #5.0           # 融合 -> NMPC 切换车速 (18 km/h)
+  blend_speed_low: 30   #4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
+  blend_speed_high: 33   #5.0           # 融合 -> NMPC 切换车速 (18 km/h)
   
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
   min_lookahead_distance: 6.0        # 前视距离 (m)

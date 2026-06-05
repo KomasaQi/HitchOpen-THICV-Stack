@@ -48,6 +48,7 @@ private:
     bool vehicle_status_received_;
     bool ltr_received_;
     bool path_received_;
+    std::string local_path_topic_;
     
     // 车辆参数（可能需要根据实际车辆调整）
     double wheel_radius_;
@@ -72,14 +73,15 @@ public:
         
         // 获取车辆参数
         private_nh_.param<double>("wheel_radius", wheel_radius_, 0.37);
-        
+        private_nh_.param<std::string>("local_path_topic", local_path_topic_, "/race/local_path");
+
         // 初始化订阅者
         imu_sub_ = nh_.subscribe("/carla/ego_vehicle/imu", 10, &StateConverter::imuCallback, this);
         odom_sub_ = nh_.subscribe("/carla/ego_vehicle/odometry", 10, &StateConverter::odomCallback, this);
         speedometer_sub_ = nh_.subscribe("/carla/ego_vehicle/speedometer", 10, &StateConverter::speedometerCallback, this);
         vehicle_status_sub_ = nh_.subscribe("/carla/ego_vehicle/vehicle_status", 10, &StateConverter::vehicleStatusCallback, this);
         ltr_sub_ = nh_.subscribe("/race/ltr", 10, &StateConverter::ltrCallback, this);
-        path_sub_ = nh_.subscribe("/race/local_path", 10, &StateConverter::pathCallback, this);
+        path_sub_ = nh_.subscribe(local_path_topic_, 10, &StateConverter::pathCallback, this);
         
         // 初始化发布者
         vehicle_state_pub_ = nh_.advertise<race_msgs::VehicleStatus>("/race/vehicle_state", 10);

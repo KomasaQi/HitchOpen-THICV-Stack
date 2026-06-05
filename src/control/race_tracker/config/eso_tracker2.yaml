@@ -5,7 +5,7 @@ eso_tracker2:
   nu: 1                 # 控制量维度 [delta_des] 单前轴转向
   
   # 预测与控制步长配置
-  prediction_step: 35    # NMPC预测步长 (N)
+  prediction_step: 25    # NMPC预测步长 (N)
   sparse_control_step: 5 # 稀疏控制量步数 (Nc)
   
   # 控制时间与频率
@@ -35,7 +35,7 @@ eso_tracker2:
   Q_y: 10000.0           # 横向位置误差权重 
   Q_theta: 4000.0        # 航向角误差权重
   Q_vy: 1.0            # 侧向速度权重
-  Q_r: 800.0             # 横摆角速度权重
+  Q_r: 200.0             # 横摆角速度权重
   Q_delta: 1.0           # 未使用该权重项
 
   Q_r_t: 1000.0              # 挂车状态权重
