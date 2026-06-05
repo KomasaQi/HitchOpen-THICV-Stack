@@ -64,6 +64,8 @@ struct NMPCParams {
     double Q_vy, Q_r, Q_delta;
     double R;
     double dR;
+    double dR_dense;     // 对“稠密”转角序列(逐步)增量的惩罚，抑制段内阶梯抖动
+    double R_ddelta;     // 对转角二阶差分的惩罚，专门抑制来回摆动(limit cycle)
 
     Eigen::Matrix<double, 6, 6> Q;
 
@@ -149,6 +151,11 @@ private:
     double nmpc_safe_cmd_;
     ros::Time start_time_;
     double last_final_cmd_;
+
+    // 输出端一阶低通滤波，平滑方向盘高频抖动
+    double output_lpf_tau_ = 0.0;   // 时间常数(s)，<=0 表示关闭
+    double final_cmd_filt_ = 0.0;   // 滤波器状态
+    bool   final_cmd_filt_init_ = false;
     
      // 动态预瞄参数
     double min_lookahead_distance_;

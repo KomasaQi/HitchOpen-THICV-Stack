@@ -127,6 +127,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Q_delta", nmpc_params_.Q_delta, 1000.0);
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0); // 
+    nh_nmpc.param("dR_dense", nmpc_params_.dR_dense, 0.0);     // 稠密增量惩罚，默认0=不改变原行为
+    nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
 
 
     // -------------------------------------------------------------------------
@@ -140,6 +142,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
     nh_super.param("control_time", control_time_, 0.05);
     nh_super.param("control_delay_sec", control_delay_sec_, 0.2);
+    nh_super.param("output_lpf_tau", output_lpf_tau_, 0.0);   // 输出低通时间常数(s)，默认0=关闭
 
 
 
@@ -219,6 +222,8 @@ void ESOTracker::computeControl(
         is_high_speed_last_ = false;
         start_time_ = current_time;
         last_final_cmd_ = curr_delta; 
+        final_cmd_filt_ = curr_delta;
+        final_cmd_filt_init_ = false;
     }
     last_control_time = current_time;
 
@@ -307,7 +312,7 @@ void ESOTracker::computeControl(
     std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, 
                                       nmpc_params_.lr, rls_Cf_est_, rls_Cr_est_};
     solver_.opti.set_value(solver_.P_vx, curr_vx);
-    solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);
+    solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
 
     // 无论什么模式，都调用NMPC求解，保持热启动状态
@@ -393,6 +398,19 @@ void ESOTracker::computeControl(
     final_cmd = std::max(last_final_cmd_ - max_delta_per_step, 
                      std::min(last_final_cmd_ + max_delta_per_step, final_cmd));
     last_final_cmd_ = final_cmd;
+
+    // 输出端一阶低通滤波：滤掉驾驶员能感知的高频抖动，进一步提升方向盘转动质量。
+    // tau<=0 时直接透传，不改变原行为。注意 LPF 引入的相位滞后由 tau 控制，
+    // 取较小值(如 0.08~0.15s)可在几乎不损失跟踪的前提下显著“顺滑”手感。
+    if (output_lpf_tau_ > 1e-6) {
+        if (!final_cmd_filt_init_) {
+            final_cmd_filt_ = final_cmd;
+            final_cmd_filt_init_ = true;
+        }
+        double a = obs_dt / (output_lpf_tau_ + obs_dt);
+        final_cmd_filt_ = (1.0 - a) * final_cmd_filt_ + a * final_cmd;
+        final_cmd = final_cmd_filt_;
+    }
 
     // 更新current_cmd_，保持状态连续
     current_cmd_ = final_cmd;
@@ -827,6 +845,29 @@ void ESOTracker::buildNMPSolver() {
 
     J += nmpc_params_.dR * pow(solver_.U_sparse(0) - solver_.P_u_prev, 2);
     for (int i=1; i<Nc; i++) J += nmpc_params_.dR * pow(solver_.U_sparse(i) - solver_.U_sparse(i-1), 2);
+
+    // --- 平顺性增强项（默认权重为0时完全不改变原行为）---
+    // (a) 稠密增量惩罚：对逐步展开后的整条转角序列 U_full 的相邻差分加惩罚，
+    //     抑制稀疏控制点 dR 漏掉的“段内阶梯/段间台阶”抖动，让方向盘速度更连续。
+    if (nmpc_params_.dR_dense > 0.0) {
+        // 第0步相对上一帧实际输出，保证帧间连续
+        J += nmpc_params_.dR_dense * pow(U_full(Slice(), 0) - solver_.P_u_prev, 2);
+        for (int k=1; k<N; k++) {
+            J += nmpc_params_.dR_dense * pow(U_full(Slice(), k) - U_full(Slice(), k-1), 2);
+        }
+    }
+
+    // (b) 二阶差分(加速度)惩罚：专门压制来回摆动(limit cycle)。
+    //     振荡的特征就是转角增量正负交替，即二阶差分大；惩罚它能显著“拉直”方向盘
+    //     而对单调修正几乎无影响，因此能在不牺牲跟踪的前提下抑制蛇行。
+    if (nmpc_params_.R_ddelta > 0.0) {
+        // 以上一帧输出为锚点，构造 [P_u_prev, U_sparse(0..Nc-1)] 的二阶差分
+        for (int i=1; i<Nc; i++) {
+            MX u_im2 = (i >= 2) ? solver_.U_sparse(i-2) : solver_.P_u_prev;
+            MX ddi = solver_.U_sparse(i) - 2.0 * solver_.U_sparse(i-1) + u_im2;
+            J += nmpc_params_.R_ddelta * pow(ddi, 2);
+        }
+    }
 
     solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.U_sparse, nmpc_params_.delta_max));
     solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev <= nmpc_params_.delta_c_max);
