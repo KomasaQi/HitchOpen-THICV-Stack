@@ -584,19 +584,23 @@ rostopic echo /race/vehicle_state/tracking # 是车辆状态的子话题，包�
 
 高速地图参考轨迹和加载，如果使用Town05环形地图采用以下指令：
 ```bash
-roslaunch race_global_static_planner race_global_carla_town05_truck.launch # 地图Town05环形高速加载
-``` 
-```bash
 roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="23.7,187.1,0.0,0.0,0.0,0.0" # 地图Town05环形高速出生点
 ``` 
-如果采用Town04 8字高速地图采用以下指令：
 ```bash
-roslaunch race_global_static_planner race_global_carla_town04_truck.launch # 地图Town04 8字高速加载
+roslaunch race_global_static_planner race_global_carla_town05_truck.launch # 地图Town05环形高速加载
 ``` 
+
+如果采用Town04 8字高速地图采用以下指令：
 
 ```bash
 roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="248.7,364.2,0.0,0.0,0.0,0.0"   # 地图Town04 8字高速出生点
 ```
+
+```bash
+roslaunch race_global_static_planner race_global_carla_town04_truck.launch # 地图Town04 8字高速加载
+``` 
+
+
 **轨迹随动模式规划**
 
 在Town04 8字高速地图上，采用轨迹初始随动模式（DFCV和其他车企常用规划方式）采用以下指令替换bridge和planner：

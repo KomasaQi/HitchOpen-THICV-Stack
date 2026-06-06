@@ -67,6 +67,8 @@ add_message_files(
   LateralLoadTransferStamped.msg
   TrailerStatus.msg
   ESOEstimation.msg
+  LaneLine.msg
+  LaneDetection.msg
 )
 
 ## Generate services in the 'srv' folder

@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- 车道线检测启动文件 (CARLA 单目前向感知) -->
+<launch>
+  <!-- 可被命令行覆盖的常用参数 -->
+  <arg name="detector_backend" default="auto"/>           <!-- learning|classic|auto -->
+  <arg name="onnx_path"        default=""/>                 <!-- UFLDv2 权重路径 -->
+  <arg name="fit_order"        default="3"/>                <!-- 拟合阶数, 最多5 -->
+  <arg name="process_rate"     default="15.0"/>
+  <arg name="publish_vis"      default="true"/>
+  <arg name="open_rviz"        default="false"/>
+
+  <node pkg="race_lane_detection" type="race_lane_detection_node.py"
+        name="race_lane_detection" output="screen">
+    <!-- 载入默认参数 -->
+    <rosparam command="load"
+              file="$(find race_lane_detection)/config/params.yaml"/>
+    <!-- 命令行覆盖 -->
+    <param name="detector_backend"   value="$(arg detector_backend)"/>
+    <param name="onnx_path"          value="$(arg onnx_path)"/>
+    <param name="fit_order"          value="$(arg fit_order)"/>
+    <param name="process_rate"       value="$(arg process_rate)"/>
+    <param name="publish_vis_image"  value="$(arg publish_vis)"/>
+  </node>
+
+  <node if="$(arg open_rviz)" pkg="rviz" type="rviz" name="lane_rviz"
+        args="-d $(find race_lane_detection)/rviz/lane_detection.rviz"/>
+</launch>

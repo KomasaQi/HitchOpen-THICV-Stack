@@ -1,0 +1,33 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+Visualization Manager:
+  Global Options:
+    Fixed Frame: ego_vehicle
+    Frame Rate: 30
+  Displays:
+    - Class: rviz/Grid
+      Name: Grid
+      Enabled: true
+      Plane Cell Count: 40
+      Cell Size: 1
+    - Class: rviz/MarkerArray
+      Name: LaneMarkers
+      Enabled: true
+      Marker Topic: /race/lane_markers
+    - Class: rviz/Image
+      Name: LaneVis
+      Enabled: true
+      Image Topic: /race/lane_vis_image
+  Tools:
+    - Class: rviz/MoveCamera
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 40
+      Focal Point:
+        X: 15
+        Y: 0
+        Z: 0
+      Pitch: 0.6
+      Yaw: 3.14

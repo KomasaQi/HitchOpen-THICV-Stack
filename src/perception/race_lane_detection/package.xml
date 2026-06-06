@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>race_lane_detection</name>
+  <version>0.0.0</version>
+  <description>
+    单目前向 RGB 车道线感知包。订阅 CARLA 相机话题，基于学习(UFLDv2)或规则后端
+    检测车道线，逆透视到自车坐标系，以可配置阶数多项式拟合车道线与车道中心线，
+    发布 race_msgs/LaneDetection 与 race_msgs/Path（自车道中心线轨迹）。
+  </description>
+
+  <maintainer email="komasaqi@foxmail.com">Komasa Qi</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>race_msgs</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>visualization_msgs</build_depend>
+  <build_depend>cv_bridge</build_depend>
+  <build_depend>race_msgs</build_depend>
+
+  <export>
+    <build_type>catkin</build_type>
+  </export>
+</package>

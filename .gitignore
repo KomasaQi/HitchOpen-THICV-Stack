@@ -39,6 +39,7 @@ srv/_*.py
 *.bag
 qtcreator-*
 *.user
+*.onnx
 
 /planning/cfg
 /planning/docs
