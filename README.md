@@ -326,11 +326,11 @@ source ~/HitchOpen-THICV-Stack/devel/setup.bash
 很多知识都可以在`韩硕师兄`的个人笔记中找到答案[Hans's Notebook](https://hs867785578.github.io/my_note/)
 
 
-### 4.4 运行本项目
+## 5 运行本项目
 下面提供了一些运行的案例可以参考。
 
 ---
-#### 4.4.1 Carla车辆轨迹跟踪仿真
+### 5.1 Carla车辆轨迹跟踪仿真
 在运行前需要先启动Carla模拟器，就打开默认的`Town10HD_Opt`地图, 如图所示，启动并保持运行状态。
 ![Carla Town10HD_Opt](/tutorial/images/runing_carla.png)
 
@@ -373,7 +373,7 @@ roslaunch simple_racing simple_tracking_carla_town10_with_dynamics.launch
 
 ---
 
-#### 4.4.2 Carla车辆定位+轨迹跟踪仿真
+### 5.2 Carla车辆定位+轨迹跟踪仿真
 这是最为全面的一个仿真案例，采用liorf_localization进行定位。
 
 在进行定位前需要[☞下载`Carla Town10HD_Opt`的点云地图文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCarla_Map_Town10%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Carla_Map_Town10`目录下。
@@ -392,7 +392,7 @@ roslaunch simple_racing simple_tracking_carla_town10_lidar_loc.launch
 rosparam set /competition_timer/flag G60 # 防止车速过快定位失效
 ```
 ---
-#### 4.4.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
+### 5.3 CICV车辆定位测试（Velodyne VLP-32C + FDI Link Gnss）
 这是用实车数据进行的定位仿真案例，采用liorf_localization进行定位仿真。采集的是国汽智联园区外部的感知数据。在进行定位前需要[☞下载`Cicv`的点云地图文件`GlobalMap.pcd`（注意不要改名字）](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2FGlobalMap.pcd)，放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下。同时[☞下载`pix_moving.bag`的传感器实时录制文件](https://cloud.tsinghua.edu.cn/d/35fe77d97a684d77aa1a/files/?p=%2Fmaps%2FCicv_Map_Outside%2Fpix_moving.bag)，也放在`launch/simple_racing/maps/Cicv_Map_Outside`目录下（或其他任何你能找到的文件路径）。
 
 我们可以启动一下位姿发布：
@@ -417,7 +417,7 @@ rosbag play pix_moving.bag
 ![localization result](/tutorial/images/cicv_loc_result.png)
 
 ---
-#### 4.4.4 天门山预赛车辆启动流程
+### 5.4 天门山预赛车辆启动流程
 **1. 启动梯子**
 
 打开电脑第一步先启动一个终端并运行下列命令打开clash梯子
@@ -521,10 +521,12 @@ rostopic hz /liorf_localization/mapping/odometry
 需要在关心的路段经常重启这个指令，因为其记录的平均频率、最大间隔时间、最小间隔时间都是历史上的最值，频率不能很好及时反映当前实时情况。
 
 
-#### 4.4.5 东风项目半挂车仿真启动流程
+### 5.5 东风项目半挂车仿真启动流程
 
+#### 5.5.1 基本启动方法
+**1.生成小卡车**
 
-1.生成小卡车
+地图默认在Town10HD_Opt地图上，生成小卡车在跑圈初始常规位置。如需在其他地图使用请参考后续内容。
 ```bash
 roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="-114.0,-30.0,1.5,0.0,0.0,-90.0" # 跑圈初始常规位置
 ```
@@ -536,26 +538,26 @@ roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point
 ![one_tracker_DFCV](/tutorial/images/one_tracker_DFCV.png)
 ![tracker_DFCV](/tutorial/images/tracker_DFCV.png)
 
-2.ros桥启动！
+**2.ros桥启动！**
 
 然后在新的终端中运行带有一阶+纯时延动力学的转向、刹车、油门动力学的carla_race_bridge，以将本仓库自定义的race_msgs消息包中的消息与carla-ros-bridge中的消息进行转换：
 ```bash
 roslaunch carla_race_bridge  carla_race_bridge_with_dynamics.launch 
 ```
-3.静态轨迹启动！
+**3.静态轨迹启动！**
 
 再在新的一个终端中运行静态全局规划代码
 ```bash
 roslaunch race_global_static_planner race_global_carla_town10_truck.launch
 ```
-4.控制算法启动！
+**4.控制算法启动！**
 
 再在一个新的终端里面运行控制算法eso_tracker/eso_tracker2，都是横向控制，前者为2DOF模型，后者为3DOF模型（多挂车横摆角速度）。任选一个运行就可以啦。
 ```bash
 roslaunch race_tracker eso_tracker_carla.launch
   roslaunch race_tracker eso_tracker2_carla.launch
 ```
-5.半挂小车启动！
+**5.半挂小车启动！**
 
 此时应该会显示收到RED Flag，以及侧向载荷尚未收到的红色提示，不用急！只是启动了紧急停止，车辆并不会运动，我们需要打开ltr来输入，以及competition_timer来控制车辆运行。
 ```bash
@@ -575,33 +577,48 @@ rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREE
 ```bash
 rostopic echo /race/vehicle_state/tracking # 是车辆状态的子话题，包含横向、航向和速度误差
 ```
-高速地图加载
+
+#### 5.5.2 高速地图参考轨迹和加载
+
+**基本其他高速地图**
+
+高速地图参考轨迹和加载，如果使用Town05环形地图采用以下指令：
+```bash
+roslaunch race_global_static_planner race_global_carla_town05_truck.launch # 地图Town05环形高速加载
+``` 
+```bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="23.7,187.1,0.0,0.0,0.0,0.0" # 地图Town05环形高速出生点
+``` 
+如果采用Town04 8字高速地图采用以下指令：
+```bash
+roslaunch race_global_static_planner race_global_carla_town04_truck.launch # 地图Town04 8字高速加载
+``` 
 
 ```bash
-roslaunch race_global_static_planner race_global_carla_town05_truck.launch
-``` 
-```bash
-roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="23.7,187.1,0.0,0.0,0.0,0.0"
-``` 
-```bash
-roslaunch race_global_static_planner race_global_carla_town04_truck.launch
-roslaunch race_global_static_planner race_global_carla_town04_quasi.launch
-``` 
-
-```bash
-roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="248.7,364.2,0.0,0.0,0.0,0.0"   
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="248.7,364.2,0.0,0.0,0.0,0.0"   # 地图Town04 8字高速出生点
 ```
-xxx 其他启动项目 TODO
+**轨迹随动模式规划**
+
+在Town04 8字高速地图上，采用轨迹初始随动模式（DFCV和其他车企常用规划方式）采用以下指令替换bridge和planner：
+```bash
+roslaunch race_global_static_planner race_global_carla_town04_quasi.launch # 地图Town04 8字高速加载，轨迹初始随动模式（DFCV和其他车企常用规划方式），同时发布原位轨迹和随动轨迹，原位轨迹重命名为话题/race/local_path_nom
+``` 
+
+```bash
+roslaunch carla_race_bridge  carla_race_bridge_with_dynamics_dfcv.launch  # 采用重命名后的原位轨迹/race/local_path_nom计算横向航向误差
+```
+
+
 
 
 
 ## Contributors:
 
-- 戚笑景 Komasa Qi （清华大学）
+- **戚笑景 Komasa Qi** （清华大学）
 - 何瑞坤 He Ruikun （辽宁工业大学）
 - 邹恒多 Zou Hengduo （清华大学）
-- 龚林豪 Gong Linhao (江苏理工学院)
-- 王坤鹏 Wang Kunpeng (长安大学)
+- **龚林豪 Gong Linhao** (江苏理工学院)
+- **王坤鹏 Wang Kunpeng** (长安大学)
 - 扶尚宇 Fu Shangyu （清华大学）
 - 邱逸凡 Qiu Yifan （中国农业大学）
 - 黄梓谦 Huang Ziqian （华南理工大学）
@@ -610,4 +627,4 @@ xxx 其他启动项目 TODO
 - 蒋涛 Javier Jiang （重庆大学）
 
 
-感谢以上所有参与项目的贡献者，我们的项目是一个开源项目，欢迎所有的贡献者参与进来。
+感谢以上所有参与项目的贡献者，我们的项目是一个开源项目，欢迎所有的贡献者参与进来。（**加粗**为本分支主要贡献者）
