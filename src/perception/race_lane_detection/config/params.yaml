@@ -14,12 +14,12 @@ markers_topic: "/race/lane_markers"                         # RViz车道线标�
 ego_frame_id: "ego_vehicle"                                 # 自车坐标系名称
 
 # -------------------------- 相机外参 --------------------------
-# 安装于自车系 (3.5, 0, 2.0)，朝向前方，pitch=roll=yaw=0
+# 安装于自车系 (3.5, 0, 3.0)，朝向前方，pitch=roll=yaw=0
 cam_x: 3.5
 cam_y: 0.0
-cam_z: 2.0
+cam_z: 5.0
 cam_roll: 0.0
-cam_pitch: 0.0
+cam_pitch: 0.5236
 cam_yaw: 0.0
 cam_fov_deg: 90.0          # 仅在收不到 camera_info 时按此 fov 兜底计算内参
 # 地面在自车系中的 z 高度(米)。若自车原点在地面则为0；若原点在某高度则填负值。
@@ -30,7 +30,7 @@ fit_order: 3               # 默认拟合阶数(3)
 max_fit_order: 5           # 允许的最大阶数(5)
 report_order: 5            # 系数数组按此阶数补零输出(默认5阶=6个系数)
 coeff_decimals: 6          # 系数保留小数位(默认6位)
-lane_width: 3.5            # 标称车道宽度(米)，用于车道基检测与中心线推断
+lane_width: 3.75            # 标称车道宽度(米)，用于车道基检测与中心线推断
 
 # -------------------------- 后端选择 --------------------------
 # learning: 仅用学习后端(UFLDv2 onnx); classic: 仅用规则后端;
@@ -53,8 +53,8 @@ ufld_dataset: "auto"
 # 顶部裁剪比例(送入网络前裁掉顶部天空). 留空用数据集默认
 # (culane=0.6, curvelanes=0.8). CARLA相机pitch=0、地平线居中时, 若检测点
 # 偏高/偏低可微调此值: 调小则保留更多顶部(更远处), 调大则更聚焦近处。
-ufld_crop_ratio: ""
-ufld_local_window: 32      # 局部soft-argmax窗口(grid数), 越大越平滑
+ufld_crop_ratio: 0.01
+ufld_local_window: 64      # 局部soft-argmax窗口(grid数), 越大越平滑
 ufld_min_lane_pts: 6       # 单条车道最少有效点数, 低于则丢弃
 
 # -------------------------- 运行参数 --------------------------

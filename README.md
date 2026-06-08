@@ -564,7 +564,7 @@ roslaunch race_tracker eso_tracker_carla.launch
 roslaunch ltr_estimation ltr_carla.launch 
 ```
 ```bash
-  roslaunch competition_timer competition_timer.launch
+roslaunch competition_timer competition_timer.launch
 ```
 我们需要设置比赛旗帜的颜色来控制车辆状态。如： 手动更改比赛计时器的旗帜状态为GREEN：
 ```bash

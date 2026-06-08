@@ -77,7 +77,7 @@ roslaunch race_lane_detection lane_detection.launch detector_backend:=classic op
 # 学习后端:
 roslaunch race_lane_detection lane_detection.launch \
     detector_backend:=learning \
-    onnx_path:=$(rospack find race_lane_detection)/weights/ufldv2_culane_res34_320x1600.onnx
+    onnx_path:=$(rospack find race_lane_detection)/weights/ufldv2_culane_res18_800x1600.onnx
 ```
 
 ## 5. 话题接口
