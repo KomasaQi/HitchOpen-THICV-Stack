@@ -606,6 +606,7 @@ roslaunch race_global_static_planner race_global_carla_town04_truck.launch # 地
 在Town04 8字高速地图上，采用轨迹初始随动模式（DFCV和其他车企常用规划方式）采用以下指令替换bridge和planner：
 ```bash
 roslaunch race_global_static_planner race_global_carla_town04_quasi.launch # 地图Town04 8字高速加载，轨迹初始随动模式（DFCV和其他车企常用规划方式），同时发布原位轨迹和随动轨迹，原位轨迹重命名为话题/race/local_path_nom
+roslaunch race_global_static_planner race_global_carla_town04_fused.launch # 地图Town04 8字高速加载,在上一版基础上增加误差大于0.3m，实现准静态和静态轨迹规划切换
 ``` 
 
 ```bash

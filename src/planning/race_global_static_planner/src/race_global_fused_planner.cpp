@@ -1,6 +1,6 @@
-#include "race_global_quasi_static_planner.h"
+#include "race_global_fused_planner.h"
 
-RaceGlobalQuasiStaticPlanner::RaceGlobalQuasiStaticPlanner()
+RaceGlobalFusedPlanner::RaceGlobalFusedPlanner()
     : pnh_("~"),
       origin_lat_(0.0),
       origin_lon_(0.0),
@@ -87,14 +87,14 @@ RaceGlobalQuasiStaticPlanner::RaceGlobalQuasiStaticPlanner()
     // -------------------------- 5. 创建ROS订阅者 --------------------------
     vehicle_status_sub_ = nh_.subscribe<race_msgs::VehicleStatus>(
         vehicle_status_topic_, 10, 
-        &RaceGlobalQuasiStaticPlanner::vehicleStatusCallback, this);
+        &RaceGlobalFusedPlanner::vehicleStatusCallback, this);
 
     // -------------------------- 6. 创建全局路径发布定时器 --------------------------
     if (global_pub_rate_ > 0)
     {
         double period = 1.0 / global_pub_rate_;
         global_pub_timer_ = nh_.createTimer(ros::Duration(period), 
-                                           &RaceGlobalQuasiStaticPlanner::publishGlobalPath, this);
+                                           &RaceGlobalFusedPlanner::publishGlobalPath, this);
     }
     else
     {
@@ -105,7 +105,7 @@ RaceGlobalQuasiStaticPlanner::RaceGlobalQuasiStaticPlanner()
     {
         double period = 1.0 / local_pub_rate_;
         local_pub_timer_ = nh_.createTimer(ros::Duration(period), 
-                                           &RaceGlobalQuasiStaticPlanner::publishLocalPath, this);
+                                           &RaceGlobalFusedPlanner::publishLocalPath, this);
     }
     else
     {
@@ -115,7 +115,7 @@ RaceGlobalQuasiStaticPlanner::RaceGlobalQuasiStaticPlanner()
     ROS_INFO("Race Global Static Planner initialized successfully!");
 }
 
-bool RaceGlobalQuasiStaticPlanner::readGlobalPathFromCSV()
+bool RaceGlobalFusedPlanner::readGlobalPathFromCSV()
 {
     // 打开CSV文件
     std::ifstream csv_file(csv_file_path_);
@@ -254,7 +254,7 @@ bool RaceGlobalQuasiStaticPlanner::readGlobalPathFromCSV()
     return !global_path_points_.empty();
 }
 
-void RaceGlobalQuasiStaticPlanner::precomputePathDistances()
+void RaceGlobalFusedPlanner::precomputePathDistances()
 {
     if (global_path_points_.empty())
     {
@@ -285,7 +285,7 @@ void RaceGlobalQuasiStaticPlanner::precomputePathDistances()
              global_path_cumulative_dist_.size(), global_path_cumulative_dist_.back());
 }
 
-void RaceGlobalQuasiStaticPlanner::publishGlobalPath(const ros::TimerEvent& event)
+void RaceGlobalFusedPlanner::publishGlobalPath(const ros::TimerEvent& event)
 {
     if (global_path_points_.empty())
     {
@@ -311,7 +311,7 @@ void RaceGlobalQuasiStaticPlanner::publishGlobalPath(const ros::TimerEvent& even
     }
 }
 
-void RaceGlobalQuasiStaticPlanner::publishLocalPath(const ros::TimerEvent& event)
+void RaceGlobalFusedPlanner::publishLocalPath(const ros::TimerEvent& event)
 {
     // 生成并发布局部路径
     race_msgs::Path local_path = generateLocalPath(current_vehicle_status_);
@@ -339,7 +339,7 @@ void RaceGlobalQuasiStaticPlanner::publishLocalPath(const ros::TimerEvent& event
 }
 
 
-void RaceGlobalQuasiStaticPlanner::vehicleStatusCallback(const race_msgs::VehicleStatus::ConstPtr& msg)
+void RaceGlobalFusedPlanner::vehicleStatusCallback(const race_msgs::VehicleStatus::ConstPtr& msg)
 {
     // 缓存当前车辆状态
     current_vehicle_status_ = *msg;
@@ -348,7 +348,7 @@ void RaceGlobalQuasiStaticPlanner::vehicleStatusCallback(const race_msgs::Vehicl
 
 }
 
-race_msgs::Path RaceGlobalQuasiStaticPlanner::generateLocalPath(const race_msgs::VehicleStatus& status)
+race_msgs::Path RaceGlobalFusedPlanner::generateLocalPath(const race_msgs::VehicleStatus& status)
 {
     race_msgs::Path local_path;
 
@@ -366,7 +366,7 @@ race_msgs::Path RaceGlobalQuasiStaticPlanner::generateLocalPath(const race_msgs:
         return local_path;
     }
 
-    // -------------------------- 1. 获取当前车辆后轴状态 --------------------------
+    // -------------------------- 1. 获取当前车辆状态 --------------------------
     double car_x = status.pose.position.x;
     double car_y = status.pose.position.y;
     double car_z = status.pose.position.z;
@@ -402,50 +402,69 @@ race_msgs::Path RaceGlobalQuasiStaticPlanner::generateLocalPath(const race_msgs:
     }
 
     double global_path_len = global_path_cumulative_dist_.back();
-
     if (global_path_len <= 1e-6)
     {
         ROS_WARN("Global path length is too short");
         return local_path;
     }
 
+    const auto& nearest_point = global_path_points_[nearest_idx];
+    double nearest_x = nearest_point.pose.position.x;
+    double nearest_y = nearest_point.pose.position.y;
+    double nearest_z = nearest_point.pose.position.z;
+    double nearest_yaw = tf::getYaw(nearest_point.pose.orientation);
     double nearest_dist = global_path_cumulative_dist_[nearest_idx];
 
-    ROS_INFO_THROTTLE(1.0,
-        "Current vehicle position: (%.2f, %.2f, %.2f), nearest path point: (%.2f, %.2f, %.2f)",
-        car_x, car_y, car_z,
-        global_path_points_[nearest_idx].pose.position.x,
-        global_path_points_[nearest_idx].pose.position.y,
-        global_path_points_[nearest_idx].pose.position.z);
+    // -------------------------- 3. 计算车辆相对参考线误差 --------------------------
+    // 这里采用“有符号横向误差”作为切换依据：
+    // lateral_error > 0：车辆在参考线左侧；lateral_error < 0：车辆在参考线右侧。
+    // 硬切换逻辑：|lateral_error| < 0.3m 走静态规划，否则走准静态规划。
+    const double switch_error_threshold = 0.3;
+    double err_x = car_x - nearest_x;
+    double err_y = car_y - nearest_y;
+    double lateral_error = -std::sin(nearest_yaw) * err_x + std::cos(nearest_yaw) * err_y;
+    double abs_lateral_error = std::abs(lateral_error);
 
-    // -------------------------- 3. 根据路径距离查找索引的工具函数 --------------------------
-    auto findIndexByDistance = [&](double target_dist) -> size_t
+    bool use_quasi_static = (abs_lateral_error >= switch_error_threshold);
+
+    ROS_INFO_THROTTLE(1.0,
+        "Current vehicle position: (%.2f, %.2f, %.2f), nearest path point: (%.2f, %.2f, %.2f), lateral_error=%.3f m, mode=%s",
+        car_x, car_y, car_z,
+        nearest_x, nearest_y, nearest_z,
+        lateral_error,
+        use_quasi_static ? "QUASI_STATIC" : "STATIC");
+
+    // -------------------------- 4. 路径距离查找工具函数 --------------------------
+    auto normalizeDistance = [&](double dist) -> double
     {
         if (enable_closed_loop_)
         {
-            while (target_dist < 0.0)
+            while (dist < 0.0)
             {
-                target_dist += global_path_len;
+                dist += global_path_len;
             }
-
-            while (target_dist > global_path_len)
+            while (dist > global_path_len)
             {
-                target_dist -= global_path_len;
+                dist -= global_path_len;
             }
         }
         else
         {
-            if (target_dist < 0.0)
+            if (dist < 0.0)
             {
-                target_dist = 0.0;
+                dist = 0.0;
             }
-
-            if (target_dist > global_path_len)
+            if (dist > global_path_len)
             {
-                target_dist = global_path_len;
+                dist = global_path_len;
             }
         }
+        return dist;
+    };
 
+    auto findFirstIndexGE = [&](double target_dist) -> size_t
+    {
+        target_dist = normalizeDistance(target_dist);
         for (size_t i = 0; i < global_path_cumulative_dist_.size(); ++i)
         {
             if (global_path_cumulative_dist_[i] >= target_dist)
@@ -453,169 +472,34 @@ race_msgs::Path RaceGlobalQuasiStaticPlanner::generateLocalPath(const race_msgs:
                 return i;
             }
         }
-
         return global_path_cumulative_dist_.size() - 1;
     };
 
-    // -------------------------- 4. 选择前方贴回参考线的目标点 --------------------------
-    // 关键参数：车辆不是接到最近点，而是接到参考线前方 merge_distance 米处
-    double merge_distance = 40.0;      // 越大越平缓
-    double bezier_resolution = 1;   // 曲线采样间隔，越小点越密
-
-    // 防止 local_forward_dist_ 太小导致后面参考线拼接范围不够
-    double actual_forward_dist = local_forward_dist_;
-    if (actual_forward_dist < merge_distance)
+    auto findLastIndexLE = [&](double target_dist) -> size_t
     {
-        actual_forward_dist = merge_distance;
-    }
-
-    double target_dist = nearest_dist + merge_distance;
-    double end_dist = nearest_dist + actual_forward_dist;
-
-    size_t target_idx = findIndexByDistance(target_dist);
-    size_t end_idx = findIndexByDistance(end_dist);
-
-    const auto& target_point = global_path_points_[target_idx];
-
-    double target_x = target_point.pose.position.x;
-    double target_y = target_point.pose.position.y;
-    double target_z = target_point.pose.position.z;
-    double target_yaw = tf::getYaw(target_point.pose.orientation);
-
-    // -------------------------- 5. 使用三次 Bezier 曲线从后轴接回参考线 --------------------------
-    double p0x = car_x;
-    double p0y = car_y;
-    double p0z = car_z;
-
-    double p3x = target_x;
-    double p3y = target_y;
-    double p3z = target_z;
-
-    double dx = p3x - p0x;
-    double dy = p3y - p0y;
-    double dz = p3z - p0z;
-
-    double chord_len = std::sqrt(dx * dx + dy * dy + dz * dz);
-
-    // 控制点长度：影响曲线形状
-    double tangent_len = 0.5 * chord_len;
-
-    if (tangent_len < 1.0)
-    {
-        tangent_len = 1.0;
-    }
-
-    if (tangent_len > 8.0)
-    {
-        tangent_len = 8.0;
-    }
-
-    // P1：从车辆当前航向向前引出
-    double p1x = p0x + tangent_len * std::cos(car_heading);
-    double p1y = p0y + tangent_len * std::sin(car_heading);
-    double p1z = p0z;
-
-    // P2：从目标参考点沿参考线反方向引出
-    double p2x = p3x - tangent_len * std::cos(target_yaw);
-    double p2y = p3y - tangent_len * std::sin(target_yaw);
-    double p2z = p3z;
-
-    int sample_num = static_cast<int>(chord_len / bezier_resolution);
-
-    if (sample_num < 8)
-    {
-        sample_num = 8;
-    }
-
-    if (sample_num > 100)
-    {
-        sample_num = 100;
-    }
-
-    double start_velocity = global_path_points_[nearest_idx].velocity;
-    double target_velocity = target_point.velocity;
-
-    local_path.points.clear();
-
-    for (int i = 0; i <= sample_num; ++i)
-    {
-        double t = static_cast<double>(i) / static_cast<double>(sample_num);
-        double u = 1.0 - t;
-
-        race_msgs::PathPoint bezier_point;
-
-        // Bezier 曲线位置
-        bezier_point.pose.position.x =
-            u * u * u * p0x +
-            3.0 * u * u * t * p1x +
-            3.0 * u * t * t * p2x +
-            t * t * t * p3x;
-
-        bezier_point.pose.position.y =
-            u * u * u * p0y +
-            3.0 * u * u * t * p1y +
-            3.0 * u * t * t * p2y +
-            t * t * t * p3y;
-
-        bezier_point.pose.position.z =
-            u * u * u * p0z +
-            3.0 * u * u * t * p1z +
-            3.0 * u * t * t * p2z +
-            t * t * t * p3z;
-
-        // Bezier 一阶导数，用来计算 yaw
-        double dBx =
-            3.0 * u * u * (p1x - p0x) +
-            6.0 * u * t * (p2x - p1x) +
-            3.0 * t * t * (p3x - p2x);
-
-        double dBy =
-            3.0 * u * u * (p1y - p0y) +
-            6.0 * u * t * (p2y - p1y) +
-            3.0 * t * t * (p3y - p2y);
-
-        double yaw = std::atan2(dBy, dBx);
-        bezier_point.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
-
-        // Bezier 二阶导数，用来估算曲率
-        double ddBx =
-            6.0 * u * (p2x - 2.0 * p1x + p0x) +
-            6.0 * t * (p3x - 2.0 * p2x + p1x);
-
-        double ddBy =
-            6.0 * u * (p2y - 2.0 * p1y + p0y) +
-            6.0 * t * (p3y - 2.0 * p2y + p1y);
-
-        double denom = std::pow(dBx * dBx + dBy * dBy, 1.5);
-
-        if (denom > 1e-6)
+        target_dist = normalizeDistance(target_dist);
+        for (size_t i = global_path_cumulative_dist_.size(); i > 0; --i)
         {
-            bezier_point.curvature = (dBx * ddBy - dBy * ddBx) / denom;
-        }
-        else
-        {
-            bezier_point.curvature = 0.0;
-        }
-
-        // 速度从最近参考点速度平滑过渡到目标参考点速度
-        bezier_point.velocity = (1.0 - t) * start_velocity + t * target_velocity;
-
-        local_path.points.push_back(bezier_point);
-    }
-
-    // -------------------------- 6. Bezier 曲线之后，继续拼接前方参考路径 --------------------------
-    if (enable_closed_loop_)
-    {
-        if (target_idx != end_idx)
-        {
-            size_t idx = target_idx + 1;
-            if (idx >= global_path_points_.size())
+            size_t idx = i - 1;
+            if (global_path_cumulative_dist_[idx] <= target_dist)
             {
-                idx = 0;
+                return idx;
             }
+        }
+        return 0;
+    };
 
+    auto appendPathIndexRange = [&](size_t start_idx, size_t end_idx)
+    {
+        if (global_path_points_.empty())
+        {
+            return;
+        }
+
+        if (enable_closed_loop_)
+        {
+            size_t idx = start_idx;
             size_t safety_count = 0;
-
             while (safety_count < global_path_points_.size())
             {
                 local_path.points.push_back(global_path_points_[idx]);
@@ -634,25 +518,211 @@ race_msgs::Path RaceGlobalQuasiStaticPlanner::generateLocalPath(const race_msgs:
                 safety_count++;
             }
         }
-    }
-    else
-    {
-        if (target_idx + 1 < global_path_points_.size())
+        else
         {
-            for (size_t i = target_idx + 1; i <= end_idx && i < global_path_points_.size(); ++i)
+            if (start_idx > end_idx)
+            {
+                ROS_WARN("Local path index error: start_idx(%zu) > end_idx(%zu), fallback to nearest_idx", start_idx, end_idx);
+                local_path.points.push_back(global_path_points_[nearest_idx]);
+                return;
+            }
+
+            for (size_t i = start_idx; i <= end_idx && i < global_path_points_.size(); ++i)
             {
                 local_path.points.push_back(global_path_points_[i]);
             }
         }
+    };
+
+    // ======================================================================
+    // 模式 A：误差小于 0.3m，采用静态规划：直接从全局参考线截取局部路径
+    // ======================================================================
+    if (!use_quasi_static)
+    {
+        double start_dist = nearest_dist - local_backward_dist_;
+        double end_dist = nearest_dist + local_forward_dist_;
+
+        size_t start_idx = findFirstIndexGE(start_dist);
+        size_t end_idx = findLastIndexLE(end_dist);
+
+        // 非闭环时，如果前后范围导致索引异常，则退化为最近点。
+        if (!enable_closed_loop_ && start_idx > end_idx)
+        {
+            ROS_WARN("Static local path index error: start_idx(%zu) > end_idx(%zu), fallback to nearest_idx", start_idx, end_idx);
+            local_path.points.push_back(global_path_points_[nearest_idx]);
+        }
+        else
+        {
+            appendPathIndexRange(start_idx, end_idx);
+        }
+
+        ROS_DEBUG("Static local path generated: nearest_idx=%zu, points=%zu, lateral_error=%.3f",
+                  nearest_idx, local_path.points.size(), lateral_error);
+        return local_path;
     }
 
-    ROS_DEBUG("Bezier local path generated: nearest_idx=%zu, target_idx=%zu, end_idx=%zu, points=%zu",
-              nearest_idx, target_idx, end_idx, local_path.points.size());
+    // ======================================================================
+    // 模式 B：误差大于等于 0.3m，采用准静态规划：Bezier 曲线接回参考线，再拼接前方参考线
+    // ======================================================================
+
+    // 关键参数：车辆不是接到最近点，而是接到参考线前方 merge_distance 米处。
+    // 后续建议把这两个参数放到 rosparam 中，目前先按硬编码保留。
+    double merge_distance = 40.0;
+    double bezier_resolution = 1.0;
+
+    // 防止 local_forward_dist_ 太小导致后面参考线拼接范围不够。
+    double actual_forward_dist = local_forward_dist_;
+    if (actual_forward_dist < merge_distance)
+    {
+        actual_forward_dist = merge_distance;
+    }
+
+    double target_dist = nearest_dist + merge_distance;
+    double end_dist = nearest_dist + actual_forward_dist;
+
+    size_t target_idx = findFirstIndexGE(target_dist);
+    size_t end_idx = findFirstIndexGE(end_dist);
+
+    const auto& target_point = global_path_points_[target_idx];
+
+    double target_x = target_point.pose.position.x;
+    double target_y = target_point.pose.position.y;
+    double target_z = target_point.pose.position.z;
+    double target_yaw = tf::getYaw(target_point.pose.orientation);
+
+    // -------------------------- Bezier 曲线控制点 --------------------------
+    double p0x = car_x;
+    double p0y = car_y;
+    double p0z = car_z;
+
+    double p3x = target_x;
+    double p3y = target_y;
+    double p3z = target_z;
+
+    double chord_dx = p3x - p0x;
+    double chord_dy = p3y - p0y;
+    double chord_dz = p3z - p0z;
+    double chord_len = std::sqrt(chord_dx * chord_dx + chord_dy * chord_dy + chord_dz * chord_dz);
+
+    // 控制点长度：影响曲线形状。
+    double tangent_len = 0.5 * chord_len;
+    if (tangent_len < 1.0)
+    {
+        tangent_len = 1.0;
+    }
+    if (tangent_len > 8.0)
+    {
+        tangent_len = 8.0;
+    }
+
+    // P1：从车辆当前航向向前引出。
+    double p1x = p0x + tangent_len * std::cos(car_heading);
+    double p1y = p0y + tangent_len * std::sin(car_heading);
+    double p1z = p0z;
+
+    // P2：从目标参考点沿参考线反方向引出。
+    double p2x = p3x - tangent_len * std::cos(target_yaw);
+    double p2y = p3y - tangent_len * std::sin(target_yaw);
+    double p2z = p3z;
+
+    int sample_num = static_cast<int>(chord_len / bezier_resolution);
+    if (sample_num < 8)
+    {
+        sample_num = 8;
+    }
+    if (sample_num > 100)
+    {
+        sample_num = 100;
+    }
+
+    double start_velocity = global_path_points_[nearest_idx].velocity;
+    double target_velocity = target_point.velocity;
+
+    local_path.points.clear();
+
+    for (int i = 0; i <= sample_num; ++i)
+    {
+        double t = static_cast<double>(i) / static_cast<double>(sample_num);
+        double u = 1.0 - t;
+
+        race_msgs::PathPoint bezier_point;
+
+        // Bezier 曲线位置。
+        bezier_point.pose.position.x =
+            u * u * u * p0x +
+            3.0 * u * u * t * p1x +
+            3.0 * u * t * t * p2x +
+            t * t * t * p3x;
+
+        bezier_point.pose.position.y =
+            u * u * u * p0y +
+            3.0 * u * u * t * p1y +
+            3.0 * u * t * t * p2y +
+            t * t * t * p3y;
+
+        bezier_point.pose.position.z =
+            u * u * u * p0z +
+            3.0 * u * u * t * p1z +
+            3.0 * u * t * t * p2z +
+            t * t * t * p3z;
+
+        // Bezier 一阶导数，用来计算 yaw。
+        double dBx =
+            3.0 * u * u * (p1x - p0x) +
+            6.0 * u * t * (p2x - p1x) +
+            3.0 * t * t * (p3x - p2x);
+
+        double dBy =
+            3.0 * u * u * (p1y - p0y) +
+            6.0 * u * t * (p2y - p1y) +
+            3.0 * t * t * (p3y - p2y);
+
+        double yaw = std::atan2(dBy, dBx);
+        bezier_point.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
+
+        // Bezier 二阶导数，用来估算曲率。
+        double ddBx =
+            6.0 * u * (p2x - 2.0 * p1x + p0x) +
+            6.0 * t * (p3x - 2.0 * p2x + p1x);
+
+        double ddBy =
+            6.0 * u * (p2y - 2.0 * p1y + p0y) +
+            6.0 * t * (p3y - 2.0 * p2y + p1y);
+
+        double denom = std::pow(dBx * dBx + dBy * dBy, 1.5);
+        if (denom > 1e-6)
+        {
+            bezier_point.curvature = (dBx * ddBy - dBy * ddBx) / denom;
+        }
+        else
+        {
+            bezier_point.curvature = 0.0;
+        }
+
+        // 速度从最近参考点速度平滑过渡到目标参考点速度。
+        bezier_point.velocity = (1.0 - t) * start_velocity + t * target_velocity;
+
+        local_path.points.push_back(bezier_point);
+    }
+
+    // Bezier 曲线之后，继续拼接前方参考路径。
+    if (target_idx != end_idx)
+    {
+        size_t next_idx = target_idx + 1;
+        if (next_idx >= global_path_points_.size())
+        {
+            next_idx = 0;
+        }
+        appendPathIndexRange(next_idx, end_idx);
+    }
+
+    ROS_DEBUG("Quasi-static local path generated: nearest_idx=%zu, target_idx=%zu, end_idx=%zu, points=%zu, lateral_error=%.3f",
+              nearest_idx, target_idx, end_idx, local_path.points.size(), lateral_error);
 
     return local_path;
 }
 
-nav_msgs::Path RaceGlobalQuasiStaticPlanner::convertToNavPath(const race_msgs::Path& race_path)
+nav_msgs::Path RaceGlobalFusedPlanner::convertToNavPath(const race_msgs::Path& race_path)
 {
     nav_msgs::Path nav_path;
 
@@ -674,8 +744,8 @@ nav_msgs::Path RaceGlobalQuasiStaticPlanner::convertToNavPath(const race_msgs::P
 // 节点主函数
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "race_global_quasi_static_planner");
-    RaceGlobalQuasiStaticPlanner planner;
+    ros::init(argc, argv, "race_global_fused_planner");
+    RaceGlobalFusedPlanner planner;
     ros::spin();
     return 0;
 }

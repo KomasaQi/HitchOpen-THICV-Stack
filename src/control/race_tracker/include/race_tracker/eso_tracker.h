@@ -171,6 +171,8 @@ private:
     // ESO观测器相关
     double eso_x1_;
     double eso_x2_;
+    double model_r_comp_;//模型计算横摆角速度
+    bool model_comp_initialized_;//是否初始化
 
     //输出模型计算量
     double Model_r1_;

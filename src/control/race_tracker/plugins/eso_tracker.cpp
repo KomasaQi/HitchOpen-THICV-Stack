@@ -39,7 +39,8 @@ ESOTracker::ESOTracker() {
     start_time_ = ros::Time(0);
     last_final_cmd_ = 0.0;
     current_cmd_ = 0.0;
-
+    model_r_comp_ = 0.0;
+    model_comp_initialized_ = false;
     // --- 2. 求解器状态初始化 ---
     solver_.has_prev_sol = false;
     solver_.sol_prev = nullptr;
@@ -224,6 +225,8 @@ void ESOTracker::computeControl(
         last_final_cmd_ = curr_delta; 
         final_cmd_filt_ = curr_delta;
         final_cmd_filt_init_ = false;
+        model_r_comp_ = 0.0;
+        model_comp_initialized_ = false;
     }
     last_control_time = current_time;
 
@@ -283,6 +286,10 @@ void ESOTracker::computeControl(
     // NMPC都后台预计算，保持热启动
     // ==========================================================
     // 扰动纯化（始终计算)
+    if (!model_comp_initialized_) {
+    model_r_comp_ = curr_r;
+    model_comp_initialized_ = true;
+    }
     double vx_safe_external = std::max(curr_vx, 1.0); 
     double alpha_f_curr = curr_delta - atan2((vy_est + nmpc_params_.lf * curr_r), vx_safe_external);
     double alpha_r_curr = -atan2((vy_est - nmpc_params_.lr * curr_r), vx_safe_external);
@@ -293,7 +300,8 @@ void ESOTracker::computeControl(
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
     double r_dot_model = r_dot_nominal + d_pure_trailer;
-    Model_r1_ = curr_r + r_dot_model * obs_dt;
+    model_r_comp_= r_dot_model * obs_dt;
+    Model_r1_ = model_r_comp_;
 
     // 路径处理（始终计算）
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
