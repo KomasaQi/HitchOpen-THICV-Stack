@@ -204,6 +204,9 @@ private:
     double rls_Cf_est_;
     double rls_Cr_est_;
 
+    // 标定特性
+    double const_steer_bias_;
+
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
     double control_time_;

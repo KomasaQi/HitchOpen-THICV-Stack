@@ -5,6 +5,7 @@ float64 eso1_total
 float64 eso1_pure
 float64 Cf_est
 float64 Cr_est
+float64 eso1_x
 
 # Project2
 float64 model_r2

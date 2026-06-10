@@ -130,7 +130,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0); // 
     nh_nmpc.param("dR_dense", nmpc_params_.dR_dense, 0.0);     // 稠密增量惩罚，默认0=不改变原行为
     nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
-
+    nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
 
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
@@ -300,7 +300,7 @@ void ESOTracker::computeControl(
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
     double r_dot_model = r_dot_nominal + d_pure_trailer;
-    model_r_comp_= r_dot_model * obs_dt;
+    model_r_comp_ += r_dot_nominal * obs_dt;
     Model_r1_ = model_r_comp_;
 
     // 路径处理（始终计算）
@@ -333,6 +333,9 @@ void ESOTracker::computeControl(
     }
     // 限幅保护
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
+
+    // 加入恒定偏差补偿（如果设置了 const_steer_bias_）
+    nmpc_safe_cmd_ += const_steer_bias_;
 
     // ==========================================================
     // 纯跟踪逻辑 
@@ -434,6 +437,7 @@ void ESOTracker::computeControl(
     race_msgs::ESOEstimation est_msg;
     est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
     est_msg.vy_est1 = vy_est;                  // 侧向速度
+    est_msg.eso1_x = eso_x1_;                  // ESO_x
     est_msg.eso1_total = eso_x2_;              // ESO_x2
     est_msg.eso1_pure = d_pure_trailer;        // 纯扰动
     est_msg.r_t = r_t_;                        // 挂车横摆率
