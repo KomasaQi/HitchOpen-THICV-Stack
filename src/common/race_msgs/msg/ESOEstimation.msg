@@ -21,3 +21,4 @@ float64 kappa
 float64 r_ref
 float64 theta
 float64 vy_model
+float64 ay_slope_compensation

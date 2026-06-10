@@ -132,6 +132,10 @@ private:
     // 车辆状态缓存
     race_msgs::VehicleStatus current_vehicle_status_; // 当前车辆状态缓存
     bool is_vehicle_status_received_;                 // 车辆状态是否已接收
+
+    // 轨迹切换参数
+    bool trajectory_switching_enable_;             // 是否启用轨迹切换
+    double trajectory_switching_distance_;       // 轨迹切换距离（米）
 };
 
 #endif // RACE_GLOBAL_STATIC_PLANNER_H

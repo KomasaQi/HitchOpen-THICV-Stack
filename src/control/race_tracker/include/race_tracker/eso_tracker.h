@@ -29,6 +29,7 @@ struct SupervisorParams {
     double lookahead_distance;
 };
 
+
 // NMPC参数 
 struct NMPCParams {
     // --- 基础配置 ---
@@ -206,6 +207,10 @@ private:
 
     // 标定特性
     double const_steer_bias_;
+
+    // 横坡补偿
+    bool use_slope_compensation_;
+    double ay_slope_compensation_;
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;

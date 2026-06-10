@@ -131,6 +131,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("dR_dense", nmpc_params_.dR_dense, 0.0);     // 稠密增量惩罚，默认0=不改变原行为
     nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
     nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
+    nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
 
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
@@ -142,7 +143,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("min_lookahead_distance", min_lookahead_distance_, 6.0);
     nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
     nh_super.param("control_time", control_time_, 0.05);
-    nh_super.param("control_delay_sec", control_delay_sec_, 0.2);
+    nh_super.param("control_delay_sec", control_delay_sec_, 0.0);
     nh_super.param("output_lpf_tau", output_lpf_tau_, 0.0);   // 输出低通时间常数(s)，默认0=关闭
 
 
@@ -300,7 +301,7 @@ void ESOTracker::computeControl(
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
     double r_dot_model = r_dot_nominal + d_pure_trailer;
-    model_r_comp_ += r_dot_model * obs_dt;
+    model_r_comp_ += r_dot_nominal * obs_dt;
     Model_r1_ = model_r_comp_;
 
     // 路径处理（始终计算）
@@ -315,6 +316,14 @@ void ESOTracker::computeControl(
     // 因此初始 x,y,theta 均为 0；vy/r/delta 仍为实际物理量。
     std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
+
+    // 计算横坡补偿
+    if (use_slope_compensation_) {
+        double ay_theoretical = curr_r * curr_vx;
+        ay_slope_compensation_ = curr_ay - ay_theoretical;
+    } else {
+        ay_slope_compensation_ = 0.0;
+    }
 
     // NMPC参数绑定（始终更新）
     std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, 
@@ -449,6 +458,7 @@ void ESOTracker::computeControl(
     est_msg.r_ref = r_ref;                     // 参考横摆率
     est_msg.theta = theta;                     // 参考航向角
     est_msg.vy_model = vy_model;               // 侧向速度模型
+    est_msg.ay_slope_compensation = ay_slope_compensation_;
     est_pub_.publish(est_msg);
 }
 
@@ -780,7 +790,7 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX Fyf = Cf_sym * alpha_f;
     MX Fyr = Cr_sym * alpha_r;
 
-    MX d_vy = (Fyf * cos(delta) + Fyr) / m_sym - vx * r;
+    MX d_vy = (Fyf * cos(delta) + Fyr) / m_sym - vx * r + ay_slope_compensation_;
     MX d_r = (lf_sym * Fyf * cos(delta) - lr_sym * Fyr) / Iz_sym + h_dist;
     MX d_x = vx * cos(theta) - vy * sin(theta);
     MX d_y = vx * sin(theta) + vy * cos(theta);
@@ -1052,7 +1062,7 @@ void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, dou
     const double vx = std::max(curr_vx, 1.0);
 
     // 牵引车横摆率直接采用状态量，并做轻微低通抑制噪声
-    const double tau_r = 0.08;                  // 可调: 0.05~0.15
+    const double tau_r = 0;                  // 可调: 0.05~0.15
     if (!r_filter_initialized_) {
         r_tractor_filt_ = curr_r;
         r_filter_initialized_ = true;

@@ -47,6 +47,10 @@ distance_weight_heading: 100.0
 map_frame: "map" # 地图坐标系
 
 
+# 轨迹切换参数
+trajectory_switching_enable: true
+trajectory_switching_distance: 0.5
+
 vehicle_status_topic: "/race/vehicle_state" # 车辆状态话题
 global_path_topic: "/race/global_path" # 全局路径话题
 local_path_topic: "/race/local_path" # 局部路径话题

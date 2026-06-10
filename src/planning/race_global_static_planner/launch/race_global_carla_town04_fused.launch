@@ -1,6 +1,6 @@
 <launch>
     <!-- 新增：打印参数文件的完整路径 -->
-    <param name="debug_params_path" value="$(find race_global_static_planner)/config/params_dfcv_town04_dused.yaml"/>
+    <param name="debug_params_path" value="$(find race_global_static_planner)/config/params_dfcv_town04_fused.yaml"/>
     
     <!-- 加载参数配置文件 -->
     <rosparam command="load" file="$(find race_global_static_planner)/config/params_dfcv_town04_fused.yaml" ns="race_global_fused_planner"/>

@@ -49,6 +49,10 @@ RaceGlobalFusedPlanner::RaceGlobalFusedPlanner()
     pnh_.param("distance_weight_z", weight_z_, 0.5);
     pnh_.param("distance_weight_heading", weight_heading_, 0.2);
 
+    // 轨迹切换参数
+    pnh_.param("trajectory_switching_enable", trajectory_switching_enable_, true);
+    pnh_.param("trajectory_switching_distance", trajectory_switching_distance_, 0.3);
+
     // 打印参数配置
     ROS_INFO("===================== Planner Params =====================");
     ROS_INFO("CSV File Path: %s", csv_file_path_.c_str());
@@ -419,13 +423,14 @@ race_msgs::Path RaceGlobalFusedPlanner::generateLocalPath(const race_msgs::Vehic
     // 这里采用“有符号横向误差”作为切换依据：
     // lateral_error > 0：车辆在参考线左侧；lateral_error < 0：车辆在参考线右侧。
     // 硬切换逻辑：|lateral_error| < 0.3m 走静态规划，否则走准静态规划。
-    const double switch_error_threshold = 0.3;
+    const double switch_error_threshold = trajectory_switching_distance_;
     double err_x = car_x - nearest_x;
     double err_y = car_y - nearest_y;
     double lateral_error = -std::sin(nearest_yaw) * err_x + std::cos(nearest_yaw) * err_y;
     double abs_lateral_error = std::abs(lateral_error);
 
-    bool use_quasi_static = (abs_lateral_error >= switch_error_threshold);
+    bool use_quasi_static = trajectory_switching_enable_ && (abs_lateral_error >= switch_error_threshold);
+
 
     ROS_INFO_THROTTLE(1.0,
         "Current vehicle position: (%.2f, %.2f, %.2f), nearest path point: (%.2f, %.2f, %.2f), lateral_error=%.3f m, mode=%s",
