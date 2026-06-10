@@ -132,6 +132,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
     nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
     nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
+    nh_nmpc.param<double>("slope_compensation_coeff", slope_compensation_coeff_, 1.0);
+    nh_nmpc.param<int>("slope_compensation_filter_window_size", slope_compensation_filter_window_size_, 1);
 
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
@@ -320,15 +322,31 @@ void ESOTracker::computeControl(
     // 计算横坡补偿
     if (use_slope_compensation_) {
         double ay_theoretical = curr_r * curr_vx;
-        ay_slope_compensation_ = curr_ay - ay_theoretical;
+        double ay_slope_compensation_raw = curr_ay - ay_theoretical;
+
+        // 滑动窗口滤波
+        ay_slope_compensation_history_.push_back(ay_slope_compensation_raw);
+        if (ay_slope_compensation_history_.size() > slope_compensation_filter_window_size_) {
+            ay_slope_compensation_history_.pop_front();
+        }
+
+        double sum = 0.0;
+        for (double val : ay_slope_compensation_history_) {
+            sum += val;
+        }
+        ay_slope_compensation_ = sum / ay_slope_compensation_history_.size();
+
+        ROS_WARN("横坡补偿: %.2f, 补偿系数：%.2f, 滑动窗口大小：%zu", ay_slope_compensation_, slope_compensation_coeff_, ay_slope_compensation_history_.size());
     } else {
         ay_slope_compensation_ = 0.0;
+        ay_slope_compensation_history_.clear();
     }
 
     // NMPC参数绑定（始终更新）
     std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, 
                                       nmpc_params_.lr, rls_Cf_est_, rls_Cr_est_};
     solver_.opti.set_value(solver_.P_vx, curr_vx);
+    solver_.opti.set_value(solver_.P_ay_slope_comp, ay_slope_compensation_ * slope_compensation_coeff_);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
 
@@ -778,7 +796,7 @@ void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt){
 }
 
 MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
-                                              const MX& vx, const MX& h_dist, const MX& dyn_params) {
+                                              const MX& vx, const MX& h_dist, const MX& dyn_params, const MX& ay_slope_comp) {
     MX theta = state(2), vy = state(3), r = state(4), delta = state(5);
     MX m_sym = dyn_params(0), Iz_sym = dyn_params(1), lf_sym = dyn_params(2), lr_sym = dyn_params(3);
     MX Cf_sym = dyn_params(4), Cr_sym = dyn_params(5);
@@ -790,7 +808,8 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX Fyf = Cf_sym * alpha_f;
     MX Fyr = Cr_sym * alpha_r;
 
-    MX d_vy = (Fyf * cos(delta) + Fyr) / m_sym - vx * r + ay_slope_compensation_;
+    MX d_vy = (Fyf * cos(delta) + Fyr) / m_sym - vx * r + ay_slope_comp;
+
     MX d_r = (lf_sym * Fyf * cos(delta) - lr_sym * Fyr) / Iz_sym + h_dist;
     MX d_x = vx * cos(theta) - vy * sin(theta);
     MX d_y = vx * sin(theta) + vy * cos(theta);
@@ -810,6 +829,7 @@ void ESOTracker::buildNMPSolver() {
     solver_.P_x0 = solver_.opti.parameter(nx);
     solver_.P_waypoints = solver_.opti.parameter(4, N+1);  
     solver_.P_vx = solver_.opti.parameter(1);
+    solver_.P_ay_slope_comp = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
     solver_.P_h_hat = solver_.opti.parameter(1);
     solver_.P_dyn_params = solver_.opti.parameter(6);  
@@ -832,18 +852,18 @@ void ESOTracker::buildNMPSolver() {
 
         
         if (nmpc_params_.integration_grade >= 0.5 && nmpc_params_.integration_grade < 1.5) { // Euler前向积分
-            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params));
+            solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp));
         }
         else if (nmpc_params_.integration_grade >= 1.5 && nmpc_params_.integration_grade < 2.5) { // RK2积分
-            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
-            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt / 2.0 * k1, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
             solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * k2);
         }
         else if (nmpc_params_.integration_grade >= 3.5 && nmpc_params_.integration_grade < 4.5) { // RK4积分
-            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params);
-            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k1, con, solver_.P_vx, h, solver_.P_dyn_params);
-            MX k3 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k2, con, solver_.P_vx, h, solver_.P_dyn_params);
-            MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params);
+            MX k1 = vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
+            MX k2 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k1, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
+            MX k3 = vehicleDynamicsModel(st + nmpc_params_.dt/2 * k2, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
+            MX k4 = vehicleDynamicsModel(st + nmpc_params_.dt * k3, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp);
             solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt/6 * (k1 + 2*k2 + 2*k3 + k4));
         }
         else {

@@ -612,7 +612,7 @@ roslaunch race_global_static_planner race_global_carla_town04_fused.launch # 地
 ```bash
 roslaunch carla_race_bridge  carla_race_bridge_with_dynamics_dfcv.launch  # 采用重命名后的原位轨迹/race/local_path_nom计算横向航向误差
 ```
-
+roslaunch race_global_static_planner race_global_carla_towncross.launch
 
 
 

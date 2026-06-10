@@ -85,6 +85,7 @@ struct NMPSolver {
     casadi::MX P_u_prev;
     casadi::MX P_h_hat;
     casadi::MX P_dyn_params;
+    casadi::MX P_ay_slope_comp;
     std::unique_ptr<casadi::OptiSol> sol_prev; 
     bool has_prev_sol;
 };
@@ -113,7 +114,7 @@ private:
 
     casadi::MX vehicleDynamicsModel(const casadi::MX& state, const casadi::MX& cmd_delta,
                                     const casadi::MX& vx, const casadi::MX& h_dist,
-                                    const casadi::MX& dyn_params);
+                                    const casadi::MX& dyn_params, const casadi::MX& ay_slope_comp);
 
     bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                    std::vector<double>& control_output);
@@ -211,6 +212,9 @@ private:
     // 横坡补偿
     bool use_slope_compensation_;
     double ay_slope_compensation_;
+    double slope_compensation_coeff_;
+    int slope_compensation_filter_window_size_;
+    std::deque<double> ay_slope_compensation_history_;
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
