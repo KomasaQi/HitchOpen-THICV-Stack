@@ -300,7 +300,7 @@ void ESOTracker::computeControl(
     double r_dot_actual = b_eso * curr_delta + eso_x2_;
     double d_pure_trailer = r_dot_actual - r_dot_nominal;
     double r_dot_model = r_dot_nominal + d_pure_trailer;
-    model_r_comp_ += r_dot_nominal * obs_dt;
+    model_r_comp_ += r_dot_model * obs_dt;
     Model_r1_ = model_r_comp_;
 
     // 路径处理（始终计算）

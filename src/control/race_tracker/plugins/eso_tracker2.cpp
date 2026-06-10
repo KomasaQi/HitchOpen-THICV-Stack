@@ -820,73 +820,73 @@ void ESOTracker2::calculate_trailer_kinematics(double curr_vx, double curr_r, do
 MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
                                      const MX& vx, const MX& h_dist,
                                      const MX& dyn_params) {
-    MX theta = state(2), vy = state(3), r = state(4), delta = state(5);
-    MX r_t = state(6), gamma = state(7);
-
-    MX m1 = dyn_params(0), Iz1 = dyn_params(1), lf = dyn_params(2), lr = dyn_params(3);
-    MX Cf = dyn_params(4), Cr = dyn_params(5), M = dyn_params(6), Iz2 = dyn_params(7);
-    MX lt = dyn_params(8), Ct = dyn_params(9), L2 = dyn_params(10);
+    // ================== 状态量读取 ==================
+    MX theta = state(2);
+    MX vy    = state(3);
+    MX r     = state(4);
+    MX delta = state(5);
+    MX r_t   = state(6);
+    MX gamma = state(7);
+    // ================== 动力学参数读取 ==================
+    MX m1  = dyn_params(0);
+    MX Iz1 = dyn_params(1);
+    MX lf  = dyn_params(2);
+    MX lr  = dyn_params(3);
+    MX Cf  = dyn_params(4);
+    MX Cr  = dyn_params(5);
+    MX M   = dyn_params(6);
+    MX Iz2 = dyn_params(7);
+    MX lt  = dyn_params(8);
+    MX Ct  = dyn_params(9);
+    MX L2  = dyn_params(10);
     MX m2 = M - m1;
-
-    MX vx_safe = fmax(vx, 0.5); 
-    MX cos_gamma = cos(gamma); 
-    MX sin_gamma = sin(gamma);
-    // 1. 轮胎侧偏角与力计算
+    // ================== 数值保护 ==================
+    MX vx_safe = fmax(vx, 0.5);
+    MX cg = cos(gamma);
+    MX sg = sin(gamma);
+    // ================== 牵引车轮胎侧偏角与侧向力 ==================
     MX alpha_f = delta - atan2((vy + lf * r), vx_safe);
     MX alpha_r = -atan2((vy - lr * r), vx_safe);
     MX Fyf = Cf * alpha_f;
     MX Fyr = Cr * alpha_r;
-    // 挂车车轴处侧偏力
-    MX vy_h1 = vy - lr * r; 
-    MX vy_axle = -vx_safe * sin_gamma + vy_h1 * cos_gamma - L2 * r_t; 
-    MX alpha_t = -atan2(vy_axle, vx_safe);
+    // ================== 铰接点速度 ==================
+    MX vx_h1 = vx_safe;
+    MX vy_h1 = vy - lr * r;
+    MX vx_h2 = vx_h1 * cg + vy_h1 * sg;
+    MX vy_h2 = -vx_h1 * sg + vy_h1 * cg;
+    // ================== 挂车轴速度与挂车侧向力 ==================
+    MX vx2 = vx_h2;
+    MX vy2 = vy_h2 - L2 * r_t;
+    MX vx2_safe = fmax(vx2, 0.5);
+    MX alpha_t = -atan2(vy2, vx2_safe);
     MX Fyt = Ct * alpha_t;
-    // 牵引车自身的合外力与力矩
-    MX Y1 = Fyf * cos(delta) + Fyr;
-    MX N1 = lf * Fyf * cos(delta) - lr * Fyr;
-    MX r_dot1 = N1 / Iz1;
-    // 2. 铰接力 Hy 分离推导 (Hy = Hy_const + Hy_dyn * d_r_t)
-    MX Hy_const = -((L2 - lt) * Fyt) / (lt * cos_gamma);
-    MX Hy_dyn   = -Iz2 / (lt * cos_gamma);
-    // 3. 牵引车加速度分离推导 
-    // 横移加速度 d_vy = d_vy_const + d_vy_dyn * d_r_t
-    MX d_vy_const = (Y1 - m1 * vx * r + Hy_const) / m1;
-    MX d_vy_dyn   = Hy_dyn / m1;
-    // 横摆加速度 d_r = d_r_const + d_r_dyn * d_r_t
-    MX d_r_const = (N1 - lr * Hy_const) / Iz1; 
-    MX d_r_dyn   = (-lr * Hy_dyn) / Iz1;
-    // 挂车因速度产生的向心加速度外项
-    MX a_y2_ext = vx_safe * r * cos_gamma + vy_h1 * r * sin_gamma;
-    // 平衡方程右侧常数项基础值 (由 Fyt 和向心力组成)
-    MX RHS_trailer = (L2 / lt) * Fyt - m2 * a_y2_ext;
-    // 将 d_vy 和 d_r 代入平移方程，提取出 d_r_t 的系数
-    MX coeff_drt = m2 * cos_gamma * d_vy_dyn 
-                 - m2 * lr * cos_gamma * d_r_dyn 
-                 - (m2 * lt + Iz2 / lt);
-
-    // 将 d_vy 和 d_r 的常数部分移到方程右侧，计算最终的方程右边(RHS)
-    MX RHS_total = RHS_trailer 
-                 - m2 * cos_gamma * d_vy_const 
-                 + m2 * lr * cos_gamma * d_r_const;
-
-    // 解得挂车横摆加速度
-    MX d_r_t = RHS_total / coeff_drt;
-
-    // 5. 回代求取牵引车加速度
-    MX d_vy = d_vy_const + d_vy_dyn * d_r_t;
-    MX d_r_nominal  = d_r_const + d_r_dyn * d_r_t ;
-    // MX d_r = d_r_nominal ;
-    MX d_r = d_r_nominal + h_dist; // ESO扰动引入
-
-    // 6. 运动学状态更新
-    MX d_gamma = r_t - r; // 挂车相对转角变化率
-    MX d_x = vx * cos(theta) - vy * sin(theta);
-    MX d_y = vx * sin(theta) + vy * cos(theta);
-    MX d_theta = r;
-    MX d_delta = (cmd_delta - delta) / nmpc_params_.T_lag;
-
-    std::vector<MX> state_derivatives = {d_x, d_y, d_theta, d_vy, d_r, d_delta, d_r_t, d_gamma};
-
+    // ================== 广义力 F1, F2, F3 ==================
+    MX Fyt_y1 = Fyt * cg;
+    MX F1=Fyf*cos(delta)+Fyr+Fyt_y1-(m1+m2)*vx_safe*r-m2*lt*r_t*r_t*sg;
+    MX F2=lf*Fyf*cos(delta)-lr*Fyr-lr*Fyt_y1+m2*lr*vx_safe*r+m2*lr*lt*r_t*r_t*sg;
+    MX F3=-L2*Fyt+m2*lt*r*(vx_safe*cg+(vy-lr*r)*sg);
+    MX A=m1+m2;
+    MX S11=Iz1+m2*lr*lr-(m2*m2*lr*lr)/A;
+    MX S12=m2*lr*lt*cg-(m2*m2*lr*lt*cg)/A;
+    MX S22=Iz2+m2*lt*lt-(m2*m2*lt*lt*cg*cg)/A;
+    MX b1=F2+(m2*lr/A)*F1;
+    MX b2=F3+(m2*lt*cg/A)*F1;
+    MX detS=S11*S22-S12*S12;
+    // 这里加一个很小的正则项，避免符号优化中出现除零风险。
+    MX detS_safe = detS + 1e-9;
+    MX d_r_nominal=(b1*S22-b2*S12)/detS_safe;
+    MX d_r_t=(S11*b2-S12*b1)/detS_safe;
+    MX d_vy=(F1+m2*lr*d_r_nominal+m2*lt*cg*d_r_t)/A;
+    // ================== ESO 扰动引入 ==================
+    MX d_r=d_r_nominal;
+    // MX d_r=d_r_nominal+h_dist;
+    // ================== 运动学状态更新 ==================
+    MX d_gamma=r_t-r;   
+    MX d_x=vx_safe*cos(theta)-vy*sin(theta);
+    MX d_y=vx_safe*sin(theta)+vy*cos(theta);
+    MX d_theta=r;
+    MX d_delta=(cmd_delta-delta)/nmpc_params_.T_lag;
+    std::vector<MX> state_derivatives = {d_x,d_y,d_theta,d_vy,d_r,d_delta,d_r_t,d_gamma};
     return vertcat(state_derivatives);
 }
 
@@ -1111,77 +1111,58 @@ void ESOTracker2::esoCompute(double curr_vy,double curr_r,double curr_delta,doub
     eso_x2_ = std::max(-max_yaw_acc_dist,std::min(max_yaw_acc_dist, eso_x2_));
 }
 
- double ESOTracker2::calcNominalYawAccel(double curr_vy,double curr_r,double curr_delta,double curr_r_t,
-                                                       double curr_gamma,double curr_vx) {
+double ESOTracker2::calcNominalYawAccel(double curr_vy,double curr_r,double curr_delta,double curr_r_t,double curr_gamma,double curr_vx) {
+    // ================== 参数读取 ==================
     const double m1  = nmpc_params_.m;
     const double Iz1 = nmpc_params_.Iz;
     const double lf  = nmpc_params_.lf;
     const double lr  = nmpc_params_.lr;
     const double Cf  = rls_Cf_est_;
     const double Cr  = rls_Cr_est_;
-    const double M   = nmpc_params_.m_t_total;
-    const double m2  = M - m1;
-    const double Iz2 = nmpc_params_.Iz_t + nmpc_params_.Kiz * (nmpc_params_.m_t_total - nmpc_params_.m_t);
-    const double lt  = nmpc_params_.lt;
     const double Ct  = rls_Ct_est_;
+    const double M   = nmpc_params_.m_t_total;
+    const double Iz2 = nmpc_params_.Iz_t+ nmpc_params_.Kiz*(nmpc_params_.m_t_total- nmpc_params_.m_t);
+    const double lt  = nmpc_params_.lt;
     const double L2  = nmpc_params_.L2;
+    const double m2  = M-m1;
+    // ================== 数值保护 ==================
     const double vx_safe = std::max(curr_vx, 0.5);
-    double cos_gamma = std::cos(curr_gamma);
-    if (std::abs(cos_gamma) < 0.005) {
-        cos_gamma = (cos_gamma >= 0.0) ? 0.005 : -0.005;
-    }
-    const double sin_gamma = std::sin(curr_gamma);
+    const double cg = std::cos(curr_gamma);
+    const double sg = std::sin(curr_gamma);
+    // ================== 牵引车轮胎侧偏角与侧向力 ==================
     const double alpha_f = curr_delta - std::atan2(curr_vy + lf * curr_r, vx_safe);
     const double alpha_r = -std::atan2(curr_vy - lr * curr_r, vx_safe);
-
     const double Fyf = Cf * alpha_f;
     const double Fyr = Cr * alpha_r;
-
-    const double vy_h1 = curr_vy - lr * curr_r;
-    const double vy_axle = -vx_safe * sin_gamma
-                         + vy_h1 * cos_gamma
-                         - L2 * curr_r_t;
-
-    const double alpha_t = -std::atan2(vy_axle, vx_safe);
+    // ================== 铰接点速度 ==================
+    const double vx_h1 = vx_safe;
+    const double vy_h1 = curr_vy-lr*curr_r;
+    const double vx_h2 = vx_h1*cg+vy_h1*sg;
+    const double vy_h2 = -vx_h1*sg+vy_h1*cg;
+    // ================== 挂车轴速度与挂车侧向力 ==================
+    const double vx2 = vx_h2;
+    const double vy2 = vy_h2-L2*curr_r_t;
+    const double vx2_safe = std::max(vx2, 0.5);
+    const double alpha_t = -std::atan2(vy2, vx2_safe);
     const double Fyt = Ct * alpha_t;
-
-    const double Y1 = Fyf * std::cos(curr_delta) + Fyr;
-    const double N1 = lf * Fyf * std::cos(curr_delta) - lr * Fyr;
-
-    const double Hy_const = -((L2 - lt) * Fyt) / (lt * cos_gamma);
-    const double Hy_dyn   = -Iz2 / (lt * cos_gamma);
-
-    const double d_vy_const = (Y1 - m1 * vx_safe * curr_r + Hy_const) / m1;
-    const double d_vy_dyn   = Hy_dyn / m1;
-
-    const double d_r_const = (N1 - lr * Hy_const) / Iz1;
-    const double d_r_dyn   = (-lr * Hy_dyn) / Iz1;
-
-    const double a_y2_ext = vx_safe * curr_r * cos_gamma
-                          + vy_h1 * curr_r * sin_gamma;
-
-    const double RHS_trailer = (L2 / lt) * Fyt - m2 * a_y2_ext;
-
-    const double coeff_drt_raw = m2 * cos_gamma * d_vy_dyn
-                               - m2 * lr * cos_gamma * d_r_dyn
-                               - (m2 * lt + Iz2 / lt);
-
-    double coeff_drt = coeff_drt_raw;
-    if (std::abs(coeff_drt) < 1e-6) {
-        coeff_drt = (coeff_drt >= 0.0) ? 1e-6 : -1e-6;
-    }
-
-    const double RHS_total_nominal = RHS_trailer
-                                   - m2 * cos_gamma * d_vy_const
-                                   + m2 * lr * cos_gamma * d_r_const;
-
-    const double d_r_t_dot_nominal = RHS_total_nominal / coeff_drt;
-
-    const double d_r_nominal = d_r_const + d_r_dyn * d_r_t_dot_nominal;
-
+    // ================== 广义力 F1, F2, F3 ==================
+    const double Fyt_y1 = Fyt * cg;
+    const double F1 = Fyf*std::cos(curr_delta)+Fyr+Fyt_y1-(m1+m2)*vx_safe*curr_r-m2*lt*curr_r_t*curr_r_t*sg;
+    const double F2 = lf*Fyf*std::cos(curr_delta)-lr*Fyr-lr*Fyt_y1+m2*lr*vx_safe*curr_r+m2*lr*lt*curr_r_t*curr_r_t*sg;
+    const double F3 = -L2*Fyt+m2*lt*curr_r*(vx_safe*cg+(curr_vy-lr*curr_r)*sg);
+    const double A = m1 + m2;
+    const double S11 = Iz1+m2*lr*lr-(m2*m2*lr*lr)/A;
+    const double S12 = m2*lr*lt*cg-(m2*m2*lr*lt*cg)/A;
+    const double S22 = Iz2+m2*lt*lt-(m2*m2*lt*lt)/A;
+    const double b1 = F2+(m2*lr/A) * F1;
+    const double b2 = F3+(m2*lt*cg/A) * F1;
+    double detS = S11*S22-S12*S12;
+    // ================== 防止除零 ==================
+    if (std::abs(detS) < 1e-9) {detS = (detS >= 0.0) ? 1e-9 : -1e-9;}
+    // ================== 求解牵引车横摆角加速度 ==================
+    const double d_r_nominal=(b1*S22-b2*S12)/detS;
     return d_r_nominal;
 }
-
 
 } // namespace race_tracker
 
