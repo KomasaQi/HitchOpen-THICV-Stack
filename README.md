@@ -578,9 +578,9 @@ rosparam set /competition_timer/flag GREEN # 设置比赛 状态，可选：GREE
 rostopic echo /race/vehicle_state/tracking # 是车辆状态的子话题，包含横向、航向和速度误差
 ```
 
-#### 5.5.2 高速地图参考轨迹和加载
+#### 5.5.2 其他地图参考轨迹和加载
 
-**基本其他高速地图**
+**基本高速地图**
 
 高速地图参考轨迹和加载，如果使用Town05环形地图采用以下指令：
 ```bash
@@ -613,6 +613,32 @@ roslaunch race_global_static_planner race_global_carla_town04_fused.launch # 地
 roslaunch carla_race_bridge  carla_race_bridge_with_dynamics_dfcv.launch  # 采用重命名后的原位轨迹/race/local_path_nom计算横向航向误差
 ```
 roslaunch race_global_static_planner race_global_carla_towncross.launch
+
+**带横坡地图**
+
+这个地图是带有6°坡度的3km × 3km的大地图，轨迹为45°旋转的椭圆，长轴3000m，短轴2250m，故在行驶途中横纵坡度都是不断变化的。本场景可以很好地验证横坡补偿算法。
+
+![flat_slope_map](/tutorial/images/xodr_open.png)
+
+首先我们打开carla以后导航到`内容/Carla/Maps/`目录下，打开`OpenDriveMap`地图，然后`点击运行`按钮，
+![start_running](/tutorial/images/start_running.png)
+
+这一步切记不要忘记，然后在终端中运行python代码打开地图：
+
+```bash
+cd ~/HitchOpen-THICV-Stack/src/launch/simple_racing/maps/flat_slope_map  && python3 run_square_slope_3km_guardrails.py 
+```
+再在一个新终端中生成车辆：
+
+```bash
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="2822.7,368.9,299.0,0.0,0.0,0.0"   # 横坡地图出生点
+```
+再启动轨迹规划
+
+```bash
+roslaunch race_global_static_planner race_global_carla_towncross.launch
+
+```
 
 
 

@@ -14,7 +14,7 @@
     <!-- <node name="map_server" pkg="map_server" type="map_server" args="$(find race_global_static_planner)/config/carla_town10_map/carla_town10_map.yaml" output="screen"/> -->
 
     <!-- 启动rviz -->
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find race_global_static_planner)/config/carla_planning_ego.rviz" output="screen"/>
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find race_global_static_planner)/config/carla_planning_topdown.rviz" output="screen"/>
 
 
 

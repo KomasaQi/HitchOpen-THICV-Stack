@@ -1,0 +1,78 @@
+<?xml version="1.0" standalone="yes"?>
+<OpenDRIVE>
+  <header revMajor="1" revMinor="4" name="square_slope_3km_6deg_guardrails" version="1.00" date="2026-06-10T00:00:00" north="1500.0000000000000000" south="-1500.0000000000000000" east="3000.0000000000000000" west="0.0000000000000000" vendor="OpenAI">
+    <geoReference><![CDATA[+proj=tmerc +lat_0=0 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs]]></geoReference>
+  </header>
+
+  <!--
+    Map meaning:
+    - Road reference line: x = 0 to 3000 m, y = 0 m.
+    - Total generated road surface: 3000 m long and 3000 m wide.
+    - Left lane width: 1500 m, right lane width: 1500 m.
+    - Elevation slope: 6 degrees along +x direction.
+      z(s) = tan(6 deg) * s = 0.1051042352656765 * s.
+      Height gain at 3000 m is about 315.313 m.
+    - Guardrail annotations are included as OpenDRIVE objects on all four edges.
+    - Reliable collision is enabled by the Python run script through
+      carla.OpendriveGenerationParameters.wall_height = 1.2 m by default.
+    - The script can also spawn visible static barrier props around all four sides.
+  -->
+
+  <road name="square_slope_3000x3000_6deg_with_guardrails" length="3000.0000000000000000" id="1" junction="-1">
+    <link/>
+
+    <type s="0.0000000000000000" type="rural">
+      <speed max="30.0" unit="m/s"/>
+    </type>
+
+    <planView>
+      <geometry s="0.0000000000000000" x="0.0000000000000000" y="0.0000000000000000" hdg="0.0000000000000000" length="3000.0000000000000000">
+        <line/>
+      </geometry>
+    </planView>
+
+    <elevationProfile>
+      <elevation s="0.0000000000000000" a="0.0000000000000000" b="0.1051042352656765" c="0.0000000000000000" d="0.0000000000000000"/>
+    </elevationProfile>
+
+    <lateralProfile/>
+
+    <lanes>
+      <laneOffset s="0.0000000000000000" a="0.0000000000000000" b="0.0000000000000000" c="0.0000000000000000" d="0.0000000000000000"/>
+      <laneSection s="0.0000000000000000">
+        <left>
+          <lane id="1" type="driving" level="false">
+            <link/>
+            <width sOffset="0.0000000000000000" a="1500.0000000000000000" b="0.0000000000000000" c="0.0000000000000000" d="0.0000000000000000"/>
+            <roadMark sOffset="0.0000000000000000" type="none" weight="standard" color="white" width="0.1200000000000000" laneChange="both"/>
+          </lane>
+        </left>
+
+        <center>
+          <lane id="0" type="none" level="false">
+            <roadMark sOffset="0.0000000000000000" type="none" weight="standard" color="white" width="0.1200000000000000" laneChange="none"/>
+          </lane>
+        </center>
+
+        <right>
+          <lane id="-1" type="driving" level="false">
+            <link/>
+            <width sOffset="0.0000000000000000" a="1500.0000000000000000" b="0.0000000000000000" c="0.0000000000000000" d="0.0000000000000000"/>
+            <roadMark sOffset="0.0000000000000000" type="none" weight="standard" color="white" width="0.1200000000000000" laneChange="both"/>
+          </lane>
+        </right>
+      </laneSection>
+    </lanes>
+
+    <objects>
+      <!-- Long side guardrails along the uphill direction. -->
+      <object id="101" name="left_edge_guardrail" type="barrier" s="1500.0000000000000000" t="1500.0000000000000000" zOffset="0.0000000000000000" validLength="3000.0000000000000000" orientation="none" length="3000.0000000000000000" width="0.3500000000000000" height="1.2000000000000000" hdg="0.0000000000000000" pitch="0.1047197551196598" roll="0.0000000000000000"/>
+      <object id="102" name="right_edge_guardrail" type="barrier" s="1500.0000000000000000" t="-1500.0000000000000000" zOffset="0.0000000000000000" validLength="3000.0000000000000000" orientation="none" length="3000.0000000000000000" width="0.3500000000000000" height="1.2000000000000000" hdg="0.0000000000000000" pitch="0.1047197551196598" roll="0.0000000000000000"/>
+
+      <!-- Cross guardrails closing the lower and upper ends of the square. -->
+      <object id="103" name="lower_end_guardrail" type="barrier" s="0.0000000000000000" t="0.0000000000000000" zOffset="0.0000000000000000" validLength="3000.0000000000000000" orientation="none" length="3000.0000000000000000" width="0.3500000000000000" height="1.2000000000000000" hdg="1.5707963267948966" pitch="0.0000000000000000" roll="0.0000000000000000"/>
+      <object id="104" name="upper_end_guardrail" type="barrier" s="3000.0000000000000000" t="0.0000000000000000" zOffset="0.0000000000000000" validLength="3000.0000000000000000" orientation="none" length="3000.0000000000000000" width="0.3500000000000000" height="1.2000000000000000" hdg="1.5707963267948966" pitch="0.0000000000000000" roll="0.0000000000000000"/>
+    </objects>
+    <signals/>
+  </road>
+</OpenDRIVE>

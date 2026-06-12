@@ -10,8 +10,8 @@ eso_tracker:
   # --- 2. 车辆物理参数 ---
   m: 10000.0                    # 车辆质量 (kg)
   Iz: 50000.0                   # 横摆转动惯量 (kg·m²)
-  lf: 1.670                       # 质心到前轴距离 (m)
-  lr: 2.355                     # 质心到后轴距离 (m)
+  lf: 2.00                       # 质心到前轴距离 (m)
+  lr: 2.135                     # 质心到后轴距离 (m)
   T_lag: 0.25                    # 转向系统滞后时间 (s)
   
   # --- 3. 轮胎模型参数 (RLS辨识初始值 & 上下限) ---
@@ -38,26 +38,26 @@ eso_tracker:
   Q_r: 0.0                     # 横摆角速度权重 (原200，提高以增加横摆阻尼、抑制摆动)
   Q_delta: 0.0                   # 转向角权重
   R: 0.02                      # 控制量大小权重
-  dR: 4000.0                  # 稀疏控制点增量权重 (平滑性)
+  dR: 32000.0                  # 稀疏控制点增量权重 (平滑性)
   dR_dense: 0.0             # 稠密增量权重(逐步)，抑制段内/段间阶梯抖动；0=关闭
   R_ddelta: 400.0             # 转角二阶差分权重，专治来回摆动(蛇行)；0=关闭
 
   const_steer_bias: -0.0                # 固定转向偏置 (rad)，可用于修正系统性转向误差
   use_slope_compensation: true         # 是否使用横坡补偿
   slope_compensation_coeff: -1.0       # 横坡补偿比例系数
-  slope_compensation_filter_window_size: 20 # 横坡补偿加速度滤波窗口大小
+  slope_compensation_filter_window_size: 5 # 横坡补偿加速度滤波窗口大小
 # ==============================================================================
 #                        逻辑切换与纯跟踪配置
 # ==============================================================================
 supervisor_config:
   # --- 模式切换逻辑 ---
-  startup_time: 5.0                     # 启动强制纯跟踪时间 (s)
-  blend_speed_low: 4.1667   #4.1667        # 纯跟踪 -> 融合 切换车速 (15 km/h)
-  blend_speed_high: 5  #5.0           # 融合 -> NMPC 切换车速 (18 km/h)
+  startup_time: 0.1                     # 启动强制纯跟踪时间 (s)
+  blend_speed_low: 4.1667   #4.1667     # 纯跟踪 -> 融合 切换车速 (15 km/h)
+  blend_speed_high: 5  #5.0             # 融合 -> NMPC 切换车速 (18 km/h)
   
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
   min_lookahead_distance: 10.0        # 前视距离 (m)
-  lookahead_speed_coeff: 0.7          # 预瞄速度系数，默认0.7
+  lookahead_speed_coeff: 1.4          # 预瞄速度系数，默认0.7
   control_delay_sec: 0.0             # 纯跟踪时延迟系数
   control_time: 0.05                   # 控制频率20Hz
   output_lpf_tau: 0.00               # 输出转角一阶低通时间常数(s)，0=关闭；0.08~0.15
