@@ -5,6 +5,7 @@
 #include <limits>
 #include <stdexcept>
 #include <chrono>
+#include <algorithm>
 
 using namespace casadi;
 using namespace Eigen;
@@ -72,6 +73,27 @@ ESOTracker::ESOTracker() {
 
     min_lookahead_distance_ = 6.0;  // 默认最小预瞄距 6m
     lookahead_speed_coeff_ = 0.7;   // 默认速度系数 0.7
+
+    // 标定与横坡/ay 补偿默认值
+    const_steer_bias_ = 0.0;
+    use_slope_compensation_ = false;
+    ay_slope_compensation_ = 0.0;
+    slope_compensation_coeff_ = 1.0;
+    slope_compensation_filter_window_size_ = 1;
+
+    use_ay_bias_compensation_ = false;
+    const_ay_bias_ = 0.0;
+    use_dynamic_ay_compensation_ = false;
+    ay_bias_estimate_ = 0.0;
+    effective_ay_bias_ = 0.0;
+    dynamic_ay_error_window_size_ = 200;
+    dynamic_ay_error_threshold_ = 0.02;
+    dynamic_ay_bias_learning_rate_ = 2.0e-5;
+    dynamic_ay_bias_max_step_ = 5.0e-5;
+    dynamic_ay_bias_min_ = -1.0;
+    dynamic_ay_bias_max_ = 1.0;
+    dynamic_ay_bias_error_sign_ = -1.0;
+    dynamic_ay_require_full_window_ = true;
 }
 
 // -----------------------------------------------------------------------------
@@ -130,10 +152,36 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0); // 
     nh_nmpc.param("dR_dense", nmpc_params_.dR_dense, 0.0);     // 稠密增量惩罚，默认0=不改变原行为
     nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
+
+    // ay 零偏补偿：仅用于横坡补偿项的 ay_slope = (ay_raw - ay_bias) - vx*r
+    nh_nmpc.param<bool>("use_ay_bias_compensation", use_ay_bias_compensation_, true);   // false=完全关闭 ay 零偏补偿
+    nh_nmpc.param("const_ay_bias", const_ay_bias_, 0.0);                               // 静态 ay 零偏/动态初值，单位 m/s^2
+    nh_nmpc.param<bool>("use_dynamic_ay_compensation", use_dynamic_ay_compensation_, false);
+    nh_nmpc.param<int>("dynamic_ay_error_window_size", dynamic_ay_error_window_size_, 200);
+    nh_nmpc.param<double>("dynamic_ay_error_threshold", dynamic_ay_error_threshold_, 0.02);
+    nh_nmpc.param<double>("dynamic_ay_bias_learning_rate", dynamic_ay_bias_learning_rate_, 2.0e-5);
+    nh_nmpc.param<double>("dynamic_ay_bias_max_step", dynamic_ay_bias_max_step_, 5.0e-5);
+    nh_nmpc.param<double>("dynamic_ay_bias_min", dynamic_ay_bias_min_, -1.0);
+    nh_nmpc.param<double>("dynamic_ay_bias_max", dynamic_ay_bias_max_, 1.0);
+    nh_nmpc.param<double>("dynamic_ay_bias_error_sign", dynamic_ay_bias_error_sign_, -1.0);
+    nh_nmpc.param<bool>("dynamic_ay_require_full_window", dynamic_ay_require_full_window_, true);
+
     nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
     nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
     nh_nmpc.param<double>("slope_compensation_coeff", slope_compensation_coeff_, 1.0);
     nh_nmpc.param<int>("slope_compensation_filter_window_size", slope_compensation_filter_window_size_, 1);
+
+    slope_compensation_filter_window_size_ = std::max(1, slope_compensation_filter_window_size_);
+    dynamic_ay_error_window_size_ = std::max(1, dynamic_ay_error_window_size_);
+    dynamic_ay_error_threshold_ = std::max(0.0, dynamic_ay_error_threshold_);
+    dynamic_ay_bias_learning_rate_ = std::max(0.0, dynamic_ay_bias_learning_rate_);
+    dynamic_ay_bias_max_step_ = std::max(0.0, dynamic_ay_bias_max_step_);
+    if (dynamic_ay_bias_min_ > dynamic_ay_bias_max_) {
+        std::swap(dynamic_ay_bias_min_, dynamic_ay_bias_max_);
+    }
+    ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
+    effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
+    lateral_error_history_.clear();
 
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
@@ -167,6 +215,10 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     // 简单的参数确认打印 (替代不存在的 logParamLoad)
     ROS_INFO("[%s] 参数加载完毕: m=%.0f, N=%d, dR=%.1f, Lookahead=%.1f", 
              getName().c_str(), nmpc_params_.m, nmpc_params_.N, nmpc_params_.dR, supervisor_params_.lookahead_distance);
+    ROS_INFO("[%s] ay零偏补偿: enable=%d, dynamic=%d, const=%.4f, init=%.4f, window=%d, threshold=%.4f, lr=%.8f, max_step=%.8f, sign=%.1f",
+             getName().c_str(), use_ay_bias_compensation_, use_dynamic_ay_compensation_, const_ay_bias_,
+             ay_bias_estimate_, dynamic_ay_error_window_size_, dynamic_ay_error_threshold_,
+             dynamic_ay_bias_learning_rate_, dynamic_ay_bias_max_step_, dynamic_ay_bias_error_sign_);
 
     start_time_ = ros::Time::now(); 
 
@@ -203,6 +255,7 @@ void ESOTracker::computeControl(
     double curr_ay = vehicle_status->acc.linear.y;
     double curr_r = vehicle_status->vel.angular.z;
     double curr_delta = vehicle_status->lateral.steering_angle;
+    double curr_lateral_tracking_error = vehicle_status->tracking.lateral_tracking_error;
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
     
@@ -230,6 +283,11 @@ void ESOTracker::computeControl(
         final_cmd_filt_init_ = false;
         model_r_comp_ = 0.0;
         model_comp_initialized_ = false;
+        ay_slope_compensation_ = 0.0;
+        ay_slope_compensation_history_.clear();
+        lateral_error_history_.clear();
+        ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
+        effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
     }
     last_control_time = current_time;
 
@@ -320,13 +378,29 @@ void ESOTracker::computeControl(
     std::vector<double> control_output(1);
 
     // 计算横坡补偿
+    // 说明：ay 零偏只用于横坡补偿分支，不改 UKF/RLS/ESO 的原有观测输入，避免改变原控制器其他估计链路。
     if (use_slope_compensation_) {
+        if (use_ay_bias_compensation_) {
+            if (use_dynamic_ay_compensation_) {
+                updateDynamicAyBias(curr_lateral_tracking_error);
+            } else {
+                lateral_error_history_.clear();
+                ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
+                effective_ay_bias_ = ay_bias_estimate_;
+            }
+        } else {
+            lateral_error_history_.clear();
+            ay_bias_estimate_ = 0.0;
+            effective_ay_bias_ = 0.0;
+        }
+
+        const double ay_corrected_for_slope = curr_ay - effective_ay_bias_;
         double ay_theoretical = curr_r * curr_vx;
-        double ay_slope_compensation_raw = curr_ay - ay_theoretical;
+        double ay_slope_compensation_raw = ay_corrected_for_slope - ay_theoretical;
 
         // 滑动窗口滤波
         ay_slope_compensation_history_.push_back(ay_slope_compensation_raw);
-        if (ay_slope_compensation_history_.size() > slope_compensation_filter_window_size_) {
+        if (ay_slope_compensation_history_.size() > static_cast<size_t>(slope_compensation_filter_window_size_)) {
             ay_slope_compensation_history_.pop_front();
         }
 
@@ -336,10 +410,15 @@ void ESOTracker::computeControl(
         }
         ay_slope_compensation_ = sum / ay_slope_compensation_history_.size();
 
-        ROS_WARN("横坡补偿: %.2f, 补偿系数：%.2f, 滑动窗口大小：%zu", ay_slope_compensation_, slope_compensation_coeff_, ay_slope_compensation_history_.size());
+        ROS_WARN("横坡补偿: raw_ay=%.4f, ay_bias=%.4f, ay_corr=%.4f, ay_theory=%.4f, slope_raw=%.4f, slope_filt=%.4f, coeff=%.2f, win=%zu",
+                 curr_ay, effective_ay_bias_, ay_corrected_for_slope, ay_theoretical,
+                 ay_slope_compensation_raw, ay_slope_compensation_, slope_compensation_coeff_,
+                 ay_slope_compensation_history_.size());
     } else {
         ay_slope_compensation_ = 0.0;
+        effective_ay_bias_ = 0.0;
         ay_slope_compensation_history_.clear();
+        lateral_error_history_.clear();
     }
 
     // NMPC参数绑定（始终更新）
@@ -653,6 +732,55 @@ casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, cons
 }
 
 // ---------------------- 核心算法  ----------------------
+
+void ESOTracker::updateDynamicAyBias(double lateral_tracking_error) {
+    // 动态估计只在总开关和动态开关均打开时生效；否则由调用处退回静态/关闭逻辑。
+    if (!use_ay_bias_compensation_ || !use_dynamic_ay_compensation_) {
+        effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
+        return;
+    }
+
+    if (!std::isfinite(lateral_tracking_error)) {
+        ROS_WARN("[ay_bias_dyn] 横向跟踪误差不是有限值，跳过本次更新: err=%.6f", lateral_tracking_error);
+        effective_ay_bias_ = ay_bias_estimate_;
+        return;
+    }
+
+    lateral_error_history_.push_back(lateral_tracking_error);
+    if (lateral_error_history_.size() > static_cast<size_t>(dynamic_ay_error_window_size_)) {
+        lateral_error_history_.pop_front();
+    }
+
+    const bool window_ready = !dynamic_ay_require_full_window_ ||
+                              lateral_error_history_.size() >= static_cast<size_t>(dynamic_ay_error_window_size_);
+    const double err_sum = std::accumulate(lateral_error_history_.begin(), lateral_error_history_.end(), 0.0);
+    const double err_mean = lateral_error_history_.empty() ? 0.0 : err_sum / lateral_error_history_.size();
+
+    if (!window_ready) {
+        effective_ay_bias_ = ay_bias_estimate_;
+        return;
+    }
+
+    if (std::abs(err_mean) <= dynamic_ay_error_threshold_) {
+        effective_ay_bias_ = ay_bias_estimate_;
+        return;
+    }
+
+    // 增量式准静态估计。默认 sign=-1：对应“ay 正偏 -> 横向误差均值为负”的当前诊断，
+    // 即 err_mean<0 时增大 ay_bias_estimate_。若实车符号相反，将 dynamic_ay_bias_error_sign 设为 +1。
+    const double raw_step = dynamic_ay_bias_error_sign_ * dynamic_ay_bias_learning_rate_ * err_mean;
+    const double limited_step = std::max(-dynamic_ay_bias_max_step_,
+                                  std::min(dynamic_ay_bias_max_step_, raw_step));
+    const double old_bias = ay_bias_estimate_;
+    ay_bias_estimate_ = std::max(dynamic_ay_bias_min_,
+                          std::min(dynamic_ay_bias_max_, ay_bias_estimate_ + limited_step));
+    effective_ay_bias_ = ay_bias_estimate_;
+
+    ROS_WARN("[ay_bias_dyn] lat_err_now=%.5f, lat_err_mean=%.5f, queue=%zu/%d, threshold=%.5f, raw_step=%.8f, step=%.8f, ay_bias: %.6f -> %.6f, sign=%.1f",
+             lateral_tracking_error, err_mean, lateral_error_history_.size(), dynamic_ay_error_window_size_,
+             dynamic_ay_error_threshold_, raw_step, ay_bias_estimate_ - old_bias, old_bias, ay_bias_estimate_,
+             dynamic_ay_bias_error_sign_);
+}
 
 void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
     

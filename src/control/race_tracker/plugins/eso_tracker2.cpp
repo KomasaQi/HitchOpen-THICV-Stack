@@ -1002,8 +1002,8 @@ MX ESOTracker2::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,const 
     MX d_r_t=(S11*b2-S12*b1)/detS_safe;
     MX d_vy=(F1+m2*lr*d_r_nominal+m2*lt*cg*d_r_t)/A;
     // ================== ESO 扰动引入 ==================
-    MX d_r=d_r_nominal;
-    // MX d_r=d_r_nominal+h_dist;
+    // MX d_r=d_r_nominal;
+    MX d_r=d_r_nominal+h_dist;
     // ================== 运动学状态更新 ==================
     MX d_gamma=r_t-r;   
     MX d_x=vx_safe*cos(theta)-vy*sin(theta);

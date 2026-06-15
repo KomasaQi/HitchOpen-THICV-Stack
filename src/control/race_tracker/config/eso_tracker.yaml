@@ -43,9 +43,22 @@ eso_tracker:
   R_ddelta: 400.0             # 转角二阶差分权重，专治来回摆动(蛇行)；0=关闭
 
   const_steer_bias: -0.0                # 固定转向偏置 (rad)，可用于修正系统性转向误差
-  use_slope_compensation: true         # 是否使用横坡补偿
+  use_slope_compensation: true         # 是否使用横坡补偿；false 时横坡补偿与 ay 零偏补偿均不参与 NMPC
   slope_compensation_coeff: -1.0       # 横坡补偿比例系数
   slope_compensation_filter_window_size: 5 # 横坡补偿加速度滤波窗口大小
+
+  # --- 侧向加速度 ay 零偏补偿：只作用于横坡补偿计算 ay_slope=(ay_raw-ay_bias)-vx*r ---
+  use_ay_bias_compensation: true       # ay 零偏补偿总开关；false=完全关闭静态/动态 ay 零偏补偿
+  const_ay_bias: 0.2                   # 静态 ay 零偏；动态模式下也作为初值 (m/s²)
+  use_dynamic_ay_compensation: false   # false=只使用 const_ay_bias；true=基于横向误差滑动窗口缓慢在线修正
+  dynamic_ay_error_window_size: 200    # 横向误差窗口长度；20Hz*10s=200
+  dynamic_ay_error_threshold: 0.02     # 窗口平均横向误差死区，单位 m；小于该值不更新
+  dynamic_ay_bias_learning_rate: 0.0002 # 每周期每 1m 平均横向误差对应的 ay_bias 更新量，务必很小
+  dynamic_ay_bias_max_step: 0.00005    # 单周期最大 ay_bias 更新量，防止过渡修正诱发蛇行
+  dynamic_ay_bias_min: -0.5            # ay_bias 估计下限 (m/s²)
+  dynamic_ay_bias_max: 0.5             # ay_bias 估计上限 (m/s²)
+  dynamic_ay_require_full_window: true # true=窗口填满后才允许动态更新
+  dynamic_ay_bias_error_sign: -1.0     # 当前诊断：ay正偏->横误负，因此 err_mean<0 时增大偏置；若要“err_mean>0 增大偏置”，改为 +1.0
 # ==============================================================================
 #                        逻辑切换与纯跟踪配置
 # ==============================================================================

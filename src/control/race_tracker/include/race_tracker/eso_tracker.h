@@ -9,6 +9,7 @@
 #include <memory>
 #include <tf/transform_datatypes.h>
 #include <deque>
+#include <cstddef>
 
 // ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
@@ -146,6 +147,9 @@ private:
     void calculate_trailer_kinematics(double curr_vx, double curr_r, double dt);
     void ekfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double M, double dt);
 
+    // 侧向加速度零偏的准静态自校正：基于横向跟踪误差滑动窗口，非常缓慢地修正 ay 零偏估计
+    void updateDynamicAyBias(double lateral_tracking_error);
+
 private:
     ros::Publisher est_pub_;//发布话题
     bool is_high_speed_last_;
@@ -215,6 +219,22 @@ private:
     double slope_compensation_coeff_;
     int slope_compensation_filter_window_size_;
     std::deque<double> ay_slope_compensation_history_;
+
+    // 侧向加速度零偏补偿
+    bool use_ay_bias_compensation_;          // 总开关：false 时完全不做 ay 零偏补偿
+    double const_ay_bias_;                  // 静态 ay 零偏初值/固定值，单位 m/s^2
+    bool use_dynamic_ay_compensation_;      // true 时基于横向误差窗口进行准静态增量修正
+    double ay_bias_estimate_;               // 当前 ay 零偏估计，动态模式下围绕 const_ay_bias_ 迭代
+    double effective_ay_bias_;              // 本周期实际用于横坡补偿的 ay 零偏
+    int dynamic_ay_error_window_size_;      // 横向误差滑动窗口长度，20Hz*10s 默认 200
+    double dynamic_ay_error_threshold_;     // 窗口平均横向误差死区，单位 m
+    double dynamic_ay_bias_learning_rate_;  // 每周期每米横向误差对应的 ay 偏置修正量
+    double dynamic_ay_bias_max_step_;       // 单周期最大 ay 偏置修正量，防止过渡修正
+    double dynamic_ay_bias_min_;            // ay 偏置估计下限
+    double dynamic_ay_bias_max_;            // ay 偏置估计上限
+    double dynamic_ay_bias_error_sign_;     // 横向误差均值到 ay 偏置修正方向的符号
+    bool dynamic_ay_require_full_window_;   // true 时窗口填满后才允许更新
+    std::deque<double> lateral_error_history_;
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
