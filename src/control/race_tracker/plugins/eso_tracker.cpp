@@ -92,7 +92,7 @@ ESOTracker::ESOTracker() {
     dynamic_ay_bias_max_step_ = 5.0e-5;
     dynamic_ay_bias_min_ = -1.0;
     dynamic_ay_bias_max_ = 1.0;
-    dynamic_ay_bias_error_sign_ = -1.0;
+    dynamic_ay_bias_error_sign_ = -1;
     dynamic_ay_require_full_window_ = true;
 }
 
@@ -430,7 +430,11 @@ void ESOTracker::computeControl(
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
 
     // 无论什么模式，都调用NMPC求解，保持热启动状态
+    auto nmpc_start_time = std::chrono::high_resolution_clock::now();
     bool nmpc_solve_success = solveNMPC(nmpc_state, waypoints_dm, control_output);
+    auto nmpc_end_time = std::chrono::high_resolution_clock::now();
+    iter_time_ = std::chrono::duration<double, std::milli>(nmpc_end_time - nmpc_start_time).count();
+
     if (nmpc_solve_success) {
         nmpc_safe_cmd_ = control_output[0]; 
     } else {
@@ -555,7 +559,8 @@ void ESOTracker::computeControl(
     est_msg.r_ref = r_ref;                     // 参考横摆率
     est_msg.theta = theta;                     // 参考航向角
     est_msg.vy_model = vy_model;               // 侧向速度模型
-    est_msg.ay_slope_compensation = ay_slope_compensation_;
+    est_msg.ay_slope_compensation = ay_slope_compensation_; // 侧向速度模型
+    est_msg.iter_time = iter_time_; // 迭代时间
     est_pub_.publish(est_msg);
 }
 

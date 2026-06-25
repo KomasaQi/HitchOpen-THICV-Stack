@@ -630,7 +630,7 @@ cd ~/HitchOpen-THICV-Stack/src/launch/simple_racing/maps/flat_slope_map  && pyth
 再在一个新终端中生成车辆：
 
 ```bash
-roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="2822.7,368.9,299.0,0.0,0.0,0.0"   # 横坡地图出生点
+roslaunch carla_ros_bridge carla_ros_bridge_with_scania_truck.launch spawn_point:="2822.7,368.9,299.0,0.0,0.0,90.0"   # 横坡地图出生点
 ```
 再启动轨迹规划
 

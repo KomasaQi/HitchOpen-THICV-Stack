@@ -32,7 +32,7 @@ eso_tracker:
   #        (2) 用新增的 R_ddelta / dR_dense 直接压制转角来回摆动；
   #        (3) Q_y 略降，避免为压位置误差而频繁动方向盘。
   Q_x: 1.0                       # 位置X误差权重
-  Q_y: 20.0                    # 位置Y误差权重 (原10000，略降以减少过度修正)
+  Q_y: 40.0                    # 位置Y误差权重 (原10000，略降以减少过度修正)
   Q_theta: 1034.0                # 航向角误差权重
   Q_vy: 0.0                      # 侧向速度权重
   Q_r: 0.0                     # 横摆角速度权重 (原200，提高以增加横摆阻尼、抑制摆动)
@@ -49,8 +49,8 @@ eso_tracker:
 
   # --- 侧向加速度 ay 零偏补偿：只作用于横坡补偿计算 ay_slope=(ay_raw-ay_bias)-vx*r ---
   use_ay_bias_compensation: true       # ay 零偏补偿总开关；false=完全关闭静态/动态 ay 零偏补偿
-  const_ay_bias: 0.2                   # 静态 ay 零偏；动态模式下也作为初值 (m/s²)
-  use_dynamic_ay_compensation: false   # false=只使用 const_ay_bias；true=基于横向误差滑动窗口缓慢在线修正
+  const_ay_bias: 0.0                   # 静态 ay 零偏；动态模式下也作为初值 (m/s²)
+  use_dynamic_ay_compensation: true    # false=只使用 const_ay_bias；true=基于横向误差滑动窗口缓慢在线修正
   dynamic_ay_error_window_size: 200    # 横向误差窗口长度；20Hz*10s=200
   dynamic_ay_error_threshold: 0.02     # 窗口平均横向误差死区，单位 m；小于该值不更新
   dynamic_ay_bias_learning_rate: 0.0002 # 每周期每 1m 平均横向误差对应的 ay_bias 更新量，务必很小

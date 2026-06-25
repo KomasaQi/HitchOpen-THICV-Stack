@@ -220,6 +220,9 @@ private:
     int slope_compensation_filter_window_size_;
     std::deque<double> ay_slope_compensation_history_;
 
+    // 迭代时间
+    double iter_time_ = 0.0;
+
     // 侧向加速度零偏补偿
     bool use_ay_bias_compensation_;          // 总开关：false 时完全不做 ay 零偏补偿
     double const_ay_bias_;                  // 静态 ay 零偏初值/固定值，单位 m/s^2
