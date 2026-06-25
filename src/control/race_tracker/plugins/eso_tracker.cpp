@@ -183,6 +183,15 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
     lateral_error_history_.clear();
 
+    // 等效惯性量相关参数
+    nh_nmpc.param("m_total", nmpc_params_.m_total, 39500.0); // 车辆总质量，单位 kg
+    nh_nmpc.param("lg", nmpc_params_.lg, 3.4); // 第五轮到挂车等效轴距离，单位 m
+    nh_nmpc.param("lh", nmpc_params_.lh, 0.0); // 铰接点相对牵引车质心的纵向偏移，单位 m
+    nh_nmpc.param("Kiz", nmpc_params_.Kiz, 10.0); // 单位挂车质量增加的挂车横摆转动惯量，单位 kg·m²
+    nh_nmpc.param<bool>("use_equivalent_inertia", use_equivalent_inertia_, true); // 是否使用等效重量（方案二融合的部分，是否将挂车惯性量融合进来）
+    nh_nmpc.param<bool>("auto_update_total_weight", auto_update_total_weight_, false); // 是否根据话题信息自动更新整车重量（包含挂车的整备质量）
+
+
     // -------------------------------------------------------------------------
     // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
     // -------------------------------------------------------------------------
@@ -211,6 +220,10 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     rls_theta_r_ = nmpc_params_.Cr;
     rls_r_prev_ = 0.0;
     rls_r_dot_pre_ = 0.0;
+
+    // 重置等效惯性量
+    m_eq_y_ = nmpc_params_.m;
+    I_eq_ = nmpc_params_.Iz;
 
     // 简单的参数确认打印 (替代不存在的 logParamLoad)
     ROS_INFO("[%s] 参数加载完毕: m=%.0f, N=%d, dR=%.1f, Lookahead=%.1f", 
@@ -422,7 +435,18 @@ void ESOTracker::computeControl(
     }
 
     // NMPC参数绑定（始终更新）
-    std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, 
+    auto m_trailer = nmpc_params_.m_total - nmpc_params_.m;
+    auto I_trailer = nmpc_params_.Kiz * m_trailer;
+    m_eq_y_ = nmpc_params_.m;
+    I_eq_ = nmpc_params_.Iz;
+    auto d1 = nmpc_params_.lr - nmpc_params_.lh;
+    auto d2 = nmpc_params_.lg;
+    if (use_equivalent_inertia_) {
+        m_eq_y_ += m_trailer * pow(sin(gamma_), 2);
+        I_eq_ += I_trailer * pow((d1*cos(gamma_)/d2),2) + m_trailer*pow(d2*sin(gamma_),2);
+    }
+
+    std::vector<double> dyn_params = {m_eq_y_, I_eq_, nmpc_params_.lf, 
                                       nmpc_params_.lr, rls_Cf_est_, rls_Cr_est_};
     solver_.opti.set_value(solver_.P_vx, curr_vx);
     solver_.opti.set_value(solver_.P_ay_slope_comp, ay_slope_compensation_ * slope_compensation_coeff_);
@@ -826,8 +850,8 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
         double Fyf = rls_Cf_est_ * alpha_f;
         double Fyr = rls_Cr_est_ * alpha_r;
-        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m - curr_vx * r_i;
-        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / nmpc_params_.Iz;
+        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / m_eq_y_ - curr_vx * r_i;
+        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / I_eq_;
         X_sig_pred(0, i) = vy_i + vy_dot * dt;
         X_sig_pred(1, i) = r_i + r_dot * dt;
     }
@@ -858,7 +882,7 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         double vy_i = X_sig_update(0, i), r_i = X_sig_update(1, i);
         double alpha_f = curr_delta - (vy_i + nmpc_params_.lf * r_i) / curr_vx;
         double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
-        double ay_model = (rls_Cf_est_ * alpha_f * cos(curr_delta) + rls_Cr_est_ * alpha_r) / nmpc_params_.m;
+        double ay_model = (rls_Cf_est_ * alpha_f * cos(curr_delta) + rls_Cr_est_ * alpha_r) / m_eq_y_;
         Z_sig(0, i) = ay_model;
         Z_sig(1, i) = r_i;
     }

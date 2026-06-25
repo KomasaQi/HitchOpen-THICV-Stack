@@ -69,6 +69,14 @@ struct NMPCParams {
     double dR_dense;     // 对“稠密”转角序列(逐步)增量的惩罚，抑制段内阶梯抖动
     double R_ddelta;     // 对转角二阶差分的惩罚，专门抑制来回摆动(limit cycle)
 
+
+    // 等效惯性量相关参数
+    double m_total; // 车辆总质量，单位 kg
+    double lg; // 第五轮到挂车等效轴距离，单位 m
+    double lh; // 铰接点相对牵引车质心的纵向偏移，单位 m
+    double Kiz; // 单位挂车质量增加的挂车横摆转动惯量，单位 kg·m²
+ 
+
     Eigen::Matrix<double, 6, 6> Q;
 
     NMPCParams(); // 声明构造函数，在cpp中实现矩阵初始化
@@ -238,6 +246,12 @@ private:
     double dynamic_ay_bias_error_sign_;     // 横向误差均值到 ay 偏置修正方向的符号
     bool dynamic_ay_require_full_window_;   // true 时窗口填满后才允许更新
     std::deque<double> lateral_error_history_;
+
+    // 等效惯性量相关参数
+    bool use_equivalent_inertia_; // 是否使用等效重量（方案二融合的部分，是否将挂车惯性量融合进来）
+    bool auto_update_total_weight_; // 是否根据话题信息自动更新整车重量（包含挂车的整备质量）
+    double m_eq_y_ = 0.0; // 等效重量，单位 kg
+    double I_eq_ = 0.0; // 等效惯性量，单位 kg·m²
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
