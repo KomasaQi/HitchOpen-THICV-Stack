@@ -36,6 +36,17 @@ eso_tracker:
   # --- 4. 控制量约束 ---
   min_steer: -0.5                 # 最小转向角 (rad)
   max_steer: 0.5                  # 最大转向角 (rad)
+  steer_rate_min: 0.035           # 最大允许变化率曲线下限，高速段逼近值，rad/s
+  steer_rate_max: 0.35            # 最大允许变化率曲线上限，低速段封顶值，rad/s
+  steer_rate_v0_kmh: 15.0         # 反比例平滑项，值越大，中高速限制越严格
+  steer_rate_k: 5.0               # 反比例强度，值越大，整体转角变化率越高
+
+  use_lateral_error_steer_rate_boost: true   # 是否启用横向误差放宽转角变化率
+  lateral_error_deadband: 0.20                # 横向误差死区，单位 m；小于该值不额外放宽
+  lateral_error_full: 0.8                     # 横向误差达到该值时，放宽量达到最大
+  lateral_error_rate_boost_max: 0.50          # 最大额外增加的转角变化率，单位 rad/s
+  steer_rate_emergency_max: 0.85              # 误差大时最终允许的最大变化率，单位 rad/s
+  lateral_error_filter_tau: 0.0               # 横向误差绝对值低通滤波时间常数，单位 s；0=关闭滤波
 
   # --- 5. 代价函数权重 (Q矩阵 & R矩阵) ---
   Q_x: 1.0                        # 位置X误差权重

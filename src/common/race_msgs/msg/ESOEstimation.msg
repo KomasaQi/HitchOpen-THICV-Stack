@@ -25,3 +25,4 @@ float64 vy_model
 # Common for both projects
 float64 ay_slope_compensation
 float64 iter_time
+float64 total_control_time

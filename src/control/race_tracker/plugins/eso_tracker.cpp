@@ -94,6 +94,9 @@ ESOTracker::ESOTracker() {
     dynamic_ay_bias_max_ = 1.0;
     dynamic_ay_bias_error_sign_ = -1;
     dynamic_ay_require_full_window_ = true;
+
+    lateral_error_abs_filt_ = 0.0;
+    lateral_error_filter_initialized_ = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -138,6 +141,20 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.5);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
     nh_nmpc.param("max_delta_delta", nmpc_params_.delta_c_max, 1.5);
+
+    // 车速相关前轮转角变化率限制，单位 rad/s
+    nh_nmpc.param("steer_rate_min", nmpc_params_.steer_rate_min, 0.30);
+    nh_nmpc.param("steer_rate_max", nmpc_params_.steer_rate_max, 2.00);
+    nh_nmpc.param("steer_rate_v0_kmh", nmpc_params_.steer_rate_v0_kmh, 15.0);
+    nh_nmpc.param("steer_rate_k", nmpc_params_.steer_rate_k, 30.0);
+
+    //横向误差控制变化率相关参数
+    nh_nmpc.param<bool>("use_lateral_error_steer_rate_boost",nmpc_params_.use_lateral_error_steer_rate_boost,true);
+    nh_nmpc.param("lateral_error_deadband",nmpc_params_.lateral_error_deadband,0.20);
+    nh_nmpc.param("lateral_error_full",nmpc_params_.lateral_error_full,1.00);
+    nh_nmpc.param("lateral_error_rate_boost_max",nmpc_params_.lateral_error_rate_boost_max,0.45);
+    nh_nmpc.param( "steer_rate_emergency_max",nmpc_params_.steer_rate_emergency_max,0.85);
+    nh_nmpc.param("lateral_error_filter_tau",nmpc_params_.lateral_error_filter_tau,0.20);
 
     // -------------------------------------------------------------------------
     // 5. 加载代价函数权重
@@ -253,6 +270,8 @@ void ESOTracker::computeControl(
     const double dt,
     const race_msgs::Flag::ConstPtr& flag) {
 
+    auto control_start_time = std::chrono::high_resolution_clock::now();
+
     // 1. 提取基础信息
     if (!vehicle_status || !path || !control_msg) {
         ROS_ERROR("[%s] 收到空指针消息", getName().c_str());
@@ -301,10 +320,19 @@ void ESOTracker::computeControl(
         lateral_error_history_.clear();
         ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
         effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
+        lateral_error_abs_filt_ = 0.0;
+        lateral_error_filter_initialized_ = false;
     }
     last_control_time = current_time;
 
-    const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限，0.05设置了上限   5-28修改
+    const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限
+
+    // 当前车速 + 横向误差共同决定的最大前轮转角变化率，单位 rad/s
+    const double steer_rate_limit =computeErrorAwareSteerRateLimit(curr_vx_raw,curr_lateral_tracking_error,obs_dt);
+
+    // 当前控制周期内允许的最大前轮转角变化量，单位 rad
+    // 同时保留 max_delta_delta 作为全局硬保护。
+    const double steer_step_limit = steer_rate_limit * obs_dt;
 
     if (rls_r_prev_ == 0.0 && curr_r != 0.0) {
         rls_r_prev_ = curr_r;
@@ -452,6 +480,7 @@ void ESOTracker::computeControl(
     solver_.opti.set_value(solver_.P_ay_slope_comp, ay_slope_compensation_ * slope_compensation_coeff_);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
+    solver_.opti.set_value(solver_.P_delta_step_max, steer_step_limit); //每步限制传给NMPC
 
     // 无论什么模式，都调用NMPC求解，保持热启动状态
     auto nmpc_start_time = std::chrono::high_resolution_clock::now();
@@ -542,7 +571,6 @@ void ESOTracker::computeControl(
     double max_delta_per_step = nmpc_params_.delta_c_max * obs_dt;
     final_cmd = std::max(last_final_cmd_ - max_delta_per_step, 
                      std::min(last_final_cmd_ + max_delta_per_step, final_cmd));
-    last_final_cmd_ = final_cmd;
 
     // 输出端一阶低通滤波：滤掉驾驶员能感知的高频抖动，进一步提升方向盘转动质量。
     // tau<=0 时直接透传，不改变原行为。注意 LPF 引入的相位滞后由 tau 控制，
@@ -556,8 +584,16 @@ void ESOTracker::computeControl(
         final_cmd_filt_ = (1.0 - a) * final_cmd_filt_ + a * final_cmd;
         final_cmd = final_cmd_filt_;
     }
+    // 再做车速相关硬限速，这是最终安全约束
+    final_cmd = std::max(last_final_cmd_ - steer_step_limit,
+             std::min(last_final_cmd_ + steer_step_limit, final_cmd));
+
+    // 最后再做绝对转角限幅
+    final_cmd = std::max(nmpc_params_.delta_min,
+             std::min(nmpc_params_.delta_max, final_cmd));
 
     // 更新current_cmd_，保持状态连续
+    last_final_cmd_ = final_cmd;
     current_cmd_ = final_cmd;
 
     // 填装消息输出
@@ -567,6 +603,11 @@ void ESOTracker::computeControl(
 
     // 更新上一帧模式状态
     is_high_speed_last_ = is_current_high_speed;
+
+    auto control_end_time = std::chrono::high_resolution_clock::now();
+    total_control_time_ = std::chrono::duration<double, std::milli>(
+    control_end_time - control_start_time
+    ).count();
 
     race_msgs::ESOEstimation est_msg;
     est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
@@ -584,7 +625,8 @@ void ESOTracker::computeControl(
     est_msg.theta = theta;                     // 参考航向角
     est_msg.vy_model = vy_model;               // 侧向速度模型
     est_msg.ay_slope_compensation = ay_slope_compensation_; // 侧向速度模型
-    est_msg.iter_time = iter_time_; // 迭代时间
+    est_msg.iter_time = iter_time_;           // 迭代时间
+    est_msg.total_control_time = total_control_time_;   // 整个控制周期时间，单位ms
     est_pub_.publish(est_msg);
 }
 
@@ -593,6 +635,94 @@ double ESOTracker::normalizeAngle(double angle) {
     while (angle > M_PI) angle -= 2 * M_PI;
     while (angle < -M_PI) angle += 2 * M_PI;
     return angle;
+}
+
+double ESOTracker::computeSteerRateLimit(double vx_mps) const {
+    // 车速取绝对值，并转换为 km/h
+    double v_kmh = std::abs(vx_mps) * 3.6;
+
+    // 限定车速范围 0~100 km/h，防止极端异常速度导致限制失真
+    v_kmh = std::max(0.0, std::min(100.0, v_kmh));
+
+    // 反比例函数：车速越高，允许的最大转角变化率越小
+    double denom = std::max(1e-3, v_kmh + nmpc_params_.steer_rate_v0_kmh);
+    double rate = nmpc_params_.steer_rate_min +
+                  nmpc_params_.steer_rate_k / denom;
+
+    // 上下限保护
+    rate = std::max(nmpc_params_.steer_rate_min,
+                    std::min(nmpc_params_.steer_rate_max, rate));
+
+    return rate;
+}
+
+double ESOTracker::computeErrorAwareSteerRateLimit(double vx_mps, double lateral_error, double dt) {
+
+    // 1. 先计算车速决定的基础变化率
+    const double base_rate = computeSteerRateLimit(vx_mps);
+
+    // 2. 总开关关闭时，退回原逻辑
+    if (!nmpc_params_.use_lateral_error_steer_rate_boost) {
+        return base_rate;
+    }
+
+    // 3. 只用横向误差绝对值决定“允许打多快”
+    //    方向由 NMPC / PP 自己决定，这里不要使用误差正负号。
+    double err_abs = std::abs(lateral_error);
+    if (!std::isfinite(err_abs)) {
+        err_abs = 0.0;
+    }
+
+    // 4. 对横向误差绝对值做低通滤波，避免定位跳变导致变化率突然放大
+    const double tau = nmpc_params_.lateral_error_filter_tau;
+    if (tau > 1e-6) {
+        const double dt_safe = std::max(1e-3, std::min(dt, 0.2));
+
+        if (!lateral_error_filter_initialized_) {
+            lateral_error_abs_filt_ = err_abs;
+            lateral_error_filter_initialized_ = true;
+        } else {
+            const double a = dt_safe / (tau + dt_safe);
+            lateral_error_abs_filt_ =
+                (1.0 - a) * lateral_error_abs_filt_ + a * err_abs;
+        }
+
+        err_abs = lateral_error_abs_filt_;
+    } else {
+        lateral_error_abs_filt_ = err_abs;
+        lateral_error_filter_initialized_ = true;
+    }
+
+    // 5. 计算误差放宽系数 alpha
+    //    err <= deadband: alpha = 0
+    //    err >= full:     alpha = 1
+    const double deadband = std::max(0.0, nmpc_params_.lateral_error_deadband);
+    const double full = std::max(deadband + 1e-3,
+                                 nmpc_params_.lateral_error_full);
+
+    double alpha = 0.0;
+    if (err_abs > deadband) {
+        alpha = (err_abs - deadband) / (full - deadband);
+        alpha = std::max(0.0, std::min(1.0, alpha));
+
+        // smoothstep 平滑过渡，避免刚过阈值时变化率突跳
+        alpha = alpha * alpha * (3.0 - 2.0 * alpha);
+    }
+
+    // 6. 横向误差越大，额外放宽越多
+    const double boosted_rate =
+        base_rate + alpha * nmpc_params_.lateral_error_rate_boost_max;
+
+    // 7. 最终上限保护：
+    //    emergency_max 不能让结果低于 base_rate，否则低速基础能力会被错误压低。
+    const double final_cap =
+        std::max(base_rate, nmpc_params_.steer_rate_emergency_max);
+
+    const double final_rate =
+        std::max(nmpc_params_.steer_rate_min,
+                 std::min(final_cap, boosted_rate));
+
+    return final_rate;
 }
 
 namespace {
@@ -988,6 +1118,7 @@ void ESOTracker::buildNMPSolver() {
     solver_.P_vx = solver_.opti.parameter(1);
     solver_.P_ay_slope_comp = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
+    solver_.P_delta_step_max = solver_.opti.parameter(1); //把当前车速下的最大单步转角变化量传给 NMPC。
     solver_.P_h_hat = solver_.opti.parameter(1);
     solver_.P_dyn_params = solver_.opti.parameter(6);  
 
@@ -1069,12 +1200,13 @@ void ESOTracker::buildNMPSolver() {
     }
 
     solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.U_sparse, nmpc_params_.delta_max));
-    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev <= nmpc_params_.delta_c_max);
-    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev >= -nmpc_params_.delta_c_max);
-
+    // 当前第一拍控制量：严格使用车速相关变化率限制
+    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev <= solver_.P_delta_step_max);
+    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev >= -solver_.P_delta_step_max);
+    // 未来稀疏控制点之间：先保留原来的较宽松约束，避免过度限制 NMPC
     for (int i = 1; i < nmpc_params_.Nc; ++i) {
-        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) <= nmpc_params_.delta_c_max);
-        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) >= -nmpc_params_.delta_c_max);
+        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) <= solver_.P_delta_step_max);
+        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) >= -solver_.P_delta_step_max);
     }
 
     solver_.opti.minimize(J);

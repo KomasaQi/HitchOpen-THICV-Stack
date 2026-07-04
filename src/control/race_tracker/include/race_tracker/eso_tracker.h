@@ -49,6 +49,18 @@ struct NMPCParams {
     double delta_max;
     double delta_min;
     double delta_c_max;
+    double steer_rate_min;      // 最大允许变化率曲线下限，高速段逼近值，rad/s
+    double steer_rate_max;      // 最大允许变化率曲线上限，低速段封顶值，rad/s
+    double steer_rate_v0_kmh;   // 反比例函数平滑项，km/h
+    double steer_rate_k;        // 反比例函数强度
+
+    // --- 横向误差自适应转角变化率 ---
+    bool use_lateral_error_steer_rate_boost;
+    double lateral_error_deadband;
+    double lateral_error_full;
+    double lateral_error_rate_boost_max;
+    double steer_rate_emergency_max;
+    double lateral_error_filter_tau;
 
     // --- 轮胎参数 (含辨识上下限) ---
     double Cf;
@@ -92,6 +104,7 @@ struct NMPSolver {
     casadi::MX P_waypoints;
     casadi::MX P_vx;
     casadi::MX P_u_prev;
+    casadi::MX P_delta_step_max;
     casadi::MX P_h_hat;
     casadi::MX P_dyn_params;
     casadi::MX P_ay_slope_comp;
@@ -138,6 +151,13 @@ private:
 
     double normalizeAngle(double angle);
 
+    double computeSteerRateLimit(double vx_mps) const;//计算转角限制函数
+
+    double computeErrorAwareSteerRateLimit(
+    double vx_mps,
+    double lateral_error,
+    double dt);
+
     // --- ROS 与路径处理辅助函数  ---
     double quaternion_to_yaw(const geometry_msgs::Quaternion& q);
     int find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path);
@@ -170,6 +190,10 @@ private:
     double output_lpf_tau_ = 0.0;   // 时间常数(s)，<=0 表示关闭
     double final_cmd_filt_ = 0.0;   // 滤波器状态
     bool   final_cmd_filt_init_ = false;
+
+    // 横向误差自适应转角变化率滤波状态
+    double lateral_error_abs_filt_ = 0.0;
+    bool lateral_error_filter_initialized_ = false;
     
      // 动态预瞄参数
     double min_lookahead_distance_;
@@ -230,6 +254,7 @@ private:
 
     // 迭代时间
     double iter_time_ = 0.0;
+    double total_control_time_ = 0.0;      // 整个控制周期耗时，单位ms
 
     // 侧向加速度零偏补偿
     bool use_ay_bias_compensation_;          // 总开关：false 时完全不做 ay 零偏补偿
