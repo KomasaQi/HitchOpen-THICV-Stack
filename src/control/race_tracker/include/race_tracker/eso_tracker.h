@@ -282,6 +282,19 @@ private:
     std::deque<double> pp_cmd_queue_;
     double control_time_;
     double control_delay_sec_; 
+
+
+    // NMPC求解以及算法切换相关
+    bool mpc_failure_flag_;
+    bool using_pure_pursuit_flag_;
+    bool require_over_take_flag_;
+    bool using_mixed_mode_flag_;
+
+    int mpc_failure_count_ = 0; // NMPC连续失败计数器
+    int degrade_failure_times_; // NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
+    int require_overtake_times_; // 连续要求超车次数阈值，超过该值则提示要求人工接管
+
+
 };
 
 } // namespace race_tracker

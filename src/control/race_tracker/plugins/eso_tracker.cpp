@@ -97,6 +97,12 @@ ESOTracker::ESOTracker() {
 
     lateral_error_abs_filt_ = 0.0;
     lateral_error_filter_initialized_ = false;
+
+    // NMPC求解以及算法切换相关
+    mpc_failure_flag_ = false;
+    using_pure_pursuit_flag_ = false;
+    require_over_take_flag_ = false;
+    using_mixed_mode_flag_ = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -210,7 +216,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
 
 
     // -------------------------------------------------------------------------
-    // 6. 加载 Supervisor 配置 (模式切换与纯跟踪)
+    // 加载 Supervisor 配置 (模式切换与纯跟踪)
     // -------------------------------------------------------------------------
     ros::NodeHandle nh_super(nh, "supervisor_config");
     nh_super.param("startup_time", supervisor_params_.startup_time, 5.0);
@@ -221,6 +227,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("control_time", control_time_, 0.05);
     nh_super.param("control_delay_sec", control_delay_sec_, 0.0);
     nh_super.param("output_lpf_tau", output_lpf_tau_, 0.0);   // 输出低通时间常数(s)，默认0=关闭
+    nh_super.param("degrade_failure_times", degrade_failure_times_, 3); // NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
+    nh_super.param("require_overtake_times", require_overtake_times_, 10); // 连续要求超车次数阈值，超过该值则提示要求人工接管
 
 
 
@@ -490,9 +498,14 @@ void ESOTracker::computeControl(
 
     if (nmpc_solve_success) {
         nmpc_safe_cmd_ = control_output[0]; 
+        mpc_failure_flag_ = false;
+        mpc_failure_count_ = 0;
     } else {
-        // 求解失败时，用上一帧的有效输出兜底
+        // 求解失败时，暂时给上一帧的有效输出，但是实际用的是纯跟踪输出
         nmpc_safe_cmd_ = current_cmd_;
+        mpc_failure_flag_ = true;
+        mpc_failure_count_++;
+        ROS_ERROR("[%s] NMPC求解失败，使用上一帧输出 | 迭代时间: %.2f ms | 失败次数: %d", getName().c_str(), iter_time_, mpc_failure_count_);
     }
     // 限幅保护
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
@@ -550,14 +563,38 @@ void ESOTracker::computeControl(
         // 初始阶段队列未填满时，可以直接输出当前值，或者输出 0
         pp_safe_cmd_ = delta_pp_raw;
     }
+    // 检测NMPC是否求解失败
+    if (mpc_failure_flag_) {
+
+        if (mpc_failure_count_ >= degrade_failure_times_) {
+            blend_alpha_ = 0.0; // 强制切换到纯跟踪模式
+            ROS_ERROR("[%s] NMPC连续失败 %d 次，强制切换到纯跟踪模式 | PP: %.3f rad", getName().c_str(), mpc_failure_count_, pp_safe_cmd_);
+        }else{
+            ROS_ERROR("[%s] NMPC连续失败 %d 次，仍尝试使用上一次输出 | NMPC: %.3f rad", getName().c_str(), mpc_failure_count_, nmpc_safe_cmd_);
+        }
+
+        if (mpc_failure_count_ >= require_overtake_times_) {
+            require_over_take_flag_ = true;
+            ROS_WARN("[%s] 连续要求超车 %d 次，提示人工接管", getName().c_str(), mpc_failure_count_);
+        } 
+
+    }else {
+            require_over_take_flag_ = false;
+    }
 
     // 打印调试信息
     if (blend_alpha_ < 0.01) {
-        ROS_INFO_THROTTLE(0.5, "[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead Dist: %.2f m | Delta: %.3f rad", local_x, local_y, lookahead_dist, pp_safe_cmd_);
+        using_pure_pursuit_flag_ = true;
+        using_mixed_mode_flag_ = false;
+        ROS_INFO("[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead Dist: %.2f m | Delta: %.3f rad", local_x, local_y, lookahead_dist, pp_safe_cmd_);
     } else if (blend_alpha_ > 0.99) {
-        ROS_INFO_THROTTLE(2.0, "[%s] 高速模式 (%.1f km/h)", getName().c_str(), curr_vx_raw * 3.6);
+        using_pure_pursuit_flag_ = false;
+        using_mixed_mode_flag_ = false;
+        ROS_INFO("[%s] 高速模式 (%.1f km/h)", getName().c_str(), curr_vx_raw * 3.6);
     } else {
-        ROS_INFO_THROTTLE(0.5, "[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f", 
+        using_pure_pursuit_flag_ = false;
+        using_mixed_mode_flag_ = true;
+        ROS_INFO("[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f", 
                             curr_vx_raw * 3.6, blend_alpha_, pp_safe_cmd_, nmpc_safe_cmd_);
     }
 
@@ -627,6 +664,10 @@ void ESOTracker::computeControl(
     est_msg.ay_slope_compensation = ay_slope_compensation_; // 侧向速度模型
     est_msg.iter_time = iter_time_;           // 迭代时间
     est_msg.total_control_time = total_control_time_;   // 整个控制周期时间，单位ms
+    est_msg.mpc_failure_flag = mpc_failure_flag_;
+    est_msg.using_pure_pursuit_flag = using_pure_pursuit_flag_;
+    est_msg.require_over_take_flag = require_over_take_flag_;
+    est_msg.using_mixed_mode_flag = using_mixed_mode_flag_;
     est_pub_.publish(est_msg);
 }
 

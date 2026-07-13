@@ -26,3 +26,7 @@ float64 vy_model
 float64 ay_slope_compensation
 float64 iter_time
 float64 total_control_time
+bool mpc_failure_flag
+bool using_pure_pursuit_flag
+bool require_over_take_flag
+bool using_mixed_mode_flag

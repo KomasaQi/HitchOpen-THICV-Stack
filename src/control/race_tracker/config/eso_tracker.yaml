@@ -77,6 +77,9 @@ eso_tracker:
   dynamic_ay_bias_max: 0.5              # ay_bias 估计上限 (m/s²)
   dynamic_ay_require_full_window: true  # true=窗口填满后才允许动态更新
   dynamic_ay_bias_error_sign: -1.0      # 当前诊断：ay正偏->横误负，因此 err_mean<0 时增大偏置；若要“err_mean>0 增大偏置”，改为 +1.0
+
+
+
 # ==============================================================================
 #                        逻辑切换与纯跟踪配置
 # ==============================================================================
@@ -93,6 +96,9 @@ supervisor_config:
   control_time: 0.05                   # 控制频率20Hz
   output_lpf_tau: 0.00                 # 输出转角一阶低通时间常数(s)，0=关闭；0.08~0.15
 
+  # --- 算法降级 ---
+  degrade_failure_times: 3           # NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
+  require_overtake_times: 10          # 连续要求超车次数阈值，超过该值则提示要求人工接管
 
 
 #纵向
@@ -106,3 +112,4 @@ pid_controller:
   speed_tolerance: 0.2
   min_target_speed: 0.5
   predict_time_horizon: 0.5  # 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）
+
