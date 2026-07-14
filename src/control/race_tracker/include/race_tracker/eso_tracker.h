@@ -27,7 +27,6 @@ struct SupervisorParams {
     double startup_time;
     double blend_speed_low;
     double blend_speed_high;
-    double lookahead_distance;
 };
 
 
@@ -63,13 +62,15 @@ struct NMPCParams {
     double steer_rate_emergency_max;
     double lateral_error_filter_tau;
 
-    // --- 轮胎参数 (含辨识上下限) ---
+    // --- 随整车质量插值的车辆参数 ---
+    // Iz、lf、Cf、Cr 为当前质量下的实时插值结果；lr 始终由 L-lf 更新。
     double Cf;
     double Cr;
-    double Cf_min;
-    double Cf_max;
-    double Cr_min;
-    double Cr_max;
+    std::vector<double> mass_interp_points;
+    std::vector<double> Iz_interp_points;
+    std::vector<double> lf_interp_points;
+    std::vector<double> Cf_interp_points;
+    std::vector<double> Cr_interp_points;
 
     // --- 积分器 ---
     double integration_grade;
@@ -145,9 +146,14 @@ private:
     
     void ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt);
     
-    void rlsIdentifyStiffness(double curr_vx, double vy_est, double curr_delta, 
-                              double curr_r, double curr_ay, double dt);
-    
+    // 根据 received_mass_ 对 Iz、lf、Cf、Cr 进行分段线性插值；区间外保持端点值。
+    double interpolateWithClampedEnds(double mass,
+                                      const std::vector<double>& mass_points,
+                                      const std::vector<double>& value_points) const;
+    bool validateMassInterpolationTables() const;
+    void updateMassDependentParameters(double mass);
+    void updateEquivalentMassAndInertia();
+
     void esoCompute(double curr_r, double curr_delta, double dt);
 
     double normalizeAngle(double angle);
@@ -174,7 +180,7 @@ private:
 
     // 构建状态估计与方案二对比
     void calculate_trailer_kinematics(double curr_vx, double curr_r, double dt);
-    void ekfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double M, double dt);
+    void ekfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt);
 
     // 侧向加速度零偏的准静态自校正：基于横向跟踪误差滑动窗口，非常缓慢地修正 ay 零偏估计
     void updateDynamicAyBias(double lateral_tracking_error);
@@ -233,16 +239,6 @@ private:
     double gamma_ = 0.0;
     double r_t_ = 0.0;
 
-    // RLS相关
-    double rls_P_f_;
-    double rls_theta_f_;
-    double rls_P_r_;
-    double rls_theta_r_;
-    double rls_r_prev_;
-    double rls_r_dot_pre_;
-    double rls_Cf_est_;
-    double rls_Cr_est_;
-
     // 标定特性
     double const_steer_bias_;
 
@@ -278,7 +274,7 @@ private:
     bool auto_update_total_weight_; // 是否根据话题信息自动更新整车重量（包含挂车的整备质量）
     double m_eq_y_ = 0.0; // 等效重量，单位 kg
     double I_eq_ = 0.0; // 等效惯性量，单位 kg·m²
-    double received_mass_ = 10000.0; // EBS接收到的质量，单位 kg
+    double received_mass_ = 16000.0; // EBS接收到的整车质量，单位 kg；同时作为质量插值自变量
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
