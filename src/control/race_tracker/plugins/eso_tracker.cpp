@@ -128,9 +128,9 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("m", nmpc_params_.m, 10000.0);
     nh_nmpc.param("Iz", nmpc_params_.Iz, 50000.0);
     nh_nmpc.param("lf", nmpc_params_.lf, 2.0);
-    nh_nmpc.param("lr", nmpc_params_.lr, 2.135);
+    nh_nmpc.param("L", nmpc_params_.L, 4.0);
     nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.2);
-
+    nmpc_params_.lr = nmpc_params_.L - nmpc_params_.lf;  // 自动计算 lr = L - lf
     // -------------------------------------------------------------------------
     // 3. 加载轮胎参数
     // -------------------------------------------------------------------------
@@ -299,6 +299,10 @@ void ESOTracker::computeControl(
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
     
+    if (auto_update_total_weight_) {
+        received_mass_ = vehicle_status->mass;
+    }
+
     // ==========================================================
     // 无论低速还是高速，UKF/RLS/ESO 都更新
     // ==========================================================

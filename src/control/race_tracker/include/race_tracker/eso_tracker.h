@@ -38,6 +38,7 @@ struct NMPCParams {
     double Iz;
     double lf;
     double lr;
+    double L;
     double T_lag;
     double dt;
     int N;
@@ -277,6 +278,7 @@ private:
     bool auto_update_total_weight_; // 是否根据话题信息自动更新整车重量（包含挂车的整备质量）
     double m_eq_y_ = 0.0; // 等效重量，单位 kg
     double I_eq_ = 0.0; // 等效惯性量，单位 kg·m²
+    double received_mass_ = 10000.0; // EBS接收到的质量，单位 kg
 
     // 在类中添加以下成员变量
     std::deque<double> pp_cmd_queue_;
