@@ -64,9 +64,14 @@ ESOTracker::ESOTracker() {
 
     min_lookahead_distance_ = 6.0;  // 默认最小预瞄距 6m
     lookahead_speed_coeff_ = 0.7;   // 默认速度系数 0.7
+    lookahead_curvature_coeff_ = 0.0; // 默认关闭曲率预瞄修正
 
     // 标定与横坡/ay 补偿默认值
     const_steer_bias_ = 0.0;
+    use_nmpc_lateral_error_compensation_ = true;
+    nmpc_lateral_error_compensation_deadband_ = 0.15;
+    nmpc_lateral_error_compensation_gain_ = 0.10;
+    nmpc_lateral_error_compensation_max_ = 0.05;
     use_slope_compensation_ = false;
     ay_slope_compensation_ = 0.0;
     slope_compensation_coeff_ = 1.0;
@@ -187,12 +192,24 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param<bool>("dynamic_ay_require_full_window", dynamic_ay_require_full_window_, true);
 
     nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
+    nh_nmpc.param<bool>("use_nmpc_lateral_error_compensation",
+                        use_nmpc_lateral_error_compensation_, true);
+    nh_nmpc.param<double>("nmpc_lateral_error_compensation_deadband",
+                          nmpc_lateral_error_compensation_deadband_, 0.15);
+    nh_nmpc.param<double>("nmpc_lateral_error_compensation_gain",
+                          nmpc_lateral_error_compensation_gain_, 0.10);
+    nh_nmpc.param<double>("nmpc_lateral_error_compensation_max",
+                          nmpc_lateral_error_compensation_max_, 0.05);
     nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
     nh_nmpc.param<double>("slope_compensation_coeff", slope_compensation_coeff_, 1.0);
     nh_nmpc.param<int>("slope_compensation_filter_window_size", slope_compensation_filter_window_size_, 1);
 
     slope_compensation_filter_window_size_ = std::max(1, slope_compensation_filter_window_size_);
     dynamic_ay_error_window_size_ = std::max(1, dynamic_ay_error_window_size_);
+    nmpc_lateral_error_compensation_deadband_ =
+        std::max(0.0, nmpc_lateral_error_compensation_deadband_);
+    nmpc_lateral_error_compensation_max_ =
+        std::max(0.0, nmpc_lateral_error_compensation_max_);
     dynamic_ay_error_threshold_ = std::max(0.0, dynamic_ay_error_threshold_);
     dynamic_ay_bias_learning_rate_ = std::max(0.0, dynamic_ay_bias_learning_rate_);
     dynamic_ay_bias_max_step_ = std::max(0.0, dynamic_ay_bias_max_step_);
@@ -225,11 +242,16 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("blend_speed_high", supervisor_params_.blend_speed_high, 5.0);
     nh_super.param("min_lookahead_distance", min_lookahead_distance_, 6.0);
     nh_super.param("lookahead_speed_coeff", lookahead_speed_coeff_, 0.7);
+    nh_super.param("lookahead_curvature_coeff", lookahead_curvature_coeff_, 0.0);
     nh_super.param("control_time", control_time_, 0.05);
     nh_super.param("control_delay_sec", control_delay_sec_, 0.0);
     nh_super.param("output_lpf_tau", output_lpf_tau_, 0.0);   // 输出低通时间常数(s)，默认0=关闭
     nh_super.param("degrade_failure_times", degrade_failure_times_, 3); // NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
     nh_super.param("require_overtake_times", require_overtake_times_, 10); // 连续要求超车次数阈值，超过该值则提示要求人工接管
+
+    min_lookahead_distance_ = std::max(0.1, min_lookahead_distance_);
+    lookahead_speed_coeff_ = std::max(0.0, lookahead_speed_coeff_);
+    lookahead_curvature_coeff_ = std::max(0.0, lookahead_curvature_coeff_);
 
 
 
@@ -248,6 +270,14 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
              getName().c_str(), use_ay_bias_compensation_, use_dynamic_ay_compensation_, const_ay_bias_,
              ay_bias_estimate_, dynamic_ay_error_window_size_, dynamic_ay_error_threshold_,
              dynamic_ay_bias_learning_rate_, dynamic_ay_bias_max_step_, dynamic_ay_bias_error_sign_);
+    ROS_INFO("[%s] 共用轴距 L=%.3f m | PP预瞄: min=%.2f m, speed_coeff=%.3f s, curvature_coeff=%.3f m^2",
+             getName().c_str(), nmpc_params_.L, min_lookahead_distance_,
+             lookahead_speed_coeff_, lookahead_curvature_coeff_);
+    ROS_INFO("[%s] NMPC横向误差输出补偿: enable=%d, deadband=%.3f m, gain=%.3f rad/m, max=%.3f rad",
+             getName().c_str(), use_nmpc_lateral_error_compensation_,
+             nmpc_lateral_error_compensation_deadband_,
+             nmpc_lateral_error_compensation_gain_,
+             nmpc_lateral_error_compensation_max_);
 
     start_time_ = ros::Time::now(); 
 
@@ -486,8 +516,12 @@ void ESOTracker::computeControl(
     auto nmpc_end_time = std::chrono::high_resolution_clock::now();
     iter_time_ = std::chrono::duration<double, std::milli>(nmpc_end_time - nmpc_start_time).count();
 
+    double nmpc_lateral_error_compensation = 0.0;
     if (nmpc_solve_success) {
-        nmpc_safe_cmd_ = control_output[0]; 
+        nmpc_safe_cmd_ = control_output[0];
+        nmpc_lateral_error_compensation =
+            computeNmpcLateralErrorCompensation(curr_lateral_tracking_error);
+        nmpc_safe_cmd_ += const_steer_bias_ + nmpc_lateral_error_compensation;
         mpc_failure_flag_ = false;
         mpc_failure_count_ = 0;
     } else {
@@ -497,21 +531,59 @@ void ESOTracker::computeControl(
         mpc_failure_count_++;
         ROS_ERROR("[%s] NMPC求解失败，使用上一帧输出 | 迭代时间: %.2f ms | 失败次数: %d", getName().c_str(), iter_time_, mpc_failure_count_);
     }
-    // 限幅保护
+    // 所有 NMPC 后处理完成后统一限幅保护。
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
 
-    // 加入恒定偏差补偿（如果设置了 const_steer_bias_）
-    nmpc_safe_cmd_ += const_steer_bias_;
+    if (std::abs(nmpc_lateral_error_compensation) > 1e-9) {
+        ROS_INFO_THROTTLE(1.0,
+                          "[%s] NMPC横向误差补偿: error=%.3f m, compensation=%.4f rad, cmd=%.4f rad",
+                          getName().c_str(), curr_lateral_tracking_error,
+                          nmpc_lateral_error_compensation, nmpc_safe_cmd_);
+    }
 
     // ==========================================================
     // 纯跟踪逻辑 
     // ==========================================================
     double pp_safe_cmd_ = 0.0;
-    double L = nmpc_params_.lf + nmpc_params_.lr; //轴距
-    double lookahead_dist = min_lookahead_distance_ + lookahead_speed_coeff_ * curr_vx;
+    // PP 与 NMPC 直接共用同一个固定轴距参数，避免 lf/lr 调度后出现口径歧义。
+    const double L = nmpc_params_.L;
+
+    // 先按原速度公式确定预瞄范围，再直接从该范围内的 PP 路径计算最大绝对曲率。
+    // 这样曲率预瞄范围与 PP 自己的目标点范围一致，不受 NMPC 预测时域长度限制。
+    const double speed_lookahead =
+        min_lookahead_distance_ + lookahead_speed_coeff_ * curr_vx;
+    const int nearest_idx = find_nearest_path_point(curr_x, curr_y, *path);
+    double preview_abs_curvature = 0.0;
+    double preview_distance = 0.0;
+    for (int i = nearest_idx + 1; i < static_cast<int>(path->points.size()); ++i) {
+        const auto& prev_point = path->points[i - 1];
+        const auto& curr_point = path->points[i];
+        const double dx_segment = curr_point.pose.position.x - prev_point.pose.position.x;
+        const double dy_segment = curr_point.pose.position.y - prev_point.pose.position.y;
+        const double ds = std::hypot(dx_segment, dy_segment);
+
+        if (ds > 1e-4) {
+            const double yaw_prev = quaternion_to_yaw(prev_point.pose.orientation);
+            const double yaw_curr = quaternion_to_yaw(curr_point.pose.orientation);
+            const double kappa_segment = normalizeAngle(yaw_curr - yaw_prev) / ds;
+            if (std::isfinite(kappa_segment)) {
+                preview_abs_curvature =
+                    std::max(preview_abs_curvature, std::abs(kappa_segment));
+            }
+            preview_distance += ds;
+        }
+
+        if (preview_distance >= speed_lookahead) {
+            break;
+        }
+    }
+
+    // lookahead_curvature_coeff_=0 时严格退化为原始速度预瞄公式。
+    const double lookahead_dist = std::max(
+        min_lookahead_distance_,
+        speed_lookahead - lookahead_curvature_coeff_ * preview_abs_curvature);
     
     // 找目标点
-    int nearest_idx = find_nearest_path_point(curr_x, curr_y, *path);
     int target_idx = 0;
     bool found = false;
     
@@ -576,7 +648,8 @@ void ESOTracker::computeControl(
     if (blend_alpha_ < 0.01) {
         using_pure_pursuit_flag_ = true;
         using_mixed_mode_flag_ = false;
-        ROS_INFO("[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead Dist: %.2f m | Delta: %.3f rad", local_x, local_y, lookahead_dist, pp_safe_cmd_);
+        ROS_INFO("[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead: %.2f m | Preview |kappa|max: %.5f 1/m | Delta: %.3f rad",
+                 local_x, local_y, lookahead_dist, preview_abs_curvature, pp_safe_cmd_);
     } else if (blend_alpha_ > 0.99) {
         using_pure_pursuit_flag_ = false;
         using_mixed_mode_flag_ = false;
@@ -754,6 +827,29 @@ double ESOTracker::computeErrorAwareSteerRateLimit(double vx_mps, double lateral
                  std::min(final_cap, boosted_rate));
 
     return final_rate;
+}
+
+double ESOTracker::computeNmpcLateralErrorCompensation(double lateral_error) const {
+    if (!use_nmpc_lateral_error_compensation_ || !std::isfinite(lateral_error) ||
+        !std::isfinite(nmpc_lateral_error_compensation_gain_) ||
+        nmpc_lateral_error_compensation_max_ <= 0.0) {
+        return 0.0;
+    }
+
+    const double error_abs = std::abs(lateral_error);
+    if (error_abs <= nmpc_lateral_error_compensation_deadband_) {
+        return 0.0;
+    }
+
+    // 仅对超出死区的误差量进行比例补偿，保证越过死区边界时补偿连续地从 0 开始。
+    const double error_excess =
+        error_abs - nmpc_lateral_error_compensation_deadband_;
+    double compensation = nmpc_lateral_error_compensation_gain_ *
+                          std::copysign(error_excess, lateral_error);
+
+    compensation = std::max(-nmpc_lateral_error_compensation_max_,
+                            std::min(nmpc_lateral_error_compensation_max_, compensation));
+    return compensation;
 }
 
 namespace {

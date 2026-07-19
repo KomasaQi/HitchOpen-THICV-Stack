@@ -63,6 +63,15 @@ eso_tracker:
   R_ddelta: 400.0                 # 转角二阶差分权重，专治来回摆动(蛇行)；0=关闭
 
   const_steer_bias: -0.0                    # 固定转向偏置 (rad)，可用于修正系统性转向误差
+
+  # --- NMPC 输出端横向误差随动补偿 ---
+  # 横向误差约定：车辆偏右为正、偏左为负；本工程正前轮转角对应左转，因此增益取正。
+  # 实际补偿：sign(error) * gain * max(|error|-deadband, 0)，然后由 max 限幅。
+  use_nmpc_lateral_error_compensation: true       # 是否启用；只处理求解成功的 NMPC 输出
+  nmpc_lateral_error_compensation_deadband: 0.15  # 横向误差死区 (m)
+  nmpc_lateral_error_compensation_gain: 0.02      # 死区外比例增益 (rad/m)；方向反了可改为负值
+  nmpc_lateral_error_compensation_max: 0.02       # 最大附加前轮转角绝对值 (rad)
+
   use_slope_compensation: true              # 是否使用横坡补偿；false 时横坡补偿与 ay 零偏补偿均不参与 NMPC
   slope_compensation_coeff: -1.0            # 横坡补偿比例系数
   slope_compensation_filter_window_size: 5  # 横坡补偿加速度滤波窗口大小
@@ -88,12 +97,15 @@ eso_tracker:
 supervisor_config:
   # --- 模式切换逻辑 ---
   startup_time: 0.1                     # 启动强制纯跟踪时间 (s)
-  blend_speed_low: 4.1667   #4.1667     # 纯跟踪 -> 融合 切换车速 (15 km/h)
-  blend_speed_high: 5  #5.0             # 融合 -> NMPC 切换车速 (18 km/h)
+  blend_speed_low: 34.1667   #4.1667     # 纯跟踪 -> 融合 切换车速 (15 km/h)
+  blend_speed_high: 35  #5.0             # 融合 -> NMPC 切换车速 (18 km/h)
   
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
-  min_lookahead_distance: 10.0         # 前视距离 (m)
-  lookahead_speed_coeff: 0.5           # 预瞄速度系数，默认0.7
+  min_lookahead_distance: 5.0         # 前视距离 (m)
+  lookahead_speed_coeff: 0.5           # 预瞄速度系数 (s)
+  # Ld=max(Ld_min, Ld_min+kv*vx-k_curvature*|kappa_preview|max)
+  # 系数单位 m²；正值会在预瞄到大曲率时缩短前视距离，0=关闭曲率修正、保持原行为。
+  lookahead_curvature_coeff: -100.0
   control_delay_sec: 0.0               # 纯跟踪时延迟系数
   control_time: 0.05                   # 控制频率20Hz
   output_lpf_tau: 0.00                 # 输出转角一阶低通时间常数(s)，0=关闭；0.08~0.15
@@ -114,4 +126,3 @@ pid_controller:
   speed_tolerance: 0.2
   min_target_speed: 0.5
   predict_time_horizon: 0.5  # 预测时间 Horizon（s），默认0.5（用于将未来速度给到轨迹追踪，辅助克服控制时延）
-

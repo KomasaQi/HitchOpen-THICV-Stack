@@ -165,6 +165,9 @@ private:
     double lateral_error,
     double dt);
 
+    // NMPC 求解结果的横向误差随动补偿：死区外按超出量比例补偿，并做幅值限制。
+    double computeNmpcLateralErrorCompensation(double lateral_error) const;
+
     // --- ROS 与路径处理辅助函数  ---
     double quaternion_to_yaw(const geometry_msgs::Quaternion& q);
     int find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path);
@@ -205,6 +208,7 @@ private:
      // 动态预瞄参数
     double min_lookahead_distance_;
     double lookahead_speed_coeff_;
+    double lookahead_curvature_coeff_;  // 根据预瞄路径最大绝对曲率缩短预瞄距离，单位 m^2
 
     // --- 核心参数结构体 ---
     NMPCParams nmpc_params_;
@@ -241,6 +245,12 @@ private:
 
     // 标定特性
     double const_steer_bias_;
+
+    // NMPC 输出端横向误差比例补偿
+    bool use_nmpc_lateral_error_compensation_;
+    double nmpc_lateral_error_compensation_deadband_;  // m
+    double nmpc_lateral_error_compensation_gain_;      // rad/m；符号决定补偿方向
+    double nmpc_lateral_error_compensation_max_;       // rad
 
     // 横坡补偿
     bool use_slope_compensation_;
