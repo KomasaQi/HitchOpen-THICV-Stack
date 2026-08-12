@@ -52,10 +52,15 @@ add_library(pid_tracker plugins/pid_tracker.cpp)
 add_library(eso_tracker plugins/eso_tracker.cpp)
 add_library(eso_tracker2 plugins/eso_tracker2.cpp)
 add_library(ltv_tracker plugins/ltv_tracker.cpp)
+add_library(human_like_adaptive_tracker plugins/human_like_adaptive_tracker.cpp src/curvature.cpp)
 
 
 # Link against the base class library
 target_link_libraries(pure_pursuit_controller ${catkin_LIBRARIES})
+target_link_libraries(human_like_adaptive_tracker ${catkin_LIBRARIES}
+  ${catkin_INCLUDE_DIRS}
+  /usr/local/lib/libcasadi.so)
+target_include_directories(human_like_adaptive_tracker PRIVATE /usr/local/include)
 target_link_libraries(pid_controller ${catkin_LIBRARIES})
 target_link_libraries(pid_tracker ${catkin_LIBRARIES})
 target_link_libraries(nmpc_controller ${catkin_LIBRARIES}
@@ -96,6 +101,7 @@ install(TARGETS
   eso_tracker
   eso_tracker2
   ltv_tracker
+  human_like_adaptive_tracker
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

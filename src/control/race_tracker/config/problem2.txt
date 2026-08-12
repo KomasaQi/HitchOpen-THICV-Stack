@@ -1,0 +1,75 @@
+] Built target transformFusionNode
+[100%] Built target mapOptmizationNode
+[100%] Built target imageProjectionNode
+[100%] Built target imuPreintegrationNode
+[100%] Built target featureExtractionNode
+/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp: In member function ‘bool race_tracker::HumanLikeAdaptiveTracker::buildPredictiveSolver()’:
+/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1588:46: error: no matching function for call to ‘atan(casadi::MX)’
+ 1588 |                     decision_curvature_(0, i));
+      |                                              ^
+In file included from /usr/include/boost/config/no_tr1/complex.hpp:21,
+                 from /usr/include/boost/math/policies/error_handling.hpp:17,
+                 from /usr/include/boost/math/special_functions/round.hpp:14,
+                 from /opt/ros/noetic/include/ros/time.h:58,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/controller_plugin_base.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/human_like_adaptive_tracker.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1:
+/usr/include/c++/9/complex:1704:5: note: candidate: ‘template<class _Tp> std::complex<_Tp> std::atan(const std::complex<_Tp>&)’
+ 1704 |     atan(const std::complex<_Tp>& __z)
+      |     ^~~~
+/usr/include/c++/9/complex:1704:5: note:   template argument deduction/substitution failed:
+/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1588:46: note:   ‘casadi::MX’ is not derived from ‘const std::complex<_Tp>’
+ 1588 |                     decision_curvature_(0, i));
+      |                                              ^
+In file included from /opt/ros/noetic/include/ros/time.h:55,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/controller_plugin_base.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/human_like_adaptive_tracker.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1:
+/usr/include/c++/9/cmath:137:5: note: candidate: ‘template<class _Tp> constexpr typename __gnu_cxx::__enable_if<std::__is_integer<_Tp>::__value, double>::__type std::atan(_Tp)’
+  137 |     atan(_Tp __x)
+      |     ^~~~
+/usr/include/c++/9/cmath:137:5: note:   template argument deduction/substitution failed:
+/usr/include/c++/9/cmath: In substitution of ‘template<class _Tp> constexpr typename __gnu_cxx::__enable_if<std::__is_integer<_Tp>::__value, double>::__type std::atan(_Tp) [with _Tp = casadi::MX]’:
+/home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1588:46:   required from here
+/usr/include/c++/9/cmath:137:5: error: no type named ‘__type’ in ‘struct __gnu_cxx::__enable_if<false, double>’
+/usr/include/c++/9/cmath:129:3: note: candidate: ‘constexpr long double std::atan(long double)’
+  129 |   atan(long double __x)
+      |   ^~~~
+/usr/include/c++/9/cmath:129:20: note:   no known conversion for argument 1 from ‘casadi::MX’ to ‘long double’
+  129 |   atan(long double __x)
+      |        ~~~~~~~~~~~~^~~
+/usr/include/c++/9/cmath:125:3: note: candidate: ‘constexpr float std::atan(float)’
+  125 |   atan(float __x)
+      |   ^~~~
+/usr/include/c++/9/cmath:125:14: note:   no known conversion for argument 1 from ‘casadi::MX’ to ‘float’
+  125 |   atan(float __x)
+      |        ~~~~~~^~~
+In file included from /usr/include/features.h:461,
+                 from /usr/include/x86_64-linux-gnu/c++/9/bits/os_defines.h:39,
+                 from /usr/include/x86_64-linux-gnu/c++/9/bits/c++config.h:528,
+                 from /usr/include/c++/9/cstdlib:41,
+                 from /usr/include/c++/9/stdlib.h:36,
+                 from /opt/ros/noetic/include/ros/platform.h:37,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/controller_plugin_base.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/human_like_adaptive_tracker.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1:
+/usr/include/x86_64-linux-gnu/bits/mathcalls.h:57:1: note: candidate: ‘double atan(double)’
+   57 | __MATHCALL (atan,, (_Mdouble_ __x));
+      | ^~~~~~~~~~
+In file included from /usr/include/c++/9/cmath:45,
+                 from /opt/ros/noetic/include/ros/time.h:55,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/controller_plugin_base.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/include/race_tracker/human_like_adaptive_tracker.h:4,
+                 from /home/komasa/HitchOpen-THICV-Stack/src/control/race_tracker/plugins/human_like_adaptive_tracker.cpp:1:
+/usr/include/x86_64-linux-gnu/bits/mathcalls.h:57:1: note:   no known conversion for argument 1 from ‘casadi::MX’ to ‘double’
+   57 | __MATHCALL (atan,, (_Mdouble_ __x));
+      | ^
+make[2]: *** [control/race_tracker/CMakeFiles/human_like_adaptive_tracker.dir/build.make:63：control/race_tracker/CMakeFiles/human_like_adaptive_tracker.dir/plugins/human_like_adaptive_tracker.cpp.o] 错误 1
+make[1]: *** [CMakeFiles/Makefile2:16905：control/race_tracker/CMakeFiles/human_like_adaptive_tracker.dir/all] 错误 2
+make: *** [Makefile:141：all] 错误 2
+Invoking "make -j32 -l32" failed

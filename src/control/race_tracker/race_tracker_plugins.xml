@@ -88,3 +88,13 @@
         </description>
     </class>
 </library>
+
+<library path="lib/libhuman_like_adaptive_tracker">
+    <class name="race_tracker::HumanLikeAdaptiveTracker"
+           type="race_tracker::HumanLikeAdaptiveTracker"
+           base_class_type="race_tracker::ControllerPluginBase">
+        <description>
+            Human-like adaptive tracker for reliable simple adaptive lateral tracking control.
+        </description>
+    </class>
+</library>

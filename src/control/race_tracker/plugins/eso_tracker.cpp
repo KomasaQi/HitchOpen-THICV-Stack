@@ -6,6 +6,14 @@
 #include <stdexcept>
 #include <chrono>
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 using namespace casadi;
 using namespace Eigen;
@@ -14,7 +22,7 @@ using namespace std;
 namespace race_tracker {
 
 // -----------------------------------------------------------------------------
-// NMPCParams 构造函数实现 
+// NMPCParams 构造函数实现
 // -----------------------------------------------------------------------------
 NMPCParams::NMPCParams() {
     // 参数尚未从 ROS/YAML 加载，构造阶段只做确定性清零；加载完成后再调用 updateQMatrix()。
@@ -23,7 +31,7 @@ NMPCParams::NMPCParams() {
 
 void NMPCParams::updateQMatrix() {
     Q.setZero();
-    
+
     if (Q.rows() >= 6 && Q.cols() >= 6) {
         Q(0,0) = Q_x; Q(1,1) = Q_y; Q(2,2) = Q_theta;
         Q(3,3) = Q_vy; Q(4,4) = Q_r; Q(5,5) = Q_delta;
@@ -35,11 +43,9 @@ void NMPCParams::updateQMatrix() {
 // -----------------------------------------------------------------------------
 ESOTracker::ESOTracker() {
     // --- 1. 基础状态初始化 ---
-    is_high_speed_last_ = false;
     blend_alpha_ = 0.0;
     nmpc_safe_cmd_ = 0.0;
     start_time_ = ros::Time(0);
-    last_final_cmd_ = 0.0;
     current_cmd_ = 0.0;
     model_r_comp_ = 0.0;
     model_comp_initialized_ = false;
@@ -55,12 +61,6 @@ ESOTracker::ESOTracker() {
     // UKF
     ukf_x_est_ = Vector2d::Zero();
     ukf_P_est_ = (Matrix2d() << 1.0, 0.0, 0.0, 0.1).finished();
-    // EKF对照用
-    // EKF 初始化（对照用）
-    ekf_x_hat_ = Eigen::Vector4d::Zero();
-    ekf_P_ = Eigen::Matrix4d::Identity();
-    vy_ekf_est_ = 0.0;
-
 
     min_lookahead_distance_ = 6.0;  // 默认最小预瞄距 6m
     lookahead_speed_coeff_ = 0.7;   // 默认速度系数 0.7
@@ -68,14 +68,11 @@ ESOTracker::ESOTracker() {
 
     // 标定与横坡/ay 补偿默认值
     const_steer_bias_ = 0.0;
-    use_nmpc_lateral_error_compensation_ = true;
-    nmpc_lateral_error_compensation_deadband_ = 0.15;
-    nmpc_lateral_error_compensation_gain_ = 0.10;
-    nmpc_lateral_error_compensation_max_ = 0.05;
     use_slope_compensation_ = false;
     ay_slope_compensation_ = 0.0;
     slope_compensation_coeff_ = 1.0;
-    slope_compensation_filter_window_size_ = 1;
+    slope_compensation_filter_tau_ = 1.0;
+    ay_slope_compensation_initialized_ = false;
 
     use_ay_bias_compensation_ = false;
     const_ay_bias_ = 0.0;
@@ -91,9 +88,6 @@ ESOTracker::ESOTracker() {
     dynamic_ay_bias_error_sign_ = -1;
     dynamic_ay_require_full_window_ = true;
 
-    lateral_error_abs_filt_ = 0.0;
-    lateral_error_filter_initialized_ = false;
-
     // NMPC求解以及算法切换相关
     mpc_failure_flag_ = false;
     using_pure_pursuit_flag_ = false;
@@ -101,8 +95,70 @@ ESOTracker::ESOTracker() {
     using_mixed_mode_flag_ = false;
 }
 
+ESOTracker::~ESOTracker() {
+    if (local_log_stream_.is_open()) {
+        local_log_stream_.flush();
+        local_log_stream_.close();
+    }
+}
+
+void ESOTracker::initializeLocalLog() {
+    if (!enable_local_log_) {
+        return;
+    }
+    if (local_log_directory_.empty()) {
+        ROS_ERROR("[%s] 本地日志目录为空，关闭本地日志", getName().c_str());
+        enable_local_log_ = false;
+        return;
+    }
+
+    if (::mkdir(local_log_directory_.c_str(), 0755) != 0 && errno != EEXIST) {
+        ROS_ERROR("[%s] 无法创建本地日志目录 %s: %s",
+                  getName().c_str(), local_log_directory_.c_str(), std::strerror(errno));
+        enable_local_log_ = false;
+        return;
+    }
+
+    const std::time_t now = std::time(nullptr);
+    std::tm local_tm;
+    localtime_r(&now, &local_tm);
+    std::ostringstream filename;
+    filename << "eso_tracker_" << std::put_time(&local_tm, "%Y%m%d_%H%M%S")
+             << "_pid" << static_cast<long>(::getpid())
+             << "_ns" << ros::WallTime::now().toNSec() << ".csv";
+    const std::string separator =
+        (!local_log_directory_.empty() && local_log_directory_.back() == '/') ? "" : "/";
+    local_log_path_ = local_log_directory_ + separator + filename.str();
+
+    local_log_stream_.open(local_log_path_, std::ios::out | std::ios::trunc);
+    if (!local_log_stream_.is_open()) {
+        ROS_ERROR("[%s] 无法打开本地日志文件 %s",
+                  getName().c_str(), local_log_path_.c_str());
+        enable_local_log_ = false;
+        return;
+    }
+
+    local_log_stream_
+        << "ros_time_s,dt_s,vx_mps,vx_kmh,x_m,y_m,yaw_rad,"
+        << "mass_input_kg,model_m_kg,Iz_kgm2,lf_m,lr_m,Cf_Nprad,Cr_Nprad,"
+        << "N,Nc,integration_grade,eso_disturbance_decay,T_lag_s,Q_y,Q_theta,Q_r,dR,"
+        << "slope_filter_tau_s,yaw_input_gain_1ps2prad,"
+        << "lateral_error_m,steer_meas_rad,steer_nmpc_raw_rad,steer_nmpc_cmd_rad,"
+        << "steer_pp_raw_rad,steer_pp_cmd_rad,steer_final_rad,blend_alpha,"
+        << "kappa_1pm,r_ref_radps,ref_theta_rad,yaw_rate_radps,vy_est_mps,ay_raw_mps2,"
+        << "ay_bias_mps2,ay_slope_raw_mps2,ay_slope_filt_mps2,ay_slope_model_input_mps2,"
+        << "eso_x1_radps,eso_x2_radps2,eso_disturbance_radps2,model_r_radps,"
+        << "lookahead_m,preview_abs_kappa_1pm,nmpc_success,nmpc_iter_ms,"
+        << "control_core_ms,mpc_failure_count,using_pp,using_mixed\n";
+    local_log_stream_.flush();
+    local_log_stream_ << std::fixed << std::setprecision(8);
+    local_log_pending_rows_ = 0;
+    ROS_INFO("[%s] 本地诊断日志已启用: %s",
+             getName().c_str(), local_log_path_.c_str());
+}
+
 // -----------------------------------------------------------------------------
-// 插件初始化 
+// 插件初始化
 // -----------------------------------------------------------------------------
 bool ESOTracker::initialize(ros::NodeHandle& nh) {
     ros::NodeHandle nh_nmpc(nh, "eso_tracker");
@@ -114,27 +170,47 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("nx", nmpc_params_.nx, 6);
     nh_nmpc.param("nu", nmpc_params_.nu, 1);
     nh_nmpc.param("prediction_step", nmpc_params_.N, 35);
-    nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 5);
+    nh_nmpc.param("sparse_control_step", nmpc_params_.Nc, 3);
     nh_nmpc.param("sampling_time", nmpc_params_.dt, 0.05);
-    nh_nmpc.param("integration_grade", nmpc_params_.integration_grade, 2.0);
+    nh_nmpc.param("integration_grade", nmpc_params_.integration_grade, 1.0);
+    nh_nmpc.param("eso_disturbance_decay", nmpc_params_.eso_disturbance_decay, 0.85);
+    nmpc_params_.eso_disturbance_decay =
+        std::max(0.0, std::min(1.0, nmpc_params_.eso_disturbance_decay));
+
+    nh_nmpc.param<bool>("enable_local_log", enable_local_log_, false);
+    nh_nmpc.param<std::string>("local_log_directory", local_log_directory_,
+                               std::string("/tmp/eso_tracker_logs"));
+    nh_nmpc.param<int>("local_log_flush_interval", local_log_flush_interval_, 100);
+    local_log_flush_interval_ = std::max(1, local_log_flush_interval_);
+
+    if (nmpc_params_.nx != 6 || nmpc_params_.nu != 1 || nmpc_params_.N <= 0 ||
+        nmpc_params_.Nc <= 0 || nmpc_params_.Nc > nmpc_params_.N ||
+        !std::isfinite(nmpc_params_.dt) || nmpc_params_.dt <= 0.0) {
+        ROS_ERROR("[%s] NMPC基础配置无效: nx=%d, nu=%d, N=%d, Nc=%d, dt=%.6f",
+                  getName().c_str(), nmpc_params_.nx, nmpc_params_.nu,
+                  nmpc_params_.N, nmpc_params_.Nc, nmpc_params_.dt);
+        return false;
+    }
 
     // -------------------------------------------------------------------------
     // 2. 加载车辆物理参数及质量插值表
     // -------------------------------------------------------------------------
-    nh_nmpc.param("m", nmpc_params_.m, 9400.0);  // 牵引车自身质量，保持为固定结构参数
-    nh_nmpc.param("L", nmpc_params_.L, 4.0);
-    nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.2);
+    nh_nmpc.param("m", nmpc_params_.m, 10000.0);  // 牵引车模型质量，保持为固定结构参数
+    nh_nmpc.param("L", nmpc_params_.L, 4.135);    // 兼容旧配置；加载插值表后由 lf+lr 更新
+    nh_nmpc.param("T_lag", nmpc_params_.T_lag, 0.25);
 
-    // 默认值用于兼容 YAML 缺项；正式标定值应直接在 YAML 的五个数组中维护。
-    nmpc_params_.mass_interp_points = {9400.0, 16000.0, 33000.0, 49000.0};
-    nmpc_params_.Iz_interp_points = {62200.0, 62200.0, 62200.0, 62200.0};
-    nmpc_params_.lf_interp_points = {1.67, 1.67, 1.67, 1.67};
+    // 默认值用于兼容 YAML 缺项；正式标定值应直接在 YAML 的六个数组中维护。
+    nmpc_params_.mass_interp_points = {10000.0, 16000.0, 33000.0, 49000.0};
+    nmpc_params_.Iz_interp_points = {50000.0, 62200.0, 62200.0, 62200.0};
+    nmpc_params_.lf_interp_points = {2.0, 1.67, 1.67, 2.0};
+    nmpc_params_.lr_interp_points = {2.135, 2.33, 2.33, 2.0};
     nmpc_params_.Cf_interp_points = {270000.0, 270000.0, 270000.0, 270000.0};
     nmpc_params_.Cr_interp_points = {1500000.0, 1500000.0, 1500000.0, 1500000.0};
 
     nh_nmpc.getParam("mass_interp_points", nmpc_params_.mass_interp_points);
     nh_nmpc.getParam("Iz_interp_points", nmpc_params_.Iz_interp_points);
     nh_nmpc.getParam("lf_interp_points", nmpc_params_.lf_interp_points);
+    nh_nmpc.getParam("lr_interp_points", nmpc_params_.lr_interp_points);
     nh_nmpc.getParam("Cf_interp_points", nmpc_params_.Cf_interp_points);
     nh_nmpc.getParam("Cr_interp_points", nmpc_params_.Cr_interp_points);
 
@@ -144,28 +220,13 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     }
 
     // -------------------------------------------------------------------------
-    // 4. 加载控制量约束
+    // 3. 加载控制量约束
     // -------------------------------------------------------------------------
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.5);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
-    nh_nmpc.param("max_delta_delta", nmpc_params_.delta_c_max, 1.5);
-
-    // 车速相关前轮转角变化率限制，单位 rad/s
-    nh_nmpc.param("steer_rate_min", nmpc_params_.steer_rate_min, 0.30);
-    nh_nmpc.param("steer_rate_max", nmpc_params_.steer_rate_max, 2.00);
-    nh_nmpc.param("steer_rate_v0_kmh", nmpc_params_.steer_rate_v0_kmh, 15.0);
-    nh_nmpc.param("steer_rate_k", nmpc_params_.steer_rate_k, 30.0);
-
-    //横向误差控制变化率相关参数
-    nh_nmpc.param<bool>("use_lateral_error_steer_rate_boost",nmpc_params_.use_lateral_error_steer_rate_boost,true);
-    nh_nmpc.param("lateral_error_deadband",nmpc_params_.lateral_error_deadband,0.20);
-    nh_nmpc.param("lateral_error_full",nmpc_params_.lateral_error_full,1.00);
-    nh_nmpc.param("lateral_error_rate_boost_max",nmpc_params_.lateral_error_rate_boost_max,0.45);
-    nh_nmpc.param( "steer_rate_emergency_max",nmpc_params_.steer_rate_emergency_max,0.85);
-    nh_nmpc.param("lateral_error_filter_tau",nmpc_params_.lateral_error_filter_tau,0.20);
 
     // -------------------------------------------------------------------------
-    // 5. 加载代价函数权重
+    // 4. 加载代价函数权重
     // -------------------------------------------------------------------------
     nh_nmpc.param("Q_x", nmpc_params_.Q_x, 1000.0);
     nh_nmpc.param("Q_y", nmpc_params_.Q_y, 5000.0);
@@ -174,9 +235,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Q_r", nmpc_params_.Q_r, 800.0);
     nh_nmpc.param("Q_delta", nmpc_params_.Q_delta, 1000.0);
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
-    nh_nmpc.param("dR", nmpc_params_.dR, 500.0); // 
-    nh_nmpc.param("dR_dense", nmpc_params_.dR_dense, 0.0);     // 稠密增量惩罚，默认0=不改变原行为
-    nh_nmpc.param("R_ddelta", nmpc_params_.R_ddelta, 0.0);     // 二阶差分惩罚，默认0=不改变原行为
+    nh_nmpc.param("dR", nmpc_params_.dR, 500.0); //
 
     // ay 零偏补偿：仅用于横坡补偿项的 ay_slope = (ay_raw - ay_bias) - vx*r
     nh_nmpc.param<bool>("use_ay_bias_compensation", use_ay_bias_compensation_, true);   // false=完全关闭 ay 零偏补偿
@@ -192,24 +251,12 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param<bool>("dynamic_ay_require_full_window", dynamic_ay_require_full_window_, true);
 
     nh_nmpc.param("const_steer_bias", const_steer_bias_, 0.0); // 转向偏置补偿，默认0=不补偿
-    nh_nmpc.param<bool>("use_nmpc_lateral_error_compensation",
-                        use_nmpc_lateral_error_compensation_, true);
-    nh_nmpc.param<double>("nmpc_lateral_error_compensation_deadband",
-                          nmpc_lateral_error_compensation_deadband_, 0.15);
-    nh_nmpc.param<double>("nmpc_lateral_error_compensation_gain",
-                          nmpc_lateral_error_compensation_gain_, 0.10);
-    nh_nmpc.param<double>("nmpc_lateral_error_compensation_max",
-                          nmpc_lateral_error_compensation_max_, 0.05);
     nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
     nh_nmpc.param<double>("slope_compensation_coeff", slope_compensation_coeff_, 1.0);
-    nh_nmpc.param<int>("slope_compensation_filter_window_size", slope_compensation_filter_window_size_, 1);
+    nh_nmpc.param<double>("slope_compensation_filter_tau", slope_compensation_filter_tau_, 1.0);
 
-    slope_compensation_filter_window_size_ = std::max(1, slope_compensation_filter_window_size_);
+    slope_compensation_filter_tau_ = std::max(0.0, slope_compensation_filter_tau_);
     dynamic_ay_error_window_size_ = std::max(1, dynamic_ay_error_window_size_);
-    nmpc_lateral_error_compensation_deadband_ =
-        std::max(0.0, nmpc_lateral_error_compensation_deadband_);
-    nmpc_lateral_error_compensation_max_ =
-        std::max(0.0, nmpc_lateral_error_compensation_max_);
     dynamic_ay_error_threshold_ = std::max(0.0, dynamic_ay_error_threshold_);
     dynamic_ay_bias_learning_rate_ = std::max(0.0, dynamic_ay_bias_learning_rate_);
     dynamic_ay_bias_max_step_ = std::max(0.0, dynamic_ay_bias_max_step_);
@@ -220,18 +267,12 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
     lateral_error_history_.clear();
 
-    // 等效惯性量相关参数
-    nh_nmpc.param("m_total", nmpc_params_.m_total, 16000.0); // 无有效 EBS 质量时的整车质量回退值，单位 kg
-    nh_nmpc.param("lg", nmpc_params_.lg, 3.4); // 第五轮到挂车等效轴距离，单位 m
-    nh_nmpc.param("lh", nmpc_params_.lh, 0.0); // 铰接点相对牵引车质心的纵向偏移，单位 m
-    nh_nmpc.param("Kiz", nmpc_params_.Kiz, 10.0); // 单位挂车质量增加的挂车横摆转动惯量，单位 kg·m²
-    nh_nmpc.param<bool>("use_equivalent_inertia", use_equivalent_inertia_, true); // 是否使用等效重量（方案二融合的部分，是否将挂车惯性量融合进来）
+    // 整车质量只作为参数插值的调度输入
+    nh_nmpc.param("m_total", nmpc_params_.m_total, 10000.0); // 无有效 EBS 质量时的整车质量回退值，单位 kg
     nh_nmpc.param<bool>("auto_update_total_weight", auto_update_total_weight_, false); // 是否根据话题信息自动更新整车重量
 
     received_mass_ = nmpc_params_.m_total;
     updateMassDependentParameters(received_mass_);
-    updateEquivalentMassAndInertia();
-
 
     // -------------------------------------------------------------------------
     // 加载 Supervisor 配置 (模式切换与纯跟踪)
@@ -253,8 +294,6 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     lookahead_speed_coeff_ = std::max(0.0, lookahead_speed_coeff_);
     lookahead_curvature_coeff_ = std::max(0.0, lookahead_curvature_coeff_);
 
-
-
     // -------------------------------------------------------------------------
     // 后处理与打印
     // -------------------------------------------------------------------------
@@ -262,7 +301,7 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nmpc_params_.updateQMatrix();
 
     // 简单的参数确认打印 (替代不存在的 logParamLoad)
-    ROS_INFO("[%s] 参数加载完毕: tractor_m=%.0f, received_mass=%.0f, Iz=%.1f, lf=%.3f, lr=%.3f, Cf=%.1f, Cr=%.1f, N=%d, dR=%.1f, Lookahead=%.1f", 
+    ROS_INFO("[%s] 参数加载完毕: tractor_m=%.0f, received_mass=%.0f, Iz=%.1f, lf=%.3f, lr=%.3f, Cf=%.1f, Cr=%.1f, N=%d, dR=%.1f, Lookahead=%.1f",
              getName().c_str(), nmpc_params_.m, received_mass_, nmpc_params_.Iz,
              nmpc_params_.lf, nmpc_params_.lr, nmpc_params_.Cf, nmpc_params_.Cr,
              nmpc_params_.N, nmpc_params_.dR, min_lookahead_distance_);
@@ -273,24 +312,20 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     ROS_INFO("[%s] 共用轴距 L=%.3f m | PP预瞄: min=%.2f m, speed_coeff=%.3f s, curvature_coeff=%.3f m^2",
              getName().c_str(), nmpc_params_.L, min_lookahead_distance_,
              lookahead_speed_coeff_, lookahead_curvature_coeff_);
-    ROS_INFO("[%s] NMPC横向误差输出补偿: enable=%d, deadband=%.3f m, gain=%.3f rad/m, max=%.3f rad",
-             getName().c_str(), use_nmpc_lateral_error_compensation_,
-             nmpc_lateral_error_compensation_deadband_,
-             nmpc_lateral_error_compensation_gain_,
-             nmpc_lateral_error_compensation_max_);
 
-    start_time_ = ros::Time::now(); 
+    start_time_ = ros::Time::now();
 
     // 构建 CasADi 求解器
     buildNMPSolver();
     // 初始化发布器
-    est_pub_ = nh.advertise<race_msgs::ESOEstimation>("/race/eso_estimation_states", 1);    
+    est_pub_ = nh.advertise<race_msgs::ESOEstimation>("/race/eso_estimation_states", 1);
+    initializeLocalLog();
     ROS_INFO("[%s] 控制器初始化完成", getName().c_str());
     return true;
 }
 
 // -----------------------------------------------------------------------------
-// 核心控制循环 
+// 核心控制循环
 // -----------------------------------------------------------------------------
 void ESOTracker::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
@@ -319,13 +354,13 @@ void ESOTracker::computeControl(
     double curr_lateral_tracking_error = vehicle_status->tracking.lateral_tracking_error;
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
-    
+
     if (auto_update_total_weight_) {
         const double mass_from_ebs = vehicle_status->mass;
         if (std::isfinite(mass_from_ebs) && mass_from_ebs > 0.0) {
             received_mass_ = mass_from_ebs;
         } else {
-            ROS_WARN_THROTTLE(1.0, "[%s] 收到无效整车质量 %.3f kg，沿用上一有效值 %.1f kg",
+            ROS_WARN("[%s] 收到无效整车质量 %.3f kg，沿用上一有效值 %.1f kg",
                               getName().c_str(), mass_from_ebs, received_mass_);
         }
     } else {
@@ -334,12 +369,11 @@ void ESOTracker::computeControl(
 
     // 质量是 Iz、lf、Cf、Cr 的唯一调度变量；插值区间外保持首/末端值。
     updateMassDependentParameters(received_mass_);
-    updateEquivalentMassAndInertia();
 
     // ==========================================================
     // 无论低速还是高速，UKF/ESO 都更新
     // ==========================================================
-    
+
     static ros::Time last_control_time = ros::Time(0);
     ros::Time current_time = ros::Time::now();
 
@@ -347,37 +381,25 @@ void ESOTracker::computeControl(
         ROS_WARN("[%s] 检测到控制重连，清空观测器记忆！", getName().c_str());
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
-        current_cmd_ = curr_delta; 
-        ukf_P_est_ = (Matrix2d() << 1.0, 0.0, 0.0, 0.1).finished(); 
-        eso_x1_ = curr_r; 
+        current_cmd_ = curr_delta;
+        ukf_P_est_ = (Matrix2d() << 1.0, 0.0, 0.0, 0.1).finished();
+        eso_x1_ = curr_r;
         eso_x2_ = 0.0;
-        blend_alpha_ = 0.0; 
-        is_high_speed_last_ = false;
+        blend_alpha_ = 0.0;
         start_time_ = current_time;
-        last_final_cmd_ = curr_delta; 
         final_cmd_filt_ = curr_delta;
         final_cmd_filt_init_ = false;
         model_r_comp_ = 0.0;
         model_comp_initialized_ = false;
         ay_slope_compensation_ = 0.0;
-        ay_slope_compensation_history_.clear();
+        ay_slope_compensation_initialized_ = false;
         lateral_error_history_.clear();
         ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
         effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
-        lateral_error_abs_filt_ = 0.0;
-        lateral_error_filter_initialized_ = false;
     }
     last_control_time = current_time;
 
     const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限
-
-    // 当前车速 + 横向误差共同决定的最大前轮转角变化率，单位 rad/s
-    const double steer_rate_limit =computeErrorAwareSteerRateLimit(curr_vx_raw,curr_lateral_tracking_error,obs_dt);
-
-    // 当前控制周期内允许的最大前轮转角变化量，单位 rad
-    // 同时保留 max_delta_delta 作为全局硬保护。
-    const double steer_step_limit = steer_rate_limit * obs_dt;
-
 
     // 1. UKF (始终更新)
     double obs_vx = std::max(std::abs(curr_vx_raw), 1.0);
@@ -390,25 +412,19 @@ void ESOTracker::computeControl(
     // 3. ESO (始终更新)
     esoCompute(curr_r, curr_delta, obs_dt);
 
-    // 参照参数引入对照输出
-    calculate_trailer_kinematics(curr_vx, curr_r, obs_dt);
-    ekfEstimateVy(curr_vx, curr_delta, curr_ay, curr_r, obs_dt);
-    const double vy_est2 = ekf_x_hat_(0);
-
     // ==========================================================
     // 启动阶段：使用 supervisor_params_
     // ==========================================================
 
     double time_elapsed = (current_time - start_time_).toSec();
-    bool is_current_high_speed = false;
 
     // ==========================================================
-    // 模式平滑过渡权重计算 
+    // 模式平滑过渡权重计算
     // ==========================================================
     if (time_elapsed < supervisor_params_.startup_time) {
         // 启动前N秒：强制纯跟踪
         blend_alpha_ = 0.0;
-        ROS_INFO_THROTTLE(1.0, "[STARTUP] 预热中: %.1f / %.1f s | 纯跟踪锁定", time_elapsed, supervisor_params_.startup_time);
+        ROS_INFO("[STARTUP] 预热中: %.1f / %.1f s | 纯跟踪锁定", time_elapsed, supervisor_params_.startup_time);
     } else {
         // 恢复原有车速切换逻辑
         if (curr_vx_raw <= supervisor_params_.blend_speed_low) {
@@ -419,7 +435,6 @@ void ESOTracker::computeControl(
             blend_alpha_ = (curr_vx_raw - supervisor_params_.blend_speed_low) / (supervisor_params_.blend_speed_high - supervisor_params_.blend_speed_low);
         }
     }
-    is_current_high_speed = (blend_alpha_ >= 0.99);
 
     // ==========================================================
     // NMPC都后台预计算，保持热启动
@@ -429,7 +444,7 @@ void ESOTracker::computeControl(
     model_r_comp_ = curr_r;
     model_comp_initialized_ = true;
     }
-    double vx_safe_external = std::max(curr_vx, 1.0); 
+    double vx_safe_external = std::max(curr_vx, 1.0);
     double alpha_f_curr = curr_delta - atan2((vy_est + nmpc_params_.lf * curr_r), vx_safe_external);
     double alpha_r_curr = -atan2((vy_est - nmpc_params_.lr * curr_r), vx_safe_external);
     double Fyf_curr = nmpc_params_.Cf * alpha_f_curr;
@@ -453,6 +468,7 @@ void ESOTracker::computeControl(
     // 因此初始 x,y,theta 均为 0；vy/r/delta 仍为实际物理量。
     std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
+    double ay_slope_compensation_raw = 0.0;
 
     // 计算横坡补偿
     // 说明：ay 零偏只用于横坡补偿分支，不改 UKF/ESO 的原有观测输入，避免改变原控制器其他估计链路。
@@ -473,55 +489,48 @@ void ESOTracker::computeControl(
 
         const double ay_corrected_for_slope = curr_ay - effective_ay_bias_;
         double ay_theoretical = curr_r * curr_vx;
-        double ay_slope_compensation_raw = ay_corrected_for_slope - ay_theoretical;
+        ay_slope_compensation_raw = ay_corrected_for_slope - ay_theoretical;
 
-        // 滑动窗口滤波
-        ay_slope_compensation_history_.push_back(ay_slope_compensation_raw);
-        if (ay_slope_compensation_history_.size() > static_cast<size_t>(slope_compensation_filter_window_size_)) {
-            ay_slope_compensation_history_.pop_front();
+        // 横坡是准静态量；一阶低通保留 DC 横坡，同时抑制日志中 0.3~0.7 Hz 的车辆横向瞬态。
+        if (!ay_slope_compensation_initialized_) {
+            ay_slope_compensation_ = ay_slope_compensation_raw;
+            ay_slope_compensation_initialized_ = true;
+        } else {
+            const double alpha = (slope_compensation_filter_tau_ <= 0.0)
+                ? 1.0 : obs_dt / (slope_compensation_filter_tau_ + obs_dt);
+            ay_slope_compensation_ += alpha * (ay_slope_compensation_raw - ay_slope_compensation_);
         }
 
-        double sum = 0.0;
-        for (double val : ay_slope_compensation_history_) {
-            sum += val;
-        }
-        ay_slope_compensation_ = sum / ay_slope_compensation_history_.size();
-
-        ROS_WARN_THROTTLE(1.0, "横坡补偿: raw_ay=%.4f, ay_bias=%.4f, ay_corr=%.4f, ay_theory=%.4f, slope_raw=%.4f, slope_filt=%.4f, coeff=%.2f, win=%zu",
+        ROS_WARN("横坡补偿: raw_ay=%.4f, ay_bias=%.4f, ay_corr=%.4f, ay_theory=%.4f, slope_raw=%.4f, slope_filt=%.4f, coeff=%.2f, tau=%.3fs",
                  curr_ay, effective_ay_bias_, ay_corrected_for_slope, ay_theoretical,
                  ay_slope_compensation_raw, ay_slope_compensation_, slope_compensation_coeff_,
-                 ay_slope_compensation_history_.size());
+                 slope_compensation_filter_tau_);
     } else {
         ay_slope_compensation_ = 0.0;
+        ay_slope_compensation_initialized_ = false;
         effective_ay_bias_ = 0.0;
-        ay_slope_compensation_history_.clear();
         lateral_error_history_.clear();
     }
 
     // NMPC参数绑定（始终更新）
-    // gamma_ 已在本周期更新，因此重新计算一次等效质量/惯量供 NMPC 使用。
-    updateEquivalentMassAndInertia();
-
-    std::vector<double> dyn_params = {m_eq_y_, I_eq_, nmpc_params_.lf, 
+    std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf,
                                       nmpc_params_.lr, nmpc_params_.Cf, nmpc_params_.Cr};
     solver_.opti.set_value(solver_.P_vx, curr_vx);
     solver_.opti.set_value(solver_.P_ay_slope_comp, ay_slope_compensation_ * slope_compensation_coeff_);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
-    solver_.opti.set_value(solver_.P_delta_step_max, steer_step_limit); //每步限制传给NMPC
 
     // 无论什么模式，都调用NMPC求解，保持热启动状态
     auto nmpc_start_time = std::chrono::high_resolution_clock::now();
     bool nmpc_solve_success = solveNMPC(nmpc_state, waypoints_dm, control_output);
     auto nmpc_end_time = std::chrono::high_resolution_clock::now();
     iter_time_ = std::chrono::duration<double, std::milli>(nmpc_end_time - nmpc_start_time).count();
+    double nmpc_raw_cmd = std::numeric_limits<double>::quiet_NaN();
 
-    double nmpc_lateral_error_compensation = 0.0;
     if (nmpc_solve_success) {
+        nmpc_raw_cmd = control_output[0];
         nmpc_safe_cmd_ = control_output[0];
-        nmpc_lateral_error_compensation =
-            computeNmpcLateralErrorCompensation(curr_lateral_tracking_error);
-        nmpc_safe_cmd_ += const_steer_bias_ + nmpc_lateral_error_compensation;
+        nmpc_safe_cmd_ += const_steer_bias_;
         mpc_failure_flag_ = false;
         mpc_failure_count_ = 0;
     } else {
@@ -534,15 +543,8 @@ void ESOTracker::computeControl(
     // 所有 NMPC 后处理完成后统一限幅保护。
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
 
-    if (std::abs(nmpc_lateral_error_compensation) > 1e-9) {
-        ROS_INFO_THROTTLE(1.0,
-                          "[%s] NMPC横向误差补偿: error=%.3f m, compensation=%.4f rad, cmd=%.4f rad",
-                          getName().c_str(), curr_lateral_tracking_error,
-                          nmpc_lateral_error_compensation, nmpc_safe_cmd_);
-    }
-
     // ==========================================================
-    // 纯跟踪逻辑 
+    // 纯跟踪逻辑
     // ==========================================================
     double pp_safe_cmd_ = 0.0;
     // PP 与 NMPC 直接共用同一个固定轴距参数，避免 lf/lr 调度后出现口径歧义。
@@ -582,11 +584,11 @@ void ESOTracker::computeControl(
     const double lookahead_dist = std::max(
         min_lookahead_distance_,
         speed_lookahead - lookahead_curvature_coeff_ * preview_abs_curvature);
-    
+
     // 找目标点
     int target_idx = 0;
     bool found = false;
-    
+
     for (int i = nearest_idx; i < static_cast<int>(path->points.size()); ++i) {
         double dx = path->points[i].pose.position.x - curr_x;
         double dy = path->points[i].pose.position.y - curr_y;
@@ -638,7 +640,7 @@ void ESOTracker::computeControl(
         if (mpc_failure_count_ >= require_overtake_times_) {
             require_over_take_flag_ = true;
             ROS_WARN("[%s] 连续要求超车 %d 次，提示人工接管", getName().c_str(), mpc_failure_count_);
-        } 
+        }
 
     }else {
             require_over_take_flag_ = false;
@@ -657,7 +659,7 @@ void ESOTracker::computeControl(
     } else {
         using_pure_pursuit_flag_ = false;
         using_mixed_mode_flag_ = true;
-        ROS_INFO("[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f", 
+        ROS_INFO("[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f",
                             curr_vx_raw * 3.6, blend_alpha_, pp_safe_cmd_, nmpc_safe_cmd_);
     }
 
@@ -666,11 +668,6 @@ void ESOTracker::computeControl(
     // ==========================================================
     // 加权融合两个算法的输出
     double final_cmd = blend_alpha_ * nmpc_safe_cmd_ + (1.0 - blend_alpha_) * pp_safe_cmd_;
-
-    // 全局转角增量限制，防止任何情况下的跳变
-    double max_delta_per_step = nmpc_params_.delta_c_max * obs_dt;
-    final_cmd = std::max(last_final_cmd_ - max_delta_per_step, 
-                     std::min(last_final_cmd_ + max_delta_per_step, final_cmd));
 
     // 输出端一阶低通滤波：滤掉驾驶员能感知的高频抖动，进一步提升方向盘转动质量。
     // tau<=0 时直接透传，不改变原行为。注意 LPF 引入的相位滞后由 tau 控制，
@@ -684,16 +681,12 @@ void ESOTracker::computeControl(
         final_cmd_filt_ = (1.0 - a) * final_cmd_filt_ + a * final_cmd;
         final_cmd = final_cmd_filt_;
     }
-    // 再做车速相关硬限速，这是最终安全约束
-    final_cmd = std::max(last_final_cmd_ - steer_step_limit,
-             std::min(last_final_cmd_ + steer_step_limit, final_cmd));
 
     // 最后再做绝对转角限幅
     final_cmd = std::max(nmpc_params_.delta_min,
              std::min(nmpc_params_.delta_max, final_cmd));
 
     // 更新current_cmd_，保持状态连续
-    last_final_cmd_ = final_cmd;
     current_cmd_ = final_cmd;
 
     // 填装消息输出
@@ -701,13 +694,50 @@ void ESOTracker::computeControl(
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
 
-    // 更新上一帧模式状态
-    is_high_speed_last_ = is_current_high_speed;
-
     auto control_end_time = std::chrono::high_resolution_clock::now();
     total_control_time_ = std::chrono::duration<double, std::milli>(
     control_end_time - control_start_time
     ).count();
+
+    if (enable_local_log_ && local_log_stream_.is_open()) {
+        local_log_stream_
+            << current_time.toSec() << ',' << obs_dt << ','
+            << curr_vx_raw << ',' << curr_vx_raw * 3.6 << ','
+            << curr_x << ',' << curr_y << ',' << curr_theta << ','
+            << received_mass_ << ',' << nmpc_params_.m << ',' << nmpc_params_.Iz << ','
+            << nmpc_params_.lf << ',' << nmpc_params_.lr << ','
+            << nmpc_params_.Cf << ',' << nmpc_params_.Cr << ','
+            << nmpc_params_.N << ',' << nmpc_params_.Nc << ','
+            << nmpc_params_.integration_grade << ',' << nmpc_params_.eso_disturbance_decay << ','
+            << nmpc_params_.T_lag << ',' << nmpc_params_.Q_y << ',' << nmpc_params_.Q_theta << ','
+            << nmpc_params_.Q_r << ',' << nmpc_params_.dR << ',' << slope_compensation_filter_tau_ << ','
+            << nmpc_params_.Cf * nmpc_params_.lf / nmpc_params_.Iz << ','
+            << curr_lateral_tracking_error << ',' << curr_delta << ','
+            << nmpc_raw_cmd << ',' << nmpc_safe_cmd_ << ','
+            << delta_pp_raw << ',' << pp_safe_cmd_ << ',' << final_cmd << ','
+            << blend_alpha_ << ',' << kappa << ',' << r_ref << ',' << theta << ','
+            << curr_r << ',' << vy_est << ',' << curr_ay << ',' << effective_ay_bias_ << ','
+            << ay_slope_compensation_raw << ',' << ay_slope_compensation_ << ','
+            << ay_slope_compensation_ * slope_compensation_coeff_ << ','
+            << eso_x1_ << ',' << eso_x2_ << ',' << d_pure_trailer << ',' << Model_r1_ << ','
+            << lookahead_dist << ',' << preview_abs_curvature << ','
+            << (nmpc_solve_success ? 1 : 0) << ',' << iter_time_ << ','
+            << total_control_time_ << ',' << mpc_failure_count_ << ','
+            << (using_pure_pursuit_flag_ ? 1 : 0) << ','
+            << (using_mixed_mode_flag_ ? 1 : 0) << '\n';
+
+        ++local_log_pending_rows_;
+        if (local_log_pending_rows_ >= local_log_flush_interval_) {
+            local_log_stream_.flush();
+            local_log_pending_rows_ = 0;
+        }
+        if (!local_log_stream_.good()) {
+            ROS_ERROR("[%s] 本地诊断日志写入失败，关闭日志: %s",
+                      getName().c_str(), local_log_path_.c_str());
+            local_log_stream_.close();
+            enable_local_log_ = false;
+        }
+    }
 
     race_msgs::ESOEstimation est_msg;
     est_msg.model_r1 = Model_r1_;              // 模型输出横摆角速度
@@ -715,9 +745,6 @@ void ESOTracker::computeControl(
     est_msg.eso1_x = eso_x1_;                  // ESO_x
     est_msg.eso1_total = eso_x2_;              // ESO_x2
     est_msg.eso1_pure = d_pure_trailer;        // 纯扰动
-    est_msg.r_t = r_t_;                        // 挂车横摆率
-    est_msg.gamma_angle = gamma_;              // 铰接角
-    est_msg.vy_est2  = vy_est2;                // 方案二侧向速度估计
     est_msg.Cf_est = nmpc_params_.Cf;              // 当前质量插值得到的前轴侧偏刚度
     est_msg.Cr_est = nmpc_params_.Cr;              // 当前质量插值得到的后轴侧偏刚度
     est_msg.kappa = kappa;                     // 参考曲率
@@ -739,117 +766,6 @@ double ESOTracker::normalizeAngle(double angle) {
     while (angle > M_PI) angle -= 2 * M_PI;
     while (angle < -M_PI) angle += 2 * M_PI;
     return angle;
-}
-
-double ESOTracker::computeSteerRateLimit(double vx_mps) const {
-    // 车速取绝对值，并转换为 km/h
-    double v_kmh = std::abs(vx_mps) * 3.6;
-
-    // 限定车速范围 0~100 km/h，防止极端异常速度导致限制失真
-    v_kmh = std::max(0.0, std::min(100.0, v_kmh));
-
-    // 反比例函数：车速越高，允许的最大转角变化率越小
-    double denom = std::max(1e-3, v_kmh + nmpc_params_.steer_rate_v0_kmh);
-    double rate = nmpc_params_.steer_rate_min +
-                  nmpc_params_.steer_rate_k / denom;
-
-    // 上下限保护
-    rate = std::max(nmpc_params_.steer_rate_min,
-                    std::min(nmpc_params_.steer_rate_max, rate));
-
-    return rate;
-}
-
-double ESOTracker::computeErrorAwareSteerRateLimit(double vx_mps, double lateral_error, double dt) {
-
-    // 1. 先计算车速决定的基础变化率
-    const double base_rate = computeSteerRateLimit(vx_mps);
-
-    // 2. 总开关关闭时，退回原逻辑
-    if (!nmpc_params_.use_lateral_error_steer_rate_boost) {
-        return base_rate;
-    }
-
-    // 3. 只用横向误差绝对值决定“允许打多快”
-    //    方向由 NMPC / PP 自己决定，这里不要使用误差正负号。
-    double err_abs = std::abs(lateral_error);
-    if (!std::isfinite(err_abs)) {
-        err_abs = 0.0;
-    }
-
-    // 4. 对横向误差绝对值做低通滤波，避免定位跳变导致变化率突然放大
-    const double tau = nmpc_params_.lateral_error_filter_tau;
-    if (tau > 1e-6) {
-        const double dt_safe = std::max(1e-3, std::min(dt, 0.2));
-
-        if (!lateral_error_filter_initialized_) {
-            lateral_error_abs_filt_ = err_abs;
-            lateral_error_filter_initialized_ = true;
-        } else {
-            const double a = dt_safe / (tau + dt_safe);
-            lateral_error_abs_filt_ =
-                (1.0 - a) * lateral_error_abs_filt_ + a * err_abs;
-        }
-
-        err_abs = lateral_error_abs_filt_;
-    } else {
-        lateral_error_abs_filt_ = err_abs;
-        lateral_error_filter_initialized_ = true;
-    }
-
-    // 5. 计算误差放宽系数 alpha
-    //    err <= deadband: alpha = 0
-    //    err >= full:     alpha = 1
-    const double deadband = std::max(0.0, nmpc_params_.lateral_error_deadband);
-    const double full = std::max(deadband + 1e-3,
-                                 nmpc_params_.lateral_error_full);
-
-    double alpha = 0.0;
-    if (err_abs > deadband) {
-        alpha = (err_abs - deadband) / (full - deadband);
-        alpha = std::max(0.0, std::min(1.0, alpha));
-
-        // smoothstep 平滑过渡，避免刚过阈值时变化率突跳
-        alpha = alpha * alpha * (3.0 - 2.0 * alpha);
-    }
-
-    // 6. 横向误差越大，额外放宽越多
-    const double boosted_rate =
-        base_rate + alpha * nmpc_params_.lateral_error_rate_boost_max;
-
-    // 7. 最终上限保护：
-    //    emergency_max 不能让结果低于 base_rate，否则低速基础能力会被错误压低。
-    const double final_cap =
-        std::max(base_rate, nmpc_params_.steer_rate_emergency_max);
-
-    const double final_rate =
-        std::max(nmpc_params_.steer_rate_min,
-                 std::min(final_cap, boosted_rate));
-
-    return final_rate;
-}
-
-double ESOTracker::computeNmpcLateralErrorCompensation(double lateral_error) const {
-    if (!use_nmpc_lateral_error_compensation_ || !std::isfinite(lateral_error) ||
-        !std::isfinite(nmpc_lateral_error_compensation_gain_) ||
-        nmpc_lateral_error_compensation_max_ <= 0.0) {
-        return 0.0;
-    }
-
-    const double error_abs = std::abs(lateral_error);
-    if (error_abs <= nmpc_lateral_error_compensation_deadband_) {
-        return 0.0;
-    }
-
-    // 仅对超出死区的误差量进行比例补偿，保证越过死区边界时补偿连续地从 0 开始。
-    const double error_excess =
-        error_abs - nmpc_lateral_error_compensation_deadband_;
-    double compensation = nmpc_lateral_error_compensation_gain_ *
-                          std::copysign(error_excess, lateral_error);
-
-    compensation = std::max(-nmpc_lateral_error_compensation_max_,
-                            std::min(nmpc_lateral_error_compensation_max_, compensation));
-    return compensation;
 }
 
 namespace {
@@ -904,8 +820,8 @@ std::vector<double> ESOTracker::calculate_cumulative_distance(const race_msgs::P
     return cum_dist;
 }
 
-std::vector<double> ESOTracker::linear_interpolate(const std::vector<double>& s_original, 
-                                                            const std::vector<double>& val_original, 
+std::vector<double> ESOTracker::linear_interpolate(const std::vector<double>& s_original,
+                                                            const std::vector<double>& val_original,
                                                             const std::vector<double>& s_target) {
     std::vector<double> val_target(s_target.size(), val_original.empty() ? 0.0 : val_original[0]);
     if (s_original.size() < 2) return val_target;
@@ -924,7 +840,7 @@ std::vector<double> ESOTracker::linear_interpolate(const std::vector<double>& s_
     return val_target;
 }
 
-casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist, 
+casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist,
                                                 int start_idx, int end_idx, const std::vector<double>& s_target, double yaw0) {
     // yaw0 = 自车当前航向 curr_theta（由 process_race_path 透传 current_state[2]）。
     const double veh_yaw = yaw0;
@@ -993,22 +909,22 @@ casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, cons
     g_ref_x0 = current_state[0];
     g_ref_y0 = current_state[1];
 
-    double calc_vx = std::max(current_state[3], 1.0); 
+    double calc_vx = std::max(current_state[3], 1.0);
 
     std::vector<double> s_target(nmpc_params_.N + 1);
     for (int i = 0; i <= nmpc_params_.N; ++i) {
         s_target[i] = calc_vx * nmpc_params_.dt * i;
     }
-    
-    double max_dist = s_target.back() + 10.0; 
-    
+
+    double max_dist = s_target.back() + 10.0;
+
     std::vector<double> cum_dist = calculate_cumulative_distance(input_path, nearest_idx);
 
     int end_idx = nearest_idx;
     for (size_t i = 0; i < cum_dist.size(); ++i) {
-        if (cum_dist[i] > max_dist) { 
-            end_idx = nearest_idx + i; 
-            break; 
+        if (cum_dist[i] > max_dist) {
+            end_idx = nearest_idx + i;
+            break;
         }
         if (i == cum_dist.size() - 1) end_idx = nearest_idx + i;
     }
@@ -1039,10 +955,9 @@ double ESOTracker::interpolateWithClampedEnds(
 }
 
 bool ESOTracker::validateMassInterpolationTables() const {
-    if (!std::isfinite(nmpc_params_.L) || nmpc_params_.L <= 0.0 ||
-        !std::isfinite(nmpc_params_.m) || nmpc_params_.m <= 0.0) {
-        ROS_ERROR("[%s] 固定车辆参数无效: m=%.3f kg, L=%.3f m",
-                  getName().c_str(), nmpc_params_.m, nmpc_params_.L);
+    if (!std::isfinite(nmpc_params_.m) || nmpc_params_.m <= 0.0) {
+        ROS_ERROR("[%s] 固定车辆模型质量无效: m=%.3f kg",
+                  getName().c_str(), nmpc_params_.m);
         return false;
     }
 
@@ -1050,6 +965,7 @@ bool ESOTracker::validateMassInterpolationTables() const {
     if (n < 2 ||
         nmpc_params_.Iz_interp_points.size() != n ||
         nmpc_params_.lf_interp_points.size() != n ||
+        nmpc_params_.lr_interp_points.size() != n ||
         nmpc_params_.Cf_interp_points.size() != n ||
         nmpc_params_.Cr_interp_points.size() != n) {
         ROS_ERROR("[%s] 插值数组长度不一致，且至少需要 2 个质量节点", getName().c_str());
@@ -1060,18 +976,18 @@ bool ESOTracker::validateMassInterpolationTables() const {
         const double mass = nmpc_params_.mass_interp_points[i];
         const double Iz = nmpc_params_.Iz_interp_points[i];
         const double lf = nmpc_params_.lf_interp_points[i];
+        const double lr = nmpc_params_.lr_interp_points[i];
         const double Cf = nmpc_params_.Cf_interp_points[i];
         const double Cr = nmpc_params_.Cr_interp_points[i];
 
-        if (!std::isfinite(mass) || !std::isfinite(Iz) || !std::isfinite(lf) ||
+        if (!std::isfinite(mass) || !std::isfinite(Iz) || !std::isfinite(lf) || !std::isfinite(lr) ||
             !std::isfinite(Cf) || !std::isfinite(Cr)) {
             ROS_ERROR("[%s] 插值表第 %zu 个节点含 NaN/Inf", getName().c_str(), i);
             return false;
         }
-        if (mass <= 0.0 || Iz <= 0.0 || Cf <= 0.0 || Cr <= 0.0 ||
-            lf <= 0.0 || lf >= nmpc_params_.L) {
-            ROS_ERROR("[%s] 插值表第 %zu 个节点物理范围无效: mass=%.3f, Iz=%.3f, lf=%.3f, Cf=%.3f, Cr=%.3f",
-                      getName().c_str(), i, mass, Iz, lf, Cf, Cr);
+        if (mass <= 0.0 || Iz <= 0.0 || Cf <= 0.0 || Cr <= 0.0 || lf <= 0.0 || lr <= 0.0) {
+            ROS_ERROR("[%s] 插值表第 %zu 个节点物理范围无效: mass=%.3f, Iz=%.3f, lf=%.3f, lr=%.3f, Cf=%.3f, Cr=%.3f",
+                      getName().c_str(), i, mass, Iz, lf, lr, Cf, Cr);
             return false;
         }
         if (i > 0 && mass <= nmpc_params_.mass_interp_points[i - 1]) {
@@ -1086,7 +1002,7 @@ bool ESOTracker::validateMassInterpolationTables() const {
 
 void ESOTracker::updateMassDependentParameters(double mass) {
     if (!std::isfinite(mass) || mass <= 0.0) {
-        ROS_WARN_THROTTLE(1.0, "[%s] 质量插值输入无效: %.3f kg，本周期保留上一组车辆参数",
+        ROS_WARN("[%s] 质量插值输入无效: %.3f kg，本周期保留上一组车辆参数",
                           getName().c_str(), mass);
         return;
     }
@@ -1096,35 +1012,19 @@ void ESOTracker::updateMassDependentParameters(double mass) {
         mass, nmpc_params_.mass_interp_points, nmpc_params_.Iz_interp_points);
     nmpc_params_.lf = interpolateWithClampedEnds(
         mass, nmpc_params_.mass_interp_points, nmpc_params_.lf_interp_points);
+    nmpc_params_.lr = interpolateWithClampedEnds(
+        mass, nmpc_params_.mass_interp_points, nmpc_params_.lr_interp_points);
     nmpc_params_.Cf = interpolateWithClampedEnds(
         mass, nmpc_params_.mass_interp_points, nmpc_params_.Cf_interp_points);
     nmpc_params_.Cr = interpolateWithClampedEnds(
         mass, nmpc_params_.mass_interp_points, nmpc_params_.Cr_interp_points);
-    nmpc_params_.lr = nmpc_params_.L - nmpc_params_.lf;
+    nmpc_params_.L = nmpc_params_.lf + nmpc_params_.lr;
 
-    ROS_INFO_THROTTLE(1.0,
-        "[%s][mass_interp] mass=%.1f kg | Iz=%.1f kg*m^2, lf=%.4f m, lr=%.4f m, Cf=%.1f N/rad, Cr=%.1f N/rad",
-        getName().c_str(), mass, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr,
-        nmpc_params_.Cf, nmpc_params_.Cr);
-}
-
-void ESOTracker::updateEquivalentMassAndInertia() {
-    const double m_trailer = std::max(0.0, nmpc_params_.m_total - nmpc_params_.m);
-    const double I_trailer = std::max(0.0, nmpc_params_.Kiz * m_trailer);
-
-    m_eq_y_ = nmpc_params_.m;
-    I_eq_ = nmpc_params_.Iz;
-
-    if (use_equivalent_inertia_) {
-        const double d1 = nmpc_params_.lr - nmpc_params_.lh;
-        const double d2 = std::max(1e-3, std::abs(nmpc_params_.lg));
-        m_eq_y_ += m_trailer * std::pow(std::sin(gamma_), 2);
-        I_eq_ += I_trailer * std::pow(d1 * std::cos(gamma_) / d2, 2)
-               + m_trailer * std::pow(d2 * std::sin(gamma_), 2);
-    }
-
-    m_eq_y_ = std::max(1.0, m_eq_y_);
-    I_eq_ = std::max(1.0, I_eq_);
+    ROS_INFO(
+        "[%s][mass_interp] mass_input=%.1f kg, model_m=%.1f kg | Iz=%.1f kg*m^2, lf=%.4f m, lr=%.4f m, L=%.4f m, Cf=%.1f N/rad, Cr=%.1f N/rad, yaw_gain=%.4f",
+        getName().c_str(), mass, nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf, nmpc_params_.lr,
+        nmpc_params_.L, nmpc_params_.Cf, nmpc_params_.Cr,
+        nmpc_params_.Cf * nmpc_params_.lf / nmpc_params_.Iz);
 }
 
 void ESOTracker::updateDynamicAyBias(double lateral_tracking_error) {
@@ -1177,8 +1077,8 @@ void ESOTracker::updateDynamicAyBias(double lateral_tracking_error) {
 }
 
 void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
-    
-    int L = 2;  
+
+    int L = 2;
     int n_sig = 2*L + 1;
     double lambda = 1.0 * (L + 1.0) - L;
 
@@ -1195,7 +1095,7 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
 
     Matrix2d P_scaled = (L + lambda) * ukf_P_est_;
     P_scaled = 0.5 * (P_scaled + P_scaled.transpose()) + 1e-6 * Matrix2d::Identity();
-    
+
     Matrix2d sqrtP;
     LLT<Matrix2d> llt(P_scaled);
     if (llt.info() == Success) sqrtP = llt.matrixL();
@@ -1215,8 +1115,8 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
         double Fyf = nmpc_params_.Cf * alpha_f;
         double Fyr = nmpc_params_.Cr * alpha_r;
-        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / m_eq_y_ - curr_vx * r_i;
-        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / I_eq_;
+        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m - curr_vx * r_i;
+        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / nmpc_params_.Iz;
         X_sig_pred(0, i) = vy_i + vy_dot * dt;
         X_sig_pred(1, i) = r_i + r_dot * dt;
     }
@@ -1229,7 +1129,7 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         Vector2d diff_x = X_sig_pred.col(i) - x_pred;
         P_pred += Wc(i) * diff_x * diff_x.transpose();
     }
-    P_pred = 0.5 * (P_pred + P_pred.transpose());  
+    P_pred = 0.5 * (P_pred + P_pred.transpose());
 
     Matrix2d P_pred_scaled = (L + lambda) * P_pred + 1e-6 * Matrix2d::Identity();
     LLT<Matrix2d> llt_pred(0.5 * (P_pred_scaled + P_pred_scaled.transpose()));
@@ -1247,7 +1147,7 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         double vy_i = X_sig_update(0, i), r_i = X_sig_update(1, i);
         double alpha_f = curr_delta - (vy_i + nmpc_params_.lf * r_i) / curr_vx;
         double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
-        double ay_model = (nmpc_params_.Cf * alpha_f * cos(curr_delta) + nmpc_params_.Cr * alpha_r) / m_eq_y_;
+        double ay_model = (nmpc_params_.Cf * alpha_f * cos(curr_delta) + nmpc_params_.Cr * alpha_r) / nmpc_params_.m;
         Z_sig(0, i) = ay_model;
         Z_sig(1, i) = r_i;
     }
@@ -1284,7 +1184,7 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX m_sym = dyn_params(0), Iz_sym = dyn_params(1), lf_sym = dyn_params(2), lr_sym = dyn_params(3);
     MX Cf_sym = dyn_params(4), Cr_sym = dyn_params(5);
 
-    MX vx_safe = fmax(vx, 2.0); 
+    MX vx_safe = fmax(vx, 2.0);
 
     MX alpha_f = delta - atan2((vy + lf_sym * r), vx_safe);
     MX alpha_r = -atan2((vy - lr_sym * r), vx_safe);
@@ -1299,7 +1199,6 @@ MX ESOTracker::vehicleDynamicsModel(const MX& state, const MX& cmd_delta,
     MX d_theta = r;
     MX d_delta = (cmd_delta - delta) / nmpc_params_.T_lag;
 
-
     return vertcat(d_x, d_y, d_theta, d_vy, d_r, d_delta);
 }
 
@@ -1310,13 +1209,12 @@ void ESOTracker::buildNMPSolver() {
     solver_.X = solver_.opti.variable(nx, N+1);
     solver_.U_sparse = solver_.opti.variable(nu, Nc);
     solver_.P_x0 = solver_.opti.parameter(nx);
-    solver_.P_waypoints = solver_.opti.parameter(4, N+1);  
+    solver_.P_waypoints = solver_.opti.parameter(4, N+1);
     solver_.P_vx = solver_.opti.parameter(1);
     solver_.P_ay_slope_comp = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
-    solver_.P_delta_step_max = solver_.opti.parameter(1); //把当前车速下的最大单步转角变化量传给 NMPC。
     solver_.P_h_hat = solver_.opti.parameter(1);
-    solver_.P_dyn_params = solver_.opti.parameter(6);  
+    solver_.P_dyn_params = solver_.opti.parameter(6);
 
     MX U_full = MX::zeros(nu, N);
     int base_steps = N / Nc, remainder = N % Nc, current_idx = 0;
@@ -1332,9 +1230,9 @@ void ESOTracker::buildNMPSolver() {
 
     for (int k=0; k<N; k++) {
         MX st = solver_.X(Slice(), k), con = U_full(Slice(), k);
-        MX h = solver_.P_h_hat * pow(0.85, k);
+        MX h = solver_.P_h_hat * pow(nmpc_params_.eso_disturbance_decay, k);
 
-        
+
         if (nmpc_params_.integration_grade >= 0.5 && nmpc_params_.integration_grade < 1.5) { // Euler前向积分
             solver_.opti.subject_to(solver_.X(Slice(), k+1) == st + nmpc_params_.dt * vehicleDynamicsModel(st, con, solver_.P_vx, h, solver_.P_dyn_params, solver_.P_ay_slope_comp));
         }
@@ -1373,44 +1271,13 @@ void ESOTracker::buildNMPSolver() {
     J += nmpc_params_.dR * pow(solver_.U_sparse(0) - solver_.P_u_prev, 2);
     for (int i=1; i<Nc; i++) J += nmpc_params_.dR * pow(solver_.U_sparse(i) - solver_.U_sparse(i-1), 2);
 
-    // --- 平顺性增强项（默认权重为0时完全不改变原行为）---
-    // (a) 稠密增量惩罚：对逐步展开后的整条转角序列 U_full 的相邻差分加惩罚，
-    //     抑制稀疏控制点 dR 漏掉的“段内阶梯/段间台阶”抖动，让方向盘速度更连续。
-    if (nmpc_params_.dR_dense > 0.0) {
-        // 第0步相对上一帧实际输出，保证帧间连续
-        J += nmpc_params_.dR_dense * pow(U_full(Slice(), 0) - solver_.P_u_prev, 2);
-        for (int k=1; k<N; k++) {
-            J += nmpc_params_.dR_dense * pow(U_full(Slice(), k) - U_full(Slice(), k-1), 2);
-        }
-    }
-
-    // (b) 二阶差分(加速度)惩罚：专门压制来回摆动(limit cycle)。
-    //     振荡的特征就是转角增量正负交替，即二阶差分大；惩罚它能显著“拉直”方向盘
-    //     而对单调修正几乎无影响，因此能在不牺牲跟踪的前提下抑制蛇行。
-    if (nmpc_params_.R_ddelta > 0.0) {
-        // 以上一帧输出为锚点，构造 [P_u_prev, U_sparse(0..Nc-1)] 的二阶差分
-        for (int i=1; i<Nc; i++) {
-            MX u_im2 = (i >= 2) ? solver_.U_sparse(i-2) : solver_.P_u_prev;
-            MX ddi = solver_.U_sparse(i) - 2.0 * solver_.U_sparse(i-1) + u_im2;
-            J += nmpc_params_.R_ddelta * pow(ddi, 2);
-        }
-    }
-
     solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.U_sparse, nmpc_params_.delta_max));
-    // 当前第一拍控制量：严格使用车速相关变化率限制
-    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev <= solver_.P_delta_step_max);
-    solver_.opti.subject_to(solver_.U_sparse(0) - solver_.P_u_prev >= -solver_.P_delta_step_max);
-    // 未来稀疏控制点之间：先保留原来的较宽松约束，避免过度限制 NMPC
-    for (int i = 1; i < nmpc_params_.Nc; ++i) {
-        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) <= solver_.P_delta_step_max);
-        solver_.opti.subject_to(solver_.U_sparse(i) - solver_.U_sparse(i-1) >= -solver_.P_delta_step_max);
-    }
 
     solver_.opti.minimize(J);
 
     Dict opts = {
-        {"ipopt.print_level", 0}, 
-        {"ipopt.sb", "yes"}, 
+        {"ipopt.print_level", 0},
+        {"ipopt.sb", "yes"},
         {"ipopt.max_iter", 100},
         {"ipopt.tol", 1e-2},
         {"ipopt.acceptable_tol", 5e-2},
@@ -1421,8 +1288,7 @@ void ESOTracker::buildNMPSolver() {
         {"ipopt.warm_start_bound_push", 1e-9},
         {"ipopt.warm_start_slack_bound_push", 1e-9},
         {"ipopt.warm_start_mult_bound_push", 1e-9},
-        
-        {"print_time", 0}
+
     };
     solver_.opti.solver("ipopt", opts);
 }
@@ -1448,7 +1314,7 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
       //  ROS_INFO("[%s] NMPC 求解成功! 耗时: %.2f ms", getName().c_str(), elapsed.count());
-        ROS_INFO_THROTTLE(1.0, "[%s] NMPC 求解成功! \033[1;32m耗时: %.2f ms\033[0m, \033[38;5;208mCf_interp: %.2f, Cr_interp: %.2f\033[0m",
+        ROS_INFO("[%s] NMPC 求解成功! \033[1;32m耗时: %.2f ms\033[0m, \033[38;5;208mCf_interp: %.2f, Cr_interp: %.2f\033[0m",
         getName().c_str(), elapsed.count(), nmpc_params_.Cf, nmpc_params_.Cr);
 
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
@@ -1461,129 +1327,12 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
        auto end_time = std::chrono::high_resolution_clock::now();
        std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
        ROS_WARN("[%s] NMPC 求解失败! 耗时: %.2f ms, 原因: %s", getName().c_str(), elapsed.count(), e.what());
-        
+
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
         return false;
     }
 }
-
-// 新增函数，状态估计与方案二做对照
-void ESOTracker::ekfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
-
-    // ==============================
-    // 0) 基础保护
-    // ==============================
-    const double vx_safe = std::max(std::abs(curr_vx), 1.0);
-    const double dt_safe = std::max(0.01, std::min(dt, 0.05));
-
-    // ==============================
-    // 1) 车辆/挂车参数（主车参数随质量调度，未标定的挂车参数仍为经验值）
-    // ==============================
-    // 主车参数（已有）
-    const double a   = nmpc_params_.lf;
-    const double b   = nmpc_params_.lr;
-    const double m1  = nmpc_params_.m;
-    const double Iz1 = nmpc_params_.Iz;
-
-    // 缺失参数 -> 固定经验值（可后续再调）
-    const double c   = b;         // 铰接点到主车质心近似，经验取 lr
-    const double d   = nmpc_params_.lg; // 第五轮到挂车等效轴距离[m]
-    const double L2  = 7.9;       // 挂车等效轴距[m]
-    const double m2  = std::max(0.0, nmpc_params_.m_total - nmpc_params_.m); // 当前挂车质量[kg]
-    const double Iz2 = 150000.0 + nmpc_params_.Kiz * m2; // 挂车偏航转动惯量[kg*m^2]
-
-    // 与主控制模型保持一致，使用当前质量插值得到的轮胎侧偏刚度
-    const double Cf = nmpc_params_.Cf;
-    const double Cr = nmpc_params_.Cr;
-    const double Ct = 400000.0;   // 采用的固定值同方案二便于对照
-
-// --- 显式使用 Eigen:: 前缀，避免与 casadi::Matrix 冲突 ---
-    Eigen::Matrix3d M_mat;
-    M_mat << m1 + m2,  -m2*c,        -m2*d,
-            -m2*c,     Iz1 + m2*c*c,  m2*c*d,
-            -m2*d,     m2*c*d,        Iz2 + m2*d*d;
-
-    Eigen::Matrix<double, 3, 4> K;
-    K(0,0) = -(Cf+Cr+Ct)/vx_safe;
-    K(0,1) = -(a*Cf - b*Cr - c*Ct)/vx_safe - (m1+m2)*vx_safe;
-    K(0,2) = (L2*Ct)/vx_safe;
-    K(0,3) = -Ct;
-    K(1,0) = -(a*Cf - b*Cr - c*Ct)/vx_safe;
-    K(1,1) = -(a*a*Cf + b*b*Cr + c*c*Ct)/vx_safe + m2*c*vx_safe;
-    K(1,2) = -(c*L2*Ct)/vx_safe;
-    K(1,3) = c*Ct;
-    K(2,0) = (L2*Ct)/vx_safe;
-    K(2,1) = -(c*L2*Ct)/vx_safe + m2*d*vx_safe;
-    K(2,2) = -(L2*L2*Ct)/vx_safe;
-    K(2,3) = L2*Ct;
-
-    Eigen::Matrix<double, 3, 1> D;
-    D << Cf, a*Cf, 0.0;
-
-    Eigen::Matrix4d A_sys;
-    A_sys.block(0,0,3,4) = M_mat.inverse() * K;
-    A_sys.row(3) << 0, 1, -1, 0;
-    Eigen::Vector4d B_sys;
-    B_sys.block(0,0,3,1) = M_mat.inverse() * D;
-    B_sys(3) = 0.0;
-
-    // EKF预测步骤
-    Eigen::Vector4d x_dot = A_sys * ekf_x_hat_ + B_sys * curr_delta;
-    Eigen::Vector4d x_pred = ekf_x_hat_ + x_dot * dt_safe;
-    Eigen::Matrix4d Phi = Eigen::Matrix4d::Identity() + A_sys * dt_safe;
-    Eigen::Matrix4d Q;
-    Q << 0.005,0,0,0, 0,0.01,0,0, 0,0,0.05,0, 0,0,0,0.01;
-    Eigen::Matrix4d P_pred = Phi * ekf_P_ * Phi.transpose() + Q;
-    P_pred = 0.5 * (P_pred + P_pred.transpose());
-
-    // --- 完整定义 H_sys 和 K_gain，确保在作用域内 ---
-    Eigen::Matrix<double, 2, 4> H_sys;
-    // 关键修正：使用 RowVector4d（行向量）
-    H_sys.row(0) = A_sys.row(0) + Eigen::RowVector4d(0, vx_safe, 0, 0); 
-    H_sys.row(1) << 0, 1, 0, 0; // 观测r
-    
-    Eigen::Vector2d D_obs;
-    D_obs << B_sys(0) * curr_delta, 0.0;
-
-    Eigen::Vector2d z_pred = H_sys * x_pred + D_obs;
-    Eigen::Vector2d z_meas;
-    z_meas << curr_ay, curr_r;
-    
-    Eigen::Matrix2d R;
-    R << 1.0,0, 0,0.05;
-    
-    // 完整定义 K_gain
-    Eigen::Matrix<double, 4, 2> K_gain = P_pred * H_sys.transpose() * (H_sys * P_pred * H_sys.transpose() + R).inverse();
-
-    // 状态与协方差更新
-    ekf_x_hat_ = x_pred + K_gain * (z_meas - z_pred);
-    ekf_P_ = (Eigen::Matrix4d::Identity() - K_gain * H_sys) * P_pred;
-}
-
-void ESOTracker::calculate_trailer_kinematics(double curr_vx, double curr_r, double dt) {
-    const double L2 = 7.9;
-    const double Lh = nmpc_params_.lh; // 铰接点相对牵引车质心的纵向偏移
-    const double vx = std::max(curr_vx, 1.0);
-
-    // 牵引车横摆率直接采用状态量，并做轻微低通抑制噪声
-    const double tau_r = 0;                  // 可调: 0.05~0.15
-    if (!r_filter_initialized_) {
-        r_tractor_filt_ = curr_r;
-        r_filter_initialized_ = true;
-    }
-    const double alpha_r = dt / (tau_r + dt);
-    r_tractor_filt_ = (1.0 - alpha_r) * r_tractor_filt_ + alpha_r * curr_r;
-    const double r_tractor = r_tractor_filt_;
-
-    // 挂车横摆率运动学估计
-    r_t_ = -(vx * std::sin(gamma_) + Lh * r_tractor * std::cos(gamma_)) / L2;
-
-    // 铰接角动态
-    const double gamma_dot = r_t_ - r_tractor;
-    gamma_ += gamma_dot * dt;
-}
-
 
 } // namespace race_tracker
 
