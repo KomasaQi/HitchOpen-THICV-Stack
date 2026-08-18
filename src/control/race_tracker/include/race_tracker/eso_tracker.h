@@ -11,6 +11,8 @@
 #include <deque>
 #include <cstddef>
 #include <fstream>
+#include <array>
+#include <string>
 
 // ROS 插件和消息相关头文件
 #include "race_tracker/controller_plugin_base.h"
@@ -47,6 +49,7 @@ struct NMPCParams {
     // --- 转角幅值约束 ---
     double delta_max;
     double delta_min;
+    double delta_rate_max;  // 前轮转角指令硬速率约束，rad/s
 
     // --- 随整车质量插值的车辆参数 ---
     // Iz、lf、lr、Cf、Cr 为当前质量下的实时插值结果；L 始终由 lf+lr 更新。
@@ -62,12 +65,14 @@ struct NMPCParams {
     // --- 积分器 ---
     double integration_grade;
     double eso_disturbance_decay;  // ESO 扰动在预测域内的逐步保留系数 [0, 1]
+    double eso_disturbance_tau_s;  // >0 时用 exp(-dt/tau) 生成上述系数；<=0 时使用旧系数
 
     // --- 代价函数权重 ---
     double Q_x, Q_y, Q_theta;
     double Q_vy, Q_r, Q_delta;
     double R;
     double dR;  // 控制增量软惩罚，不构成转角变化率硬约束
+    int near_dense_control_steps;  // 预测域前部逐拍控制的步数，其余控制块自动均分
 
     double m_total;  // 质量插值的回退输入，kg
 
@@ -90,6 +95,10 @@ struct NMPSolver {
     casadi::MX P_h_hat;
     casadi::MX P_dyn_params;
     casadi::MX P_ay_slope_comp;
+    casadi::MX U_full_feedback;
+    casadi::MX U_full_command;
+    std::vector<int> control_block_start;
+    std::vector<int> control_block_length;
     std::unique_ptr<casadi::OptiSol> sol_prev;
     bool has_prev_sol;
 };
@@ -124,8 +133,13 @@ private:
     bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                    std::vector<double>& control_output);
 
+    // 仅用于本地日志：缓存求解后的预测状态，不参与控制计算。
+    void resetNmpcPredictionDiagnostics();
 
-    void ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt);
+
+    void ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay_corrected,
+                       double curr_r, double lateral_disturbance, double dt,
+                       bool measurement_is_new);
 
     // 根据 received_mass_ 对 Iz、lf、Cf、Cr 进行分段线性插值；区间外保持端点值。
     double interpolateWithClampedEnds(double mass,
@@ -134,13 +148,14 @@ private:
     bool validateMassInterpolationTables() const;
     void updateMassDependentParameters(double mass);
 
-    void esoCompute(double curr_r, double curr_delta, double dt);
+    void esoCompute(double curr_r, double curr_delta, double dt, bool measurement_is_new);
 
     double normalizeAngle(double angle);
 
     // --- ROS 与路径处理辅助函数  ---
     double quaternion_to_yaw(const geometry_msgs::Quaternion& q);
-    int find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path);
+    int find_nearest_path_point(const double x0, const double y0, const double yaw0,
+                                const race_msgs::Path& path);
     std::vector<double> calculate_cumulative_distance(const race_msgs::Path& path, int start_idx);
     std::vector<double> linear_interpolate(const std::vector<double>& s_original,
                                            const std::vector<double>& val_original,
@@ -148,6 +163,12 @@ private:
     casadi::DM interpolate_path_segment(const race_msgs::Path& path, const std::vector<double>& cum_dist,
                                         int start_idx, int end_idx, const std::vector<double>& s_target, double yaw0);
     casadi::DM process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state);
+
+    // 线性单轨稳态平衡前馈。返回 [delta_ff, vy_eq]；反馈和扰动观测继续负责模型失配。
+    std::array<double, 2> computeSteadyStateFeedforward(double vx, double kappa) const;
+
+    bool isNewVehicleMeasurement(double x, double y, double yaw, double vx, double vy,
+                                 double r, double delta, double ay);
 
 
     // 侧向加速度零偏的准静态自校正：基于横向跟踪误差滑动窗口，非常缓慢地修正 ay 零偏估计
@@ -168,7 +189,20 @@ private:
      // 动态预瞄参数
     double min_lookahead_distance_;
     double lookahead_speed_coeff_;
+    int curvature_smoothing_steps_;          // 仅兼容旧配置/日志
+    double curvature_smoothing_distance_m_;  // V6固定空间曲率平滑长度，不再随车速变化
     double lookahead_curvature_coeff_;  // 根据预瞄路径最大绝对曲率缩短预瞄距离，单位 m^2
+
+    // V6名义稳态转角前馈
+    bool use_equilibrium_feedforward_;
+    double equilibrium_feedforward_gain_;
+    double equilibrium_feedforward_limit_;
+    double last_delta_ff_;
+
+    // 路径投影在空间交叉处加入航向和车后点惩罚，避免纯欧氏最近点跳支路。
+    double path_projection_heading_weight_m2_;
+    double path_projection_heading_gate_rad_;
+    double path_projection_rear_gate_m_;
 
     // --- 核心参数结构体 ---
     NMPCParams nmpc_params_;
@@ -199,6 +233,26 @@ private:
     double slope_compensation_coeff_;
     double slope_compensation_filter_tau_;
     bool ay_slope_compensation_initialized_;
+    std::string slope_estimator_mode_;        // legacy_quasistatic 或 tire_force_residual
+    bool slope_dynamic_gate_enabled_;
+    double slope_gate_max_yaw_accel_;
+    double slope_gate_max_steer_rate_;
+    double slope_compensation_limit_;
+    bool slope_gate_active_;
+    bool slope_prev_valid_;
+    double slope_prev_r_;
+    double slope_prev_delta_;
+
+    // UKF 与 NMPC 共用已估横向扰动，避免同一 ay 残差被重复解释为 vy。
+    bool ukf_use_slope_disturbance_;
+    double ukf_q_vy_;
+    double ukf_q_r_;
+    double ukf_r_ay_;
+    double ukf_r_r_;
+    double ukf_ay_innovation_limit_;
+    double ukf_vy_abs_max_;
+    double ukf_ay_innovation_raw_;
+    double ukf_ay_innovation_used_;
 
     // 迭代时间
     double iter_time_ = 0.0;
@@ -235,6 +289,38 @@ private:
     int local_log_pending_rows_ = 0;
     std::string local_log_path_;
     std::ofstream local_log_stream_;
+
+    // 分层归因日志的上一周期测量值，只用于计算原始差分/一步预测残差。
+    bool diagnostic_prev_valid_ = false;
+    double diagnostic_prev_delta_ = 0.0;
+    double diagnostic_prev_vx_ = 0.0;
+    double diagnostic_prev_vy_status_ = 0.0;
+    double diagnostic_prev_r_ = 0.0;
+    double diagnostic_prev_vy_ = 0.0;
+    double diagnostic_prev_tracking_error_ = 0.0;
+    double diagnostic_prev_geometric_error_ = 0.0;
+    double diagnostic_prev_final_cmd_ = 0.0;
+    int diagnostic_prev_nearest_idx_ = -1;
+
+    // 车辆状态可能以保持值重复发布；重复测量只做观测器预测，不重复做测量校正。
+    bool measurement_fingerprint_valid_ = false;
+    double measurement_prev_x_ = 0.0;
+    double measurement_prev_y_ = 0.0;
+    double measurement_prev_yaw_ = 0.0;
+    double measurement_prev_vx_ = 0.0;
+    double measurement_prev_vy_ = 0.0;
+    double measurement_prev_r_ = 0.0;
+    double measurement_prev_delta_ = 0.0;
+    double measurement_prev_ay_ = 0.0;
+    bool last_measurement_is_new_ = true;
+    bool last_observer_low_speed_reset_ = false;
+    double observer_dynamic_min_speed_mps_ = 4.0;
+
+    // NMPC 求解结果抽样：k=1、k=min(5,N)、k=N；状态顺序为 x,y,theta,vy,r,delta。
+    std::array<double, 6> diagnostic_pred_k1_;
+    std::array<double, 6> diagnostic_pred_k5_;
+    std::array<double, 6> diagnostic_pred_kN_;
+    std::array<double, 3> diagnostic_u_sparse_;
 
     // NMPC求解以及算法切换相关
     bool mpc_failure_flag_;

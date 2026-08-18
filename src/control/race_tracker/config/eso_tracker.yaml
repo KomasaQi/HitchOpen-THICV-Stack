@@ -3,13 +3,17 @@ eso_tracker:
   nx: 6                           # 状态维度 [x, y, theta, vy, r, delta]
   nu: 1                           # 控制量维度 [delta_des]
   prediction_step: 35             # 预测步长 (N)
-  sparse_control_step: 3          # 控制步长 (Nc)；按仿真/实测结论固定为3
+  sparse_control_step: 10         # V6前密后疏控制节点；不再把1.75s预测域仅分成3个长保持块
+  near_dense_control_steps: 5     # 前5个预测周期逐拍控制，其余节点自动均分远端预测域
   sampling_time: 0.05             # 采样时间 dt (s)
   integration_grade: 1.0          # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4；当前使用Euler降低耗时
-  eso_disturbance_decay: 0.85     # 恢复6月/8月原基线，避免把短时ESO残差长期外推
+  eso_disturbance_decay: 0.95     # 旧逐拍系数；仅在下面时间常数<=0时直接生效
+  eso_disturbance_time_constant: 0.974786  # s；exp(-0.05/tau)=0.95，预测末端仍保留约16.6%
+  curvature_smoothing_steps: 5    # 兼容旧日志；V6实际使用下面的固定空间窗口
+  curvature_smoothing_distance_m: 6.0  # 固定6m空间割线曲率，同一位置不随车速改变平滑尺度
 
   # --- 本地诊断日志 ---
-  enable_local_log: false
+  enable_local_log: true
   local_log_directory: /tmp/eso_tracker_logs
   local_log_flush_interval: 100   # 每100行刷新一次，20Hz下约5s，降低控制线程I/O抖动
 
@@ -27,7 +31,7 @@ eso_tracker:
   # 10000kg节点恢复6月无高速蛇行模型；其余节点保留8月已有值，后续仍需用实车标定替换占位值。
   Iz_interp_points: [50000.0, 62200.0, 62200.0, 62200.0]            # kg·m²
   lf_interp_points: [2.00, 1.67, 1.67, 2.00]                        # m
-  lr_interp_points: [2.135, 2.33, 2.33, 2.135]                      # m
+  lr_interp_points: [2.135, 2.33, 2.33, 2.00]                      # m
   Cf_interp_points: [270000.0, 270000.0, 270000.0, 270000.0]        # N/rad
   Cr_interp_points: [1500000.0, 1500000.0, 1500000.0, 1500000.0]    # N/rad
 
@@ -38,22 +42,46 @@ eso_tracker:
   # --- 3. 转角幅值约束 ---
   min_steer: -0.5                 # 最小转向角 (rad)
   max_steer: 0.5                  # 最大转向角 (rad)
+  max_steer_rate: 0.35            # NMPC内部前轮转角指令硬速率约束 (rad/s)
 
   # --- 4. 代价函数权重 (Q矩阵 & R矩阵) ---
   Q_x: 1.0                        # 位置X误差权重
-  Q_y: 20.0                       # 位置Y误差权重
+  Q_y: 50.0                       # 单变量数据中跟踪改善最稳定，方向盘峰值低于 dR=24000 组
   Q_theta: 1034.0                 # 航向角误差权重
   Q_vy: 0.0                       # 侧向速度权重
-  Q_r: 0.0                        # 横摆角速度权重
+  Q_r: 50.0                       # 仅对经5步空间平滑的横摆率参考施加小权重
   Q_delta: 0.0                    # 转向角权重
   R: 0.02                         # 控制量大小权重
   dR: 32000.0                     # 稀疏控制点增量权重 (平滑性)
+
+  # --- V6稳态前馈与路径投影 ---
+  use_equilibrium_feedforward: true   # 按当前全域vx、曲率及单轨参数求稳态delta_ff/vy_eq
+  equilibrium_feedforward_gain: 1.0
+  equilibrium_feedforward_limit: 0.45 # rad；最终仍受min/max_steer约束
+  path_projection_heading_weight_m2: 4.0
+  path_projection_heading_gate_rad: 1.2
+  path_projection_rear_gate_m: 5.0
 
   const_steer_bias: -0.0                    # 固定转向偏置 (rad)，可用于修正系统性转向误差
 
   use_slope_compensation: true              # 是否使用横坡补偿；false 时横坡补偿与 ay 零偏补偿均不参与 NMPC
   slope_compensation_coeff: -1.0            # 横坡补偿比例系数
   slope_compensation_filter_tau: 1.0        # 一阶低通(s)；保留准静态横坡，抑制0.3~0.7Hz横向瞬态
+  slope_estimator_mode: legacy_quasistatic  # 默认保留实车验证的 ay-vx*r 符号；选 tire_force_residual 时需另行验证 coeff=+1
+  slope_dynamic_gate_enabled: true          # 转向/横摆快变时冻结横坡低频状态，不清零已有补偿
+  slope_gate_max_yaw_accel: 0.15            # rad/s²
+  slope_gate_max_steer_rate: 0.08           # rad/s
+  slope_compensation_limit: 0.8             # m/s²，仅限制估计器输入，不改变小横坡增益
+
+  # UKF 使用与 NMPC 一致的横坡扰动和 ay 零偏，避免把同一低频残差重复吸收为 vy。
+  ukf_use_slope_disturbance: true
+  ukf_q_vy: 0.01
+  ukf_q_r: 0.001
+  ukf_r_ay: 0.5
+  ukf_r_r: 0.1
+  ukf_ay_innovation_limit: 0.8              # m/s²；只限 ay 创新，横摆率创新不限
+  ukf_vy_abs_max: 3.0                       # m/s；数值安全限幅
+  observer_dynamic_min_speed_mps: 4.0       # 低于此速度锚定vy/r，避免动态模型低速漂移后冷启动
 
   # --- 侧向加速度 ay 零偏补偿：只作用于横坡补偿计算 ay_slope=(ay_raw-ay_bias)-vx*r ---
   use_ay_bias_compensation: true        # ay 零偏补偿总开关；false=完全关闭静态/动态 ay 零偏补偿

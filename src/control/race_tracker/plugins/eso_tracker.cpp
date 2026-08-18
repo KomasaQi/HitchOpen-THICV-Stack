@@ -64,7 +64,17 @@ ESOTracker::ESOTracker() {
 
     min_lookahead_distance_ = 6.0;  // 默认最小预瞄距 6m
     lookahead_speed_coeff_ = 0.7;   // 默认速度系数 0.7
+    curvature_smoothing_steps_ = 5;
+    curvature_smoothing_distance_m_ = 6.0;
     lookahead_curvature_coeff_ = 0.0; // 默认关闭曲率预瞄修正
+
+    use_equilibrium_feedforward_ = true;
+    equilibrium_feedforward_gain_ = 1.0;
+    equilibrium_feedforward_limit_ = 0.45;
+    last_delta_ff_ = 0.0;
+    path_projection_heading_weight_m2_ = 4.0;
+    path_projection_heading_gate_rad_ = 1.2;
+    path_projection_rear_gate_m_ = 5.0;
 
     // 标定与横坡/ay 补偿默认值
     const_steer_bias_ = 0.0;
@@ -73,6 +83,26 @@ ESOTracker::ESOTracker() {
     slope_compensation_coeff_ = 1.0;
     slope_compensation_filter_tau_ = 1.0;
     ay_slope_compensation_initialized_ = false;
+    slope_estimator_mode_ = "legacy_quasistatic";
+    slope_dynamic_gate_enabled_ = true;
+    slope_gate_max_yaw_accel_ = 0.15;
+    slope_gate_max_steer_rate_ = 0.08;
+    slope_compensation_limit_ = 0.8;
+    slope_gate_active_ = false;
+    slope_prev_valid_ = false;
+    slope_prev_r_ = 0.0;
+    slope_prev_delta_ = 0.0;
+
+    ukf_use_slope_disturbance_ = true;
+    ukf_q_vy_ = 0.01;
+    ukf_q_r_ = 0.001;
+    ukf_r_ay_ = 0.5;
+    ukf_r_r_ = 0.1;
+    ukf_ay_innovation_limit_ = 0.8;
+    ukf_vy_abs_max_ = 3.0;
+    ukf_ay_innovation_raw_ = 0.0;
+    ukf_ay_innovation_used_ = 0.0;
+    observer_dynamic_min_speed_mps_ = 4.0;
 
     use_ay_bias_compensation_ = false;
     const_ay_bias_ = 0.0;
@@ -93,6 +123,8 @@ ESOTracker::ESOTracker() {
     using_pure_pursuit_flag_ = false;
     require_over_take_flag_ = false;
     using_mixed_mode_flag_ = false;
+
+    resetNmpcPredictionDiagnostics();
 }
 
 ESOTracker::~ESOTracker() {
@@ -100,6 +132,14 @@ ESOTracker::~ESOTracker() {
         local_log_stream_.flush();
         local_log_stream_.close();
     }
+}
+
+void ESOTracker::resetNmpcPredictionDiagnostics() {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    diagnostic_pred_k1_.fill(nan);
+    diagnostic_pred_k5_.fill(nan);
+    diagnostic_pred_kN_.fill(nan);
+    diagnostic_u_sparse_.fill(nan);
 }
 
 void ESOTracker::initializeLocalLog() {
@@ -139,17 +179,59 @@ void ESOTracker::initializeLocalLog() {
     }
 
     local_log_stream_
-        << "ros_time_s,dt_s,vx_mps,vx_kmh,x_m,y_m,yaw_rad,"
+        << "ros_time_s,log_schema_version,dt_input_s,obs_dt_s,vx_mps,vx_kmh,vy_status_mps,ax_raw_mps2,x_m,y_m,yaw_rad,"
         << "mass_input_kg,model_m_kg,Iz_kgm2,lf_m,lr_m,Cf_Nprad,Cr_Nprad,"
         << "N,Nc,integration_grade,eso_disturbance_decay,T_lag_s,Q_y,Q_theta,Q_r,dR,"
         << "slope_filter_tau_s,yaw_input_gain_1ps2prad,"
+        << "Q_x,Q_vy,Q_delta,R,steer_min_rad,steer_max_rad,output_lpf_tau_s,"
+        << "use_slope_compensation,slope_compensation_coeff,use_ay_bias_compensation,"
+        << "use_dynamic_ay_compensation,auto_update_total_weight,"
         << "lateral_error_m,steer_meas_rad,steer_nmpc_raw_rad,steer_nmpc_cmd_rad,"
         << "steer_pp_raw_rad,steer_pp_cmd_rad,steer_final_rad,blend_alpha,"
         << "kappa_1pm,r_ref_radps,ref_theta_rad,yaw_rate_radps,vy_est_mps,ay_raw_mps2,"
         << "ay_bias_mps2,ay_slope_raw_mps2,ay_slope_filt_mps2,ay_slope_model_input_mps2,"
         << "eso_x1_radps,eso_x2_radps2,eso_disturbance_radps2,model_r_radps,"
         << "lookahead_m,preview_abs_kappa_1pm,nmpc_success,nmpc_iter_ms,"
-        << "control_core_ms,mpc_failure_count,using_pp,using_mixed\n";
+        << "control_core_ms,mpc_failure_count,using_pp,using_mixed,"
+        // 转向执行器归因：上一周期指令驱动的一阶预测与实际转角残差。
+        << "steer_meas_raw_rad,steer_meas_was_clamped,steer_prev_final_cmd_rad,"
+        << "steer_meas_rate_radps,steer_cmd_rate_radps,"
+        << "steer_model_1step_rad,steer_model_residual_rad,steer_nmpc_clamped,steer_final_saturated,"
+        // 横摆归因：实测差分、名义模型、ESO 注入前后残差。
+        << "yaw_rate_error_radps,yaw_rate_dot_raw_radps2,yaw_rate_dot_nominal_radps2,"
+        << "yaw_rate_dot_with_eso_radps2,yaw_residual_nominal_radps2,yaw_residual_with_eso_radps2,"
+        << "yaw_model_1step_nominal_radps,yaw_model_1step_eso_radps,"
+        << "eso_observation_error_radps,eso_injected_k0_radps2,eso_injected_k1_radps2,"
+        // 横向动力学归因：轮胎状态、侧向合力、ay/vy 残差和侧偏角。
+        << "alpha_f_rad,alpha_r_rad,Fyf_N,Fyr_N,ay_corrected_mps2,ay_model_no_slope_mps2,"
+        << "ay_model_with_slope_mps2,ay_residual_no_slope_mps2,ay_residual_with_slope_mps2,"
+        << "vx_dot_raw_mps2,vy_status_dot_raw_mps2,vy_dot_raw_mps2,vy_dot_model_mps2,"
+        << "vy_dot_residual_mps2,vy_status_minus_est_mps,beta_status_rad,beta_est_rad,"
+        // 路径/定位与运动学归因。
+        << "path_size,nearest_idx,nearest_idx_jump,nearest_distance_m,nearest_path_x_m,nearest_path_y_m,"
+        << "nearest_path_yaw_rad,geometric_lateral_error_m,tracking_error_minus_geometric_m,"
+        << "heading_error_rad,heading_error_rate_kin_radps,r_ref_frenet_radps,"
+        << "tracking_error_dot_raw_mps,geometric_error_dot_raw_mps,geometric_error_dot_kin_mps,"
+        << "ref_x_k0_m,ref_y_k0_m,ref_theta_k0_rad,ref_kappa_k0_1pm,"
+        << "ref_x_k1_m,ref_y_k1_m,ref_theta_k1_rad,ref_kappa_k1_1pm,"
+        << "ref_y_k5_m,ref_theta_k5_rad,ref_kappa_k5_1pm,"
+        << "ref_y_kN_m,ref_theta_kN_rad,ref_kappa_kN_1pm,"
+        // NMPC 求解后预测状态抽样，用于逐层替换回放；不回灌控制器。
+        << "pred_k1_x_m,pred_k1_y_m,pred_k1_theta_rad,pred_k1_vy_mps,pred_k1_r_radps,pred_k1_delta_rad,"
+        << "pred_k1_y_error_m,pred_k1_heading_error_rad,pred_k1_yaw_rate_error_radps,"
+        << "pred_k5_index,pred_k5_y_m,pred_k5_theta_rad,pred_k5_vy_mps,pred_k5_r_radps,pred_k5_delta_rad,"
+        << "pred_k5_y_error_m,pred_k5_heading_error_rad,pred_k5_yaw_rate_error_radps,"
+        << "pred_kN_y_m,pred_kN_theta_rad,pred_kN_vy_mps,pred_kN_r_radps,pred_kN_delta_rad,"
+        << "pred_kN_y_error_m,pred_kN_heading_error_rad,pred_kN_yaw_rate_error_radps,"
+        << "u_sparse_0_rad,u_sparse_1_rad,u_sparse_2_rad,target_idx,diagnostic_prev_valid,"
+        << "eso_disturbance_tau_s,curvature_smoothing_steps,slope_estimator_mode_code,"
+        << "slope_dynamic_gate_enabled,slope_gate_active,slope_gate_yaw_accel_radps2,"
+        << "slope_gate_steer_rate_radps,slope_compensation_limit_mps2,"
+        << "ukf_use_slope_disturbance,ukf_ay_innovation_raw_mps2,ukf_ay_innovation_used_mps2,"
+        << "ukf_q_vy,ukf_q_r,ukf_r_ay,ukf_r_r,ukf_vy_abs_max_mps,"
+        << "curvature_smoothing_distance_m,use_equilibrium_feedforward,delta_ff_k0_rad,"
+        << "near_dense_control_steps,max_steer_rate_radps,measurement_is_new,"
+        << "observer_low_speed_reset,observer_dynamic_min_speed_mps\n";
     local_log_stream_.flush();
     local_log_stream_ << std::fixed << std::setprecision(8);
     local_log_pending_rows_ = 0;
@@ -176,6 +258,11 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("eso_disturbance_decay", nmpc_params_.eso_disturbance_decay, 0.85);
     nmpc_params_.eso_disturbance_decay =
         std::max(0.0, std::min(1.0, nmpc_params_.eso_disturbance_decay));
+    nh_nmpc.param("eso_disturbance_time_constant", nmpc_params_.eso_disturbance_tau_s, 0.974786);
+    if (nmpc_params_.eso_disturbance_tau_s > 0.0) {
+        nmpc_params_.eso_disturbance_decay =
+            std::exp(-nmpc_params_.dt / nmpc_params_.eso_disturbance_tau_s);
+    }
 
     nh_nmpc.param<bool>("enable_local_log", enable_local_log_, false);
     nh_nmpc.param<std::string>("local_log_directory", local_log_directory_,
@@ -224,6 +311,8 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     // -------------------------------------------------------------------------
     nh_nmpc.param("min_steer", nmpc_params_.delta_min, -0.5);
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
+    nh_nmpc.param("max_steer_rate", nmpc_params_.delta_rate_max, 0.35);
+    nmpc_params_.delta_rate_max = std::max(1e-3, nmpc_params_.delta_rate_max);
 
     // -------------------------------------------------------------------------
     // 4. 加载代价函数权重
@@ -236,6 +325,26 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("Q_delta", nmpc_params_.Q_delta, 1000.0);
     nh_nmpc.param("R", nmpc_params_.R, 10.0);
     nh_nmpc.param("dR", nmpc_params_.dR, 500.0); //
+    nh_nmpc.param<int>("near_dense_control_steps", nmpc_params_.near_dense_control_steps, 5);
+    nh_nmpc.param<int>("curvature_smoothing_steps", curvature_smoothing_steps_, 5);
+    curvature_smoothing_steps_ = std::max(1, curvature_smoothing_steps_);
+    nh_nmpc.param<double>("curvature_smoothing_distance_m", curvature_smoothing_distance_m_, 6.0);
+    curvature_smoothing_distance_m_ = std::max(0.5, curvature_smoothing_distance_m_);
+    nmpc_params_.near_dense_control_steps = std::max(
+        0, std::min(nmpc_params_.near_dense_control_steps, nmpc_params_.Nc - 1));
+
+    nh_nmpc.param<bool>("use_equilibrium_feedforward", use_equilibrium_feedforward_, true);
+    nh_nmpc.param<double>("equilibrium_feedforward_gain", equilibrium_feedforward_gain_, 1.0);
+    nh_nmpc.param<double>("equilibrium_feedforward_limit", equilibrium_feedforward_limit_, 0.45);
+    equilibrium_feedforward_gain_ = std::max(0.0, equilibrium_feedforward_gain_);
+    equilibrium_feedforward_limit_ = std::max(0.0, equilibrium_feedforward_limit_);
+
+    nh_nmpc.param<double>("path_projection_heading_weight_m2", path_projection_heading_weight_m2_, 4.0);
+    nh_nmpc.param<double>("path_projection_heading_gate_rad", path_projection_heading_gate_rad_, 1.2);
+    nh_nmpc.param<double>("path_projection_rear_gate_m", path_projection_rear_gate_m_, 5.0);
+    path_projection_heading_weight_m2_ = std::max(0.0, path_projection_heading_weight_m2_);
+    path_projection_heading_gate_rad_ = std::max(0.1, path_projection_heading_gate_rad_);
+    path_projection_rear_gate_m_ = std::max(0.0, path_projection_rear_gate_m_);
 
     // ay 零偏补偿：仅用于横坡补偿项的 ay_slope = (ay_raw - ay_bias) - vx*r
     nh_nmpc.param<bool>("use_ay_bias_compensation", use_ay_bias_compensation_, true);   // false=完全关闭 ay 零偏补偿
@@ -254,8 +363,43 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param<bool>("use_slope_compensation", use_slope_compensation_, false);
     nh_nmpc.param<double>("slope_compensation_coeff", slope_compensation_coeff_, 1.0);
     nh_nmpc.param<double>("slope_compensation_filter_tau", slope_compensation_filter_tau_, 1.0);
+    nh_nmpc.param<std::string>("slope_estimator_mode", slope_estimator_mode_,
+                               std::string("legacy_quasistatic"));
+    nh_nmpc.param<bool>("slope_dynamic_gate_enabled", slope_dynamic_gate_enabled_, true);
+    nh_nmpc.param<double>("slope_gate_max_yaw_accel", slope_gate_max_yaw_accel_, 0.15);
+    nh_nmpc.param<double>("slope_gate_max_steer_rate", slope_gate_max_steer_rate_, 0.08);
+    nh_nmpc.param<double>("slope_compensation_limit", slope_compensation_limit_, 0.8);
+
+    nh_nmpc.param<bool>("ukf_use_slope_disturbance", ukf_use_slope_disturbance_, true);
+    nh_nmpc.param<double>("ukf_q_vy", ukf_q_vy_, 0.01);
+    nh_nmpc.param<double>("ukf_q_r", ukf_q_r_, 0.001);
+    nh_nmpc.param<double>("ukf_r_ay", ukf_r_ay_, 0.5);
+    nh_nmpc.param<double>("ukf_r_r", ukf_r_r_, 0.1);
+    nh_nmpc.param<double>("ukf_ay_innovation_limit", ukf_ay_innovation_limit_, 0.8);
+    nh_nmpc.param<double>("ukf_vy_abs_max", ukf_vy_abs_max_, 3.0);
+    nh_nmpc.param<double>("observer_dynamic_min_speed_mps", observer_dynamic_min_speed_mps_, 4.0);
 
     slope_compensation_filter_tau_ = std::max(0.0, slope_compensation_filter_tau_);
+    if (slope_estimator_mode_ != "legacy_quasistatic" &&
+        slope_estimator_mode_ != "tire_force_residual") {
+        ROS_WARN("[%s] slope_estimator_mode=%s 无效，回退为 legacy_quasistatic",
+                 getName().c_str(), slope_estimator_mode_.c_str());
+        slope_estimator_mode_ = "legacy_quasistatic";
+    }
+    if (slope_estimator_mode_ == "tire_force_residual" && slope_compensation_coeff_ < 0.0) {
+        ROS_WARN("[%s] tire_force_residual 理论上应以正号进入 vy_dot，当前 coeff=%.3f；不自动改参，请仅在单变量验证时使用",
+                 getName().c_str(), slope_compensation_coeff_);
+    }
+    slope_gate_max_yaw_accel_ = std::max(0.0, slope_gate_max_yaw_accel_);
+    slope_gate_max_steer_rate_ = std::max(0.0, slope_gate_max_steer_rate_);
+    slope_compensation_limit_ = std::max(0.0, slope_compensation_limit_);
+    ukf_q_vy_ = std::max(1e-9, ukf_q_vy_);
+    ukf_q_r_ = std::max(1e-9, ukf_q_r_);
+    ukf_r_ay_ = std::max(1e-9, ukf_r_ay_);
+    ukf_r_r_ = std::max(1e-9, ukf_r_r_);
+    ukf_ay_innovation_limit_ = std::max(0.0, ukf_ay_innovation_limit_);
+    ukf_vy_abs_max_ = std::max(0.1, ukf_vy_abs_max_);
+    observer_dynamic_min_speed_mps_ = std::max(1.0, observer_dynamic_min_speed_mps_);
     dynamic_ay_error_window_size_ = std::max(1, dynamic_ay_error_window_size_);
     dynamic_ay_error_threshold_ = std::max(0.0, dynamic_ay_error_threshold_);
     dynamic_ay_bias_learning_rate_ = std::max(0.0, dynamic_ay_bias_learning_rate_);
@@ -312,6 +456,13 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     ROS_INFO("[%s] 共用轴距 L=%.3f m | PP预瞄: min=%.2f m, speed_coeff=%.3f s, curvature_coeff=%.3f m^2",
              getName().c_str(), nmpc_params_.L, min_lookahead_distance_,
              lookahead_speed_coeff_, lookahead_curvature_coeff_);
+    ROS_INFO("[%s] V6: ESO tau=%.4fs, effective_decay=%.6f | curvature_distance=%.2fm | feedforward=%d gain=%.2f | Nc=%d near_dense=%d | steer_rate<=%.3frad/s | slope_mode=%s, gate=%d, limit=%.3f | UKF slope_consistency=%d",
+             getName().c_str(), nmpc_params_.eso_disturbance_tau_s,
+             nmpc_params_.eso_disturbance_decay, curvature_smoothing_distance_m_,
+             use_equilibrium_feedforward_, equilibrium_feedforward_gain_,
+             nmpc_params_.Nc, nmpc_params_.near_dense_control_steps, nmpc_params_.delta_rate_max,
+             slope_estimator_mode_.c_str(), slope_dynamic_gate_enabled_,
+             slope_compensation_limit_, ukf_use_slope_disturbance_);
 
     start_time_ = ros::Time::now();
 
@@ -345,13 +496,21 @@ void ESOTracker::computeControl(
 
     double curr_vx_raw = vehicle_status->vel.linear.x;
     double curr_vx = std::max(vehicle_status->vel.linear.x, 1.0); // 防零除
+    double curr_vy_status = vehicle_status->vel.linear.y;
+    double curr_ax = vehicle_status->acc.linear.x;
     double curr_x = vehicle_status->pose.position.x;
     double curr_y = vehicle_status->pose.position.y;
     double curr_theta = vehicle_status->euler.yaw;
     double curr_ay = vehicle_status->acc.linear.y;
     double curr_r = vehicle_status->vel.angular.z;
-    double curr_delta = vehicle_status->lateral.steering_angle;
+    const double curr_delta_raw = vehicle_status->lateral.steering_angle;
+    double curr_delta = curr_delta_raw;
     double curr_lateral_tracking_error = vehicle_status->tracking.lateral_tracking_error;
+
+    const bool measurement_is_new = isNewVehicleMeasurement(
+        curr_x, curr_y, curr_theta, curr_vx_raw, curr_vy_status,
+        curr_r, curr_delta_raw, curr_ay);
+    last_measurement_is_new_ = measurement_is_new;
 
     curr_delta = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, curr_delta));
 
@@ -382,6 +541,8 @@ void ESOTracker::computeControl(
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
         current_cmd_ = curr_delta;
+        ukf_x_est_ = Vector2d::Zero();
+        ukf_x_est_(1) = curr_r;
         ukf_P_est_ = (Matrix2d() << 1.0, 0.0, 0.0, 0.1).finished();
         eso_x1_ = curr_r;
         eso_x2_ = 0.0;
@@ -393,24 +554,122 @@ void ESOTracker::computeControl(
         model_comp_initialized_ = false;
         ay_slope_compensation_ = 0.0;
         ay_slope_compensation_initialized_ = false;
+        slope_prev_valid_ = false;
+        slope_gate_active_ = false;
         lateral_error_history_.clear();
         ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
         effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
+        diagnostic_prev_valid_ = false;
+        diagnostic_prev_nearest_idx_ = -1;
+        measurement_fingerprint_valid_ = false;
+        resetNmpcPredictionDiagnostics();
     }
     last_control_time = current_time;
 
     const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限
 
-    // 1. UKF (始终更新)
-    double obs_vx = std::max(std::abs(curr_vx_raw), 1.0);
-    ukfEstimateVy(obs_vx, curr_delta, curr_ay, curr_r, obs_dt);
-    double vy_est = ukf_x_est_(0);
-    // double vy_est = 0.0;
+    // 1) 先更新准静态横坡/外部侧向加速度。旧公式仅在 vy_dot 较小时成立，
+    //    因此默认保留实车已验证的符号，但在转向/横摆快变时冻结估计。
+    double ay_slope_compensation_raw = 0.0;
+    double slope_yaw_accel = 0.0;
+    double slope_steer_rate = 0.0;
 
-    // 2. Cf/Cr 已由整车质量插值得到，不再进行在线刚度辨识。
+    if (use_slope_compensation_) {
+        if (use_ay_bias_compensation_) {
+            if (use_dynamic_ay_compensation_) {
+                updateDynamicAyBias(curr_lateral_tracking_error);
+            } else {
+                lateral_error_history_.clear();
+                ay_bias_estimate_ = std::max(dynamic_ay_bias_min_,
+                    std::min(const_ay_bias_, dynamic_ay_bias_max_));
+                effective_ay_bias_ = ay_bias_estimate_;
+            }
+        } else {
+            lateral_error_history_.clear();
+            ay_bias_estimate_ = 0.0;
+            effective_ay_bias_ = 0.0;
+        }
 
-    // 3. ESO (始终更新)
-    esoCompute(curr_r, curr_delta, obs_dt);
+        const double ay_corrected_for_slope = curr_ay - effective_ay_bias_;
+        if (slope_estimator_mode_ == "tire_force_residual") {
+            const double vx_for_slope = std::max(std::abs(curr_vx_raw), 2.0);
+            const double vy_prior = ukf_x_est_(0);
+            const double alpha_f_prior = curr_delta -
+                std::atan2(vy_prior + nmpc_params_.lf * curr_r, vx_for_slope);
+            const double alpha_r_prior = -
+                std::atan2(vy_prior - nmpc_params_.lr * curr_r, vx_for_slope);
+            const double ay_tire_prior =
+                (nmpc_params_.Cf * alpha_f_prior * std::cos(curr_delta) +
+                 nmpc_params_.Cr * alpha_r_prior) / nmpc_params_.m;
+            ay_slope_compensation_raw = ay_corrected_for_slope - ay_tire_prior;
+        } else {
+            // 兼容原实车符号和校准：准稳态时 ay-vx*r 为低频横坡/侧向扰动代理量。
+            ay_slope_compensation_raw = ay_corrected_for_slope - curr_r * curr_vx;
+        }
+
+        if (slope_compensation_limit_ > 0.0) {
+            ay_slope_compensation_raw = std::max(-slope_compensation_limit_,
+                std::min(slope_compensation_limit_, ay_slope_compensation_raw));
+        }
+
+        if (slope_prev_valid_ && obs_dt > 1e-6) {
+            slope_yaw_accel = (curr_r - slope_prev_r_) / obs_dt;
+            slope_steer_rate = (curr_delta - slope_prev_delta_) / obs_dt;
+        }
+        slope_gate_active_ = slope_dynamic_gate_enabled_ && slope_prev_valid_ &&
+            (std::abs(slope_yaw_accel) > slope_gate_max_yaw_accel_ ||
+             std::abs(slope_steer_rate) > slope_gate_max_steer_rate_);
+
+        if (!ay_slope_compensation_initialized_) {
+            if (!slope_gate_active_) {
+                ay_slope_compensation_ = ay_slope_compensation_raw;
+                ay_slope_compensation_initialized_ = true;
+            }
+        } else if (!slope_gate_active_) {
+            const double alpha = (slope_compensation_filter_tau_ <= 0.0)
+                ? 1.0 : obs_dt / (slope_compensation_filter_tau_ + obs_dt);
+            ay_slope_compensation_ +=
+                alpha * (ay_slope_compensation_raw - ay_slope_compensation_);
+        }
+    } else {
+        ay_slope_compensation_ = 0.0;
+        ay_slope_compensation_initialized_ = false;
+        effective_ay_bias_ = 0.0;
+        lateral_error_history_.clear();
+        slope_gate_active_ = false;
+    }
+    slope_prev_valid_ = true;
+    slope_prev_r_ = curr_r;
+    slope_prev_delta_ = curr_delta;
+
+    const double slope_model_input_control =
+        ay_slope_compensation_ * slope_compensation_coeff_;
+
+    // 2) UKF 使用去零偏 ay，并在过程/测量方程中使用同一横向扰动。
+    //    这样已注入 NMPC 的横坡不再被 UKF 重复吸收为 vy。
+    const double obs_vx = std::max(std::abs(curr_vx_raw), 1.0);
+    const double ay_for_ukf = curr_ay - effective_ay_bias_;
+    const double disturbance_for_ukf =
+        ukf_use_slope_disturbance_ ? slope_model_input_control : 0.0;
+    last_observer_low_speed_reset_ = std::abs(curr_vx_raw) < observer_dynamic_min_speed_mps_;
+    if (last_observer_low_speed_reset_) {
+        // 动态单轨模型在低速区不可观且含 1/vx 项。低速期间用实测/零侧速锚定，
+        // 避免长期更新把 vy 推到限幅，随后在 18~20 km/h 交给 NMPC 时产生冷启动冲击。
+        const double vy_seed = (std::isfinite(curr_vy_status) &&
+                                std::abs(curr_vy_status) <= ukf_vy_abs_max_)
+            ? curr_vy_status : 0.0;
+        ukf_x_est_ << vy_seed, curr_r;
+        ukf_P_est_ = (Matrix2d() << 0.25, 0.0, 0.0, 0.02).finished();
+        ukf_ay_innovation_raw_ = 0.0;
+        ukf_ay_innovation_used_ = 0.0;
+        eso_x1_ = curr_r;
+        eso_x2_ = 0.0;
+    } else {
+        ukfEstimateVy(obs_vx, curr_delta, ay_for_ukf, curr_r,
+                      disturbance_for_ukf, obs_dt, measurement_is_new);
+        esoCompute(curr_r, curr_delta, obs_dt, measurement_is_new);
+    }
+    const double vy_est = ukf_x_est_(0);
 
     // ==========================================================
     // 启动阶段：使用 supervisor_params_
@@ -460,6 +719,7 @@ void ESOTracker::computeControl(
     std::vector<double> current_pose = {curr_x, curr_y, curr_theta, curr_vx};
     casadi::DM waypoints_dm = process_race_path(*path, current_pose);
     double kappa = static_cast<double>(waypoints_dm(3,1));
+    last_delta_ff_ = static_cast<double>(waypoints_dm(4, 1));
     double theta = static_cast<double>(waypoints_dm(2,0));
     double r_ref = curr_vx * kappa;
     double vy_model = curr_vx * sin(theta) + vy_est * cos(theta);
@@ -468,55 +728,17 @@ void ESOTracker::computeControl(
     // 因此初始 x,y,theta 均为 0；vy/r/delta 仍为实际物理量。
     std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
-    double ay_slope_compensation_raw = 0.0;
-
-    // 计算横坡补偿
-    // 说明：ay 零偏只用于横坡补偿分支，不改 UKF/ESO 的原有观测输入，避免改变原控制器其他估计链路。
-    if (use_slope_compensation_) {
-        if (use_ay_bias_compensation_) {
-            if (use_dynamic_ay_compensation_) {
-                updateDynamicAyBias(curr_lateral_tracking_error);
-            } else {
-                lateral_error_history_.clear();
-                ay_bias_estimate_ = std::max(dynamic_ay_bias_min_, std::min(const_ay_bias_, dynamic_ay_bias_max_));
-                effective_ay_bias_ = ay_bias_estimate_;
-            }
-        } else {
-            lateral_error_history_.clear();
-            ay_bias_estimate_ = 0.0;
-            effective_ay_bias_ = 0.0;
-        }
-
-        const double ay_corrected_for_slope = curr_ay - effective_ay_bias_;
-        double ay_theoretical = curr_r * curr_vx;
-        ay_slope_compensation_raw = ay_corrected_for_slope - ay_theoretical;
-
-        // 横坡是准静态量；一阶低通保留 DC 横坡，同时抑制日志中 0.3~0.7 Hz 的车辆横向瞬态。
-        if (!ay_slope_compensation_initialized_) {
-            ay_slope_compensation_ = ay_slope_compensation_raw;
-            ay_slope_compensation_initialized_ = true;
-        } else {
-            const double alpha = (slope_compensation_filter_tau_ <= 0.0)
-                ? 1.0 : obs_dt / (slope_compensation_filter_tau_ + obs_dt);
-            ay_slope_compensation_ += alpha * (ay_slope_compensation_raw - ay_slope_compensation_);
-        }
-
-        ROS_WARN("横坡补偿: raw_ay=%.4f, ay_bias=%.4f, ay_corr=%.4f, ay_theory=%.4f, slope_raw=%.4f, slope_filt=%.4f, coeff=%.2f, tau=%.3fs",
-                 curr_ay, effective_ay_bias_, ay_corrected_for_slope, ay_theoretical,
-                 ay_slope_compensation_raw, ay_slope_compensation_, slope_compensation_coeff_,
-                 slope_compensation_filter_tau_);
-    } else {
-        ay_slope_compensation_ = 0.0;
-        ay_slope_compensation_initialized_ = false;
-        effective_ay_bias_ = 0.0;
-        lateral_error_history_.clear();
-    }
+    ROS_WARN("横坡补偿: mode=%s, raw_ay=%.4f, ay_bias=%.4f, slope_raw=%.4f, slope_filt=%.4f, model_input=%.4f, gate=%d, yaw_acc=%.4f, steer_rate=%.4f",
+             slope_estimator_mode_.c_str(), curr_ay, effective_ay_bias_,
+             ay_slope_compensation_raw, ay_slope_compensation_,
+             slope_model_input_control, slope_gate_active_,
+             slope_yaw_accel, slope_steer_rate);
 
     // NMPC参数绑定（始终更新）
     std::vector<double> dyn_params = {nmpc_params_.m, nmpc_params_.Iz, nmpc_params_.lf,
                                       nmpc_params_.lr, nmpc_params_.Cf, nmpc_params_.Cr};
     solver_.opti.set_value(solver_.P_vx, curr_vx);
-    solver_.opti.set_value(solver_.P_ay_slope_comp, ay_slope_compensation_ * slope_compensation_coeff_);
+    solver_.opti.set_value(solver_.P_ay_slope_comp, slope_model_input_control);
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
 
@@ -554,7 +776,7 @@ void ESOTracker::computeControl(
     // 这样曲率预瞄范围与 PP 自己的目标点范围一致，不受 NMPC 预测时域长度限制。
     const double speed_lookahead =
         min_lookahead_distance_ + lookahead_speed_coeff_ * curr_vx;
-    const int nearest_idx = find_nearest_path_point(curr_x, curr_y, *path);
+    const int nearest_idx = find_nearest_path_point(curr_x, curr_y, curr_theta, *path);
     double preview_abs_curvature = 0.0;
     double preview_distance = 0.0;
     for (int i = nearest_idx + 1; i < static_cast<int>(path->points.size()); ++i) {
@@ -700,9 +922,134 @@ void ESOTracker::computeControl(
     ).count();
 
     if (enable_local_log_ && local_log_stream_.is_open()) {
+        const double diagnostic_nan = std::numeric_limits<double>::quiet_NaN();
+        const bool prev_valid = diagnostic_prev_valid_;
+
+        // 1) 转向执行器层：用上一周期实际转角和最终下发指令做一阶模型一步预测。
+        double steer_meas_rate = diagnostic_nan;
+        double steer_cmd_rate = diagnostic_nan;
+        double steer_model_1step = diagnostic_nan;
+        double steer_model_residual = diagnostic_nan;
+        if (prev_valid && obs_dt > 1e-6) {
+            steer_meas_rate = (curr_delta - diagnostic_prev_delta_) / obs_dt;
+            steer_cmd_rate = (final_cmd - diagnostic_prev_final_cmd_) / obs_dt;
+            steer_model_1step = diagnostic_prev_delta_ + obs_dt *
+                (diagnostic_prev_final_cmd_ - diagnostic_prev_delta_) /
+                std::max(nmpc_params_.T_lag, 1e-6);
+            steer_model_residual = curr_delta - steer_model_1step;
+        }
+        const bool nmpc_clamped = nmpc_solve_success && std::isfinite(nmpc_raw_cmd) &&
+            std::abs(nmpc_safe_cmd_ - (nmpc_raw_cmd + const_steer_bias_)) > 1e-9;
+        const bool final_saturated =
+            final_cmd <= nmpc_params_.delta_min + 1e-9 ||
+            final_cmd >= nmpc_params_.delta_max - 1e-9;
+
+        // 2) 横摆层：明确区分 ESO 总扰动、纯化后注入量及注入后的模型残差。
+        double yaw_rate_dot_raw = diagnostic_nan;
+        if (prev_valid && obs_dt > 1e-6) {
+            yaw_rate_dot_raw = (curr_r - diagnostic_prev_r_) / obs_dt;
+        }
+        const double eso_injected_k0 = d_pure_trailer;
+        const double eso_injected_k1 =
+            d_pure_trailer * nmpc_params_.eso_disturbance_decay;
+        const double yaw_rate_dot_with_eso = r_dot_nominal + eso_injected_k0;
+        const double yaw_residual_nominal = std::isfinite(yaw_rate_dot_raw)
+            ? yaw_rate_dot_raw - r_dot_nominal : diagnostic_nan;
+        const double yaw_residual_with_eso = std::isfinite(yaw_rate_dot_raw)
+            ? yaw_rate_dot_raw - yaw_rate_dot_with_eso : diagnostic_nan;
+        const double yaw_model_1step_nominal = curr_r + obs_dt * r_dot_nominal;
+        const double yaw_model_1step_eso = curr_r + obs_dt * yaw_rate_dot_with_eso;
+
+        // 3) 横向动力学层：侧偏角/轮胎力、ay 合力残差和 vy 状态残差。
+        const double slope_model_input =
+            ay_slope_compensation_ * slope_compensation_coeff_;
+        const double ay_corrected = curr_ay - effective_ay_bias_;
+        const double ay_model_no_slope =
+            (Fyf_curr * std::cos(curr_delta) + Fyr_curr) / nmpc_params_.m;
+        const double ay_model_with_slope = ay_model_no_slope + slope_model_input;
+        const double ay_residual_no_slope = ay_corrected - ay_model_no_slope;
+        const double ay_residual_with_slope = ay_corrected - ay_model_with_slope;
+        double vx_dot_raw = diagnostic_nan;
+        double vy_status_dot_raw = diagnostic_nan;
+        double vy_dot_raw = diagnostic_nan;
+        if (prev_valid && obs_dt > 1e-6) {
+            vx_dot_raw = (curr_vx_raw - diagnostic_prev_vx_) / obs_dt;
+            vy_status_dot_raw = (curr_vy_status - diagnostic_prev_vy_status_) / obs_dt;
+            vy_dot_raw = (vy_est - diagnostic_prev_vy_) / obs_dt;
+        }
+        const double vy_dot_model =
+            ay_model_no_slope - curr_vx * curr_r + slope_model_input;
+        const double vy_dot_residual = std::isfinite(vy_dot_raw)
+            ? vy_dot_raw - vy_dot_model : diagnostic_nan;
+        const double beta_status =
+            std::atan2(curr_vy_status, std::max(std::abs(curr_vx_raw), 1.0));
+        const double beta_est =
+            std::atan2(vy_est, std::max(std::abs(curr_vx_raw), 1.0));
+
+        // 4) 路径/定位与运动学层：独立几何误差用于核对消息中的 tracking error。
+        const auto& nearest_path_point = path->points[nearest_idx];
+        const double nearest_path_x = nearest_path_point.pose.position.x;
+        const double nearest_path_y = nearest_path_point.pose.position.y;
+        const double nearest_path_yaw = quaternion_to_yaw(nearest_path_point.pose.orientation);
+        const double nearest_dx = curr_x - nearest_path_x;
+        const double nearest_dy = curr_y - nearest_path_y;
+        const double nearest_distance = std::hypot(nearest_dx, nearest_dy);
+        const double geometric_lateral_error =
+            -std::sin(nearest_path_yaw) * nearest_dx +
+             std::cos(nearest_path_yaw) * nearest_dy;
+        const double heading_error = normalizeAngle(curr_theta - nearest_path_yaw);
+        const int nearest_idx_jump = diagnostic_prev_nearest_idx_ >= 0
+            ? nearest_idx - diagnostic_prev_nearest_idx_ : 0;
+
+        const int k1_index = std::min(1, nmpc_params_.N);
+        const int k5_index = std::min(5, nmpc_params_.N);
+        const int kN_index = nmpc_params_.N;
+        const double ref_x_k0 = static_cast<double>(waypoints_dm(0, 0));
+        const double ref_y_k0 = static_cast<double>(waypoints_dm(1, 0));
+        const double ref_theta_k0 = static_cast<double>(waypoints_dm(2, 0));
+        const double ref_kappa_k0 = static_cast<double>(waypoints_dm(3, 0));
+        const double ref_x_k1 = static_cast<double>(waypoints_dm(0, k1_index));
+        const double ref_y_k1 = static_cast<double>(waypoints_dm(1, k1_index));
+        const double ref_theta_k1 = static_cast<double>(waypoints_dm(2, k1_index));
+        const double ref_kappa_k1 = static_cast<double>(waypoints_dm(3, k1_index));
+        const double ref_y_k5 = static_cast<double>(waypoints_dm(1, k5_index));
+        const double ref_theta_k5 = static_cast<double>(waypoints_dm(2, k5_index));
+        const double ref_kappa_k5 = static_cast<double>(waypoints_dm(3, k5_index));
+        const double ref_y_kN = static_cast<double>(waypoints_dm(1, kN_index));
+        const double ref_theta_kN = static_cast<double>(waypoints_dm(2, kN_index));
+        const double ref_kappa_kN = static_cast<double>(waypoints_dm(3, kN_index));
+
+        double frenet_denominator = 1.0 - ref_kappa_k0 * geometric_lateral_error;
+        if (std::abs(frenet_denominator) < 0.1) {
+            frenet_denominator = std::copysign(0.1, frenet_denominator == 0.0 ? 1.0 : frenet_denominator);
+        }
+        const double r_ref_frenet = curr_vx * ref_kappa_k0 / frenet_denominator;
+        const double heading_error_rate_kin = curr_r - r_ref_frenet;
+        const double geometric_error_dot_kin =
+            curr_vx * std::sin(heading_error) + vy_est * std::cos(heading_error);
+        double tracking_error_dot_raw = diagnostic_nan;
+        double geometric_error_dot_raw = diagnostic_nan;
+        if (prev_valid && obs_dt > 1e-6) {
+            tracking_error_dot_raw =
+                (curr_lateral_tracking_error - diagnostic_prev_tracking_error_) / obs_dt;
+            geometric_error_dot_raw =
+                (geometric_lateral_error - diagnostic_prev_geometric_error_) / obs_dt;
+        }
+
+        const double pred_k1_y_error = diagnostic_pred_k1_[1] - ref_y_k1;
+        const double pred_k1_heading_error = diagnostic_pred_k1_[2] - ref_theta_k1;
+        const double pred_k1_yaw_rate_error = diagnostic_pred_k1_[4] - curr_vx * ref_kappa_k1;
+        const double pred_k5_y_error = diagnostic_pred_k5_[1] - ref_y_k5;
+        const double pred_k5_heading_error = diagnostic_pred_k5_[2] - ref_theta_k5;
+        const double pred_k5_yaw_rate_error = diagnostic_pred_k5_[4] - curr_vx * ref_kappa_k5;
+        const double pred_kN_y_error = diagnostic_pred_kN_[1] - ref_y_kN;
+        const double pred_kN_heading_error = diagnostic_pred_kN_[2] - ref_theta_kN;
+        const double pred_kN_yaw_rate_error = diagnostic_pred_kN_[4] - curr_vx * ref_kappa_kN;
+
         local_log_stream_
-            << current_time.toSec() << ',' << obs_dt << ','
+            << current_time.toSec() << ',' << 6 << ',' << dt << ',' << obs_dt << ','
             << curr_vx_raw << ',' << curr_vx_raw * 3.6 << ','
+            << curr_vy_status << ',' << curr_ax << ','
             << curr_x << ',' << curr_y << ',' << curr_theta << ','
             << received_mass_ << ',' << nmpc_params_.m << ',' << nmpc_params_.Iz << ','
             << nmpc_params_.lf << ',' << nmpc_params_.lr << ','
@@ -712,6 +1059,11 @@ void ESOTracker::computeControl(
             << nmpc_params_.T_lag << ',' << nmpc_params_.Q_y << ',' << nmpc_params_.Q_theta << ','
             << nmpc_params_.Q_r << ',' << nmpc_params_.dR << ',' << slope_compensation_filter_tau_ << ','
             << nmpc_params_.Cf * nmpc_params_.lf / nmpc_params_.Iz << ','
+            << nmpc_params_.Q_x << ',' << nmpc_params_.Q_vy << ',' << nmpc_params_.Q_delta << ','
+            << nmpc_params_.R << ',' << nmpc_params_.delta_min << ',' << nmpc_params_.delta_max << ','
+            << output_lpf_tau_ << ',' << (use_slope_compensation_ ? 1 : 0) << ','
+            << slope_compensation_coeff_ << ',' << (use_ay_bias_compensation_ ? 1 : 0) << ','
+            << (use_dynamic_ay_compensation_ ? 1 : 0) << ',' << (auto_update_total_weight_ ? 1 : 0) << ','
             << curr_lateral_tracking_error << ',' << curr_delta << ','
             << nmpc_raw_cmd << ',' << nmpc_safe_cmd_ << ','
             << delta_pp_raw << ',' << pp_safe_cmd_ << ',' << final_cmd << ','
@@ -724,7 +1076,68 @@ void ESOTracker::computeControl(
             << (nmpc_solve_success ? 1 : 0) << ',' << iter_time_ << ','
             << total_control_time_ << ',' << mpc_failure_count_ << ','
             << (using_pure_pursuit_flag_ ? 1 : 0) << ','
-            << (using_mixed_mode_flag_ ? 1 : 0) << '\n';
+            << (using_mixed_mode_flag_ ? 1 : 0) << ','
+            << curr_delta_raw << ',' << (std::abs(curr_delta_raw - curr_delta) > 1e-12 ? 1 : 0) << ','
+            << (prev_valid ? diagnostic_prev_final_cmd_ : diagnostic_nan) << ','
+            << steer_meas_rate << ',' << steer_cmd_rate << ','
+            << steer_model_1step << ',' << steer_model_residual << ','
+            << (nmpc_clamped ? 1 : 0) << ',' << (final_saturated ? 1 : 0) << ','
+            << curr_r - r_ref << ',' << yaw_rate_dot_raw << ',' << r_dot_nominal << ','
+            << yaw_rate_dot_with_eso << ',' << yaw_residual_nominal << ',' << yaw_residual_with_eso << ','
+            << yaw_model_1step_nominal << ',' << yaw_model_1step_eso << ','
+            << curr_r - eso_x1_ << ',' << eso_injected_k0 << ',' << eso_injected_k1 << ','
+            << alpha_f_curr << ',' << alpha_r_curr << ',' << Fyf_curr << ',' << Fyr_curr << ','
+            << ay_corrected << ',' << ay_model_no_slope << ',' << ay_model_with_slope << ','
+            << ay_residual_no_slope << ',' << ay_residual_with_slope << ','
+            << vx_dot_raw << ',' << vy_status_dot_raw << ',' << vy_dot_raw << ','
+            << vy_dot_model << ',' << vy_dot_residual << ',' << curr_vy_status - vy_est << ','
+            << beta_status << ',' << beta_est << ','
+            << path->points.size() << ',' << nearest_idx << ',' << nearest_idx_jump << ','
+            << nearest_distance << ',' << nearest_path_x << ',' << nearest_path_y << ','
+            << nearest_path_yaw << ',' << geometric_lateral_error << ','
+            << curr_lateral_tracking_error - geometric_lateral_error << ','
+            << heading_error << ',' << heading_error_rate_kin << ',' << r_ref_frenet << ','
+            << tracking_error_dot_raw << ',' << geometric_error_dot_raw << ',' << geometric_error_dot_kin << ','
+            << ref_x_k0 << ',' << ref_y_k0 << ',' << ref_theta_k0 << ',' << ref_kappa_k0 << ','
+            << ref_x_k1 << ',' << ref_y_k1 << ',' << ref_theta_k1 << ',' << ref_kappa_k1 << ','
+            << ref_y_k5 << ',' << ref_theta_k5 << ',' << ref_kappa_k5 << ','
+            << ref_y_kN << ',' << ref_theta_kN << ',' << ref_kappa_kN << ','
+            << diagnostic_pred_k1_[0] << ',' << diagnostic_pred_k1_[1] << ','
+            << diagnostic_pred_k1_[2] << ',' << diagnostic_pred_k1_[3] << ','
+            << diagnostic_pred_k1_[4] << ',' << diagnostic_pred_k1_[5] << ','
+            << pred_k1_y_error << ',' << pred_k1_heading_error << ',' << pred_k1_yaw_rate_error << ','
+            << k5_index << ',' << diagnostic_pred_k5_[1] << ',' << diagnostic_pred_k5_[2] << ','
+            << diagnostic_pred_k5_[3] << ',' << diagnostic_pred_k5_[4] << ',' << diagnostic_pred_k5_[5] << ','
+            << pred_k5_y_error << ',' << pred_k5_heading_error << ',' << pred_k5_yaw_rate_error << ','
+            << diagnostic_pred_kN_[1] << ',' << diagnostic_pred_kN_[2] << ','
+            << diagnostic_pred_kN_[3] << ',' << diagnostic_pred_kN_[4] << ',' << diagnostic_pred_kN_[5] << ','
+            << pred_kN_y_error << ',' << pred_kN_heading_error << ',' << pred_kN_yaw_rate_error << ','
+            << diagnostic_u_sparse_[0] << ',' << diagnostic_u_sparse_[1] << ','
+            << diagnostic_u_sparse_[2] << ',' << target_idx << ',' << (prev_valid ? 1 : 0) << ','
+            << nmpc_params_.eso_disturbance_tau_s << ',' << curvature_smoothing_steps_ << ','
+            << (slope_estimator_mode_ == "tire_force_residual" ? 1 : 0) << ','
+            << (slope_dynamic_gate_enabled_ ? 1 : 0) << ',' << (slope_gate_active_ ? 1 : 0) << ','
+            << slope_yaw_accel << ',' << slope_steer_rate << ',' << slope_compensation_limit_ << ','
+            << (ukf_use_slope_disturbance_ ? 1 : 0) << ','
+            << ukf_ay_innovation_raw_ << ',' << ukf_ay_innovation_used_ << ','
+            << ukf_q_vy_ << ',' << ukf_q_r_ << ',' << ukf_r_ay_ << ',' << ukf_r_r_ << ','
+            << ukf_vy_abs_max_ << ',' << curvature_smoothing_distance_m_ << ','
+            << (use_equilibrium_feedforward_ ? 1 : 0) << ',' << last_delta_ff_ << ','
+            << nmpc_params_.near_dense_control_steps << ',' << nmpc_params_.delta_rate_max << ','
+            << (last_measurement_is_new_ ? 1 : 0) << ','
+            << (last_observer_low_speed_reset_ ? 1 : 0) << ','
+            << observer_dynamic_min_speed_mps_ << '\n';
+
+        diagnostic_prev_valid_ = true;
+        diagnostic_prev_delta_ = curr_delta;
+        diagnostic_prev_vx_ = curr_vx_raw;
+        diagnostic_prev_vy_status_ = curr_vy_status;
+        diagnostic_prev_r_ = curr_r;
+        diagnostic_prev_vy_ = vy_est;
+        diagnostic_prev_tracking_error_ = curr_lateral_tracking_error;
+        diagnostic_prev_geometric_error_ = geometric_lateral_error;
+        diagnostic_prev_final_cmd_ = final_cmd;
+        diagnostic_prev_nearest_idx_ = nearest_idx;
 
         ++local_log_pending_rows_;
         if (local_log_pending_rows_ >= local_log_flush_interval_) {
@@ -792,15 +1205,45 @@ double ESOTracker::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
     return yaw;
 }
 
-int ESOTracker::find_nearest_path_point(const double x0, const double y0, const race_msgs::Path& path) {
-    double min_dist_sq = std::numeric_limits<double>::max();
-    int nearest_idx = 0;
+int ESOTracker::find_nearest_path_point(const double x0, const double y0, const double yaw0,
+                                        const race_msgs::Path& path) {
+    double min_cost = std::numeric_limits<double>::max();
+    int nearest_idx = -1;
+    const double cy = std::cos(yaw0);
+    const double sy = std::sin(yaw0);
     for (size_t i = 0; i < path.points.size(); ++i) {
         const auto& pt = path.points[i].pose.position;
-        double dist_sq = (pt.x - x0) * (pt.x - x0) + (pt.y - y0) * (pt.y - y0);
+        const double dx = pt.x - x0;
+        const double dy = pt.y - y0;
+        const double longitudinal = cy * dx + sy * dy;
+        if (longitudinal < -path_projection_rear_gate_m_) {
+            continue;
+        }
+        const double yaw_path = quaternion_to_yaw(path.points[i].pose.orientation);
+        const double yaw_error = std::abs(angleDiff(yaw_path, yaw0));
+        if (yaw_error > path_projection_heading_gate_rad_) {
+            continue;
+        }
+        const double dist_sq = dx * dx + dy * dy;
+        const double cost = dist_sq + path_projection_heading_weight_m2_ * yaw_error * yaw_error;
+        if (cost < min_cost) {
+            min_cost = cost;
+            nearest_idx = i;
+        }
+    }
+    if (nearest_idx >= 0) {
+        return nearest_idx;
+    }
+
+    // 路径航向缺失或极端定位偏差时回退到原始欧氏最近点，保持与第五版兼容。
+    double min_dist_sq = std::numeric_limits<double>::max();
+    nearest_idx = 0;
+    for (size_t i = 0; i < path.points.size(); ++i) {
+        const auto& pt = path.points[i].pose.position;
+        const double dist_sq = (pt.x - x0) * (pt.x - x0) + (pt.y - y0) * (pt.y - y0);
         if (dist_sq < min_dist_sq) {
             min_dist_sq = dist_sq;
-            nearest_idx = i;
+            nearest_idx = static_cast<int>(i);
         }
     }
     return nearest_idx;
@@ -845,7 +1288,7 @@ casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, con
     // yaw0 = 自车当前航向 curr_theta（由 process_race_path 透传 current_state[2]）。
     const double veh_yaw = yaw0;
 
-    std::vector<double> s_orig, x_orig, y_orig, theta_orig, kappa_orig;
+    std::vector<double> s_orig, x_orig, y_orig, theta_orig;
 
     // 关键修改：把每个参考点的航向都用 angleDiff 表示为“相对自车当前航向”的量，
     // 再在 s 方向上连续解缠绕(unwrap)，得到一条连续、且锚定在 0 附近的参考航向曲线。
@@ -871,23 +1314,38 @@ casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, con
         theta_orig.push_back(theta_prev);
     }
 
-    kappa_orig.resize(theta_orig.size(), 0.0);
-    for (size_t i = 1; i + 1 < theta_orig.size(); ++i) {
-        double ds = s_orig[i+1] - s_orig[i-1];
-        kappa_orig[i] = (ds > 1e-4) ? (theta_orig[i+1] - theta_orig[i-1]) / ds : 0.0;
-    }
-
     auto x_interp = linear_interpolate(s_orig, x_orig, s_target);
     auto y_interp = linear_interpolate(s_orig, y_orig, s_target);
     auto theta_interp = linear_interpolate(s_orig, theta_orig, s_target);
-    auto kappa_interp = linear_interpolate(s_orig, kappa_orig, s_target);
+    std::vector<double> kappa_interp(s_target.size(), 0.0);
+
+    // V6：曲率窗口使用固定空间长度，不再使用固定预测步数。
+    // 因此同一绝对位置在不同车速下看到的曲率尺度一致。
+    if (s_target.size() >= 2) {
+        const int n = static_cast<int>(s_target.size());
+        const double ds_grid = std::max(1e-3, s_target[1] - s_target[0]);
+        const int span = std::max(1, std::min(
+            static_cast<int>(std::lround(curvature_smoothing_distance_m_ / ds_grid)), n - 1));
+        for (int i = 0; i < n; ++i) {
+            int left = i - span / 2;
+            left = std::max(0, std::min(left, n - 1 - span));
+            const int right = left + span;
+            const double ds = s_target[right] - s_target[left];
+            kappa_interp[i] = (ds > 1e-4)
+                ? (theta_interp[right] - theta_interp[left]) / ds : 0.0;
+        }
+    }
 
     // 位置参考也转换到“自车体坐标系”（原点为自车当前位置，x 轴沿自车当前航向），
     // 与相对航向、相对动力学初值 (0,0,0) 保持一致，彻底摆脱全局朝向的影响。
     const double cos_y = std::cos(veh_yaw);
     const double sin_y = std::sin(veh_yaw);
     int n_waypoints = s_target.size();
-    casadi::DM waypoints = casadi::DM::zeros(4, n_waypoints);
+    casadi::DM waypoints = casadi::DM::zeros(6, n_waypoints);
+    const double vx_reference = (s_target.size() >= 2)
+        ? std::max(1.0, (s_target[1] - s_target[0]) / nmpc_params_.dt)
+        : 1.0;
+    double previous_delta_ff = current_cmd_;
     for (int i = 0; i < n_waypoints; ++i) {
         double dx = x_interp[i] - g_ref_x0;
         double dy = y_interp[i] - g_ref_y0;
@@ -897,13 +1355,27 @@ casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, con
         waypoints(1, i) = by;
         waypoints(2, i) = theta_interp[i];   // 相对自车当前航向、连续解缠绕后的参考航向
         waypoints(3, i) = kappa_interp[i];
+        const auto equilibrium = computeSteadyStateFeedforward(vx_reference, kappa_interp[i]);
+        // 前馈本身也从上一周期实际输出开始按物理速率生成，否则“前馈+反馈”的硬速率
+        // 约束可能因为参考前馈跳变而无解。k=0锚定当前输出，k>=1每步推进一次。
+        double delta_ff = previous_delta_ff;
+        if (i > 0) {
+            const double max_step = nmpc_params_.delta_rate_max * nmpc_params_.dt;
+            delta_ff = std::max(previous_delta_ff - max_step,
+                                std::min(previous_delta_ff + max_step, equilibrium[0]));
+            delta_ff = std::max(nmpc_params_.delta_min,
+                                std::min(nmpc_params_.delta_max, delta_ff));
+        }
+        previous_delta_ff = delta_ff;
+        waypoints(4, i) = delta_ff;        // 速率可行的名义稳态前轮转角
+        waypoints(5, i) = equilibrium[1];  // 名义稳态侧向速度
     }
     return waypoints;
 }
 
 casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
-    int nearest_idx = find_nearest_path_point(current_state[0], current_state[1], input_path);
-    if (nearest_idx == -1) return casadi::DM::zeros(4, nmpc_params_.N + 1);
+    int nearest_idx = find_nearest_path_point(current_state[0], current_state[1], current_state[2], input_path);
+    if (nearest_idx == -1) return casadi::DM::zeros(6, nmpc_params_.N + 1);
 
     // 设置体坐标系变换原点为自车当前位置，供 interpolate_path_segment 使用
     g_ref_x0 = current_state[0];
@@ -931,6 +1403,84 @@ casadi::DM ESOTracker::process_race_path(const race_msgs::Path& input_path, cons
     end_idx = std::min(end_idx, static_cast<int>(input_path.points.size()) - 1);
 
     return interpolate_path_segment(input_path, cum_dist, nearest_idx, end_idx, s_target, current_state[2]);
+}
+
+std::array<double, 2> ESOTracker::computeSteadyStateFeedforward(double vx, double kappa) const {
+    if (!use_equilibrium_feedforward_ || !std::isfinite(vx) || !std::isfinite(kappa)) {
+        return {0.0, 0.0};
+    }
+
+    const double vx_safe = std::max(std::abs(vx), 2.0);
+    const double r_eq = vx_safe * kappa;
+    const double Cf = nmpc_params_.Cf;
+    const double Cr = nmpc_params_.Cr;
+    const double lf = nmpc_params_.lf;
+    const double lr = nmpc_params_.lr;
+    const double m = nmpc_params_.m;
+
+    // 未知量 z=[delta_ff, vy_eq]。采用与当前线性侧偏刚度模型一致的稳态力/力矩平衡：
+    // Cf*alpha_f + Cr*alpha_r = m*vx*r，lf*Cf*alpha_f-lr*Cr*alpha_r=0。
+    Eigen::Matrix2d A;
+    A << Cf, (-Cf - Cr) / vx_safe,
+         lf * Cf, (-lf * Cf + lr * Cr) / vx_safe;
+    Eigen::Vector2d b;
+    b << m * vx_safe * r_eq - ((-Cf * lf + Cr * lr) / vx_safe) * r_eq,
+         -((-lf * lf * Cf - lr * lr * Cr) / vx_safe) * r_eq;
+
+    Eigen::Vector2d z = Eigen::Vector2d::Zero();
+    const double det = A.determinant();
+    if (std::isfinite(det) && std::abs(det) > 1e-9) {
+        z = A.fullPivLu().solve(b);
+    } else {
+        z(0) = std::atan(nmpc_params_.L * kappa);
+        z(1) = 0.0;
+    }
+
+    double delta_ff = equilibrium_feedforward_gain_ * z(0);
+    if (!std::isfinite(delta_ff)) delta_ff = 0.0;
+    if (!std::isfinite(z(1))) z(1) = 0.0;
+    if (equilibrium_feedforward_limit_ > 0.0) {
+        delta_ff = std::max(-equilibrium_feedforward_limit_,
+                            std::min(equilibrium_feedforward_limit_, delta_ff));
+    }
+    return {delta_ff, z(1)};
+}
+
+bool ESOTracker::isNewVehicleMeasurement(double x, double y, double yaw, double vx, double vy,
+                                         double r, double delta, double ay) {
+    if (!measurement_fingerprint_valid_) {
+        measurement_fingerprint_valid_ = true;
+        measurement_prev_x_ = x;
+        measurement_prev_y_ = y;
+        measurement_prev_yaw_ = yaw;
+        measurement_prev_vx_ = vx;
+        measurement_prev_vy_ = vy;
+        measurement_prev_r_ = r;
+        measurement_prev_delta_ = delta;
+        measurement_prev_ay_ = ay;
+        return true;
+    }
+
+    const bool changed =
+        std::hypot(x - measurement_prev_x_, y - measurement_prev_y_) > 1e-4 ||
+        std::abs(angleDiff(yaw, measurement_prev_yaw_)) > 1e-5 ||
+        std::abs(vx - measurement_prev_vx_) > 1e-4 ||
+        std::abs(vy - measurement_prev_vy_) > 1e-4 ||
+        std::abs(r - measurement_prev_r_) > 1e-5 ||
+        std::abs(delta - measurement_prev_delta_) > 1e-5 ||
+        std::abs(ay - measurement_prev_ay_) > 1e-4;
+
+    if (changed) {
+        measurement_prev_x_ = x;
+        measurement_prev_y_ = y;
+        measurement_prev_yaw_ = yaw;
+        measurement_prev_vx_ = vx;
+        measurement_prev_vy_ = vy;
+        measurement_prev_r_ = r;
+        measurement_prev_delta_ = delta;
+        measurement_prev_ay_ = ay;
+    }
+    return changed;
 }
 
 // ---------------------- 核心算法  ----------------------
@@ -1076,7 +1626,10 @@ void ESOTracker::updateDynamicAyBias(double lateral_tracking_error) {
              dynamic_ay_bias_error_sign_);
 }
 
-void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay, double curr_r, double dt) {
+void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta,
+                              double curr_ay_corrected, double curr_r,
+                              double lateral_disturbance, double dt,
+                              bool measurement_is_new) {
 
     int L = 2;
     int n_sig = 2*L + 1;
@@ -1090,8 +1643,8 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         Wc(i) = 1.0 / (2 * (L + lambda));
     }
 
-    Matrix2d Q_ukf = (Matrix2d() << 0.01, 0.0, 0.0, 0.001).finished();
-    Matrix2d R_ukf = (Matrix2d() << 0.5, 0.0, 0.0, 0.1).finished();
+    Matrix2d Q_ukf = (Matrix2d() << ukf_q_vy_, 0.0, 0.0, ukf_q_r_).finished();
+    Matrix2d R_ukf = (Matrix2d() << ukf_r_ay_, 0.0, 0.0, ukf_r_r_).finished();
 
     Matrix2d P_scaled = (L + lambda) * ukf_P_est_;
     P_scaled = 0.5 * (P_scaled + P_scaled.transpose()) + 1e-6 * Matrix2d::Identity();
@@ -1111,11 +1664,12 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
     MatrixXd X_sig_pred(L, n_sig);
     for (int i=0; i<n_sig; i++) {
         double vy_i = X_sig(0, i), r_i = X_sig(1, i);
-        double alpha_f = curr_delta - (vy_i + nmpc_params_.lf * r_i) / curr_vx;
-        double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
+        double alpha_f = curr_delta - std::atan2(vy_i + nmpc_params_.lf * r_i, curr_vx);
+        double alpha_r = -std::atan2(vy_i - nmpc_params_.lr * r_i, curr_vx);
         double Fyf = nmpc_params_.Cf * alpha_f;
         double Fyr = nmpc_params_.Cr * alpha_r;
-        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m - curr_vx * r_i;
+        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m -
+                        curr_vx * r_i + lateral_disturbance;
         double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / nmpc_params_.Iz;
         X_sig_pred(0, i) = vy_i + vy_dot * dt;
         X_sig_pred(1, i) = r_i + r_dot * dt;
@@ -1145,10 +1699,10 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
     MatrixXd Z_sig(2, n_sig);
     for (int i=0; i<n_sig; i++) {
         double vy_i = X_sig_update(0, i), r_i = X_sig_update(1, i);
-        double alpha_f = curr_delta - (vy_i + nmpc_params_.lf * r_i) / curr_vx;
-        double alpha_r = -(vy_i - nmpc_params_.lr * r_i) / curr_vx;
+        double alpha_f = curr_delta - std::atan2(vy_i + nmpc_params_.lf * r_i, curr_vx);
+        double alpha_r = -std::atan2(vy_i - nmpc_params_.lr * r_i, curr_vx);
         double ay_model = (nmpc_params_.Cf * alpha_f * cos(curr_delta) + nmpc_params_.Cr * alpha_r) / nmpc_params_.m;
-        Z_sig(0, i) = ay_model;
+        Z_sig(0, i) = ay_model + lateral_disturbance;
         Z_sig(1, i) = r_i;
     }
 
@@ -1164,16 +1718,34 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta, double curr_ay
         P_xz += Wc(i) * x_diff * z_diff.transpose();
     }
 
-    MatrixXd K = P_xz * P_zz.inverse();
-    Vector2d z_meas(curr_ay, curr_r);
-    ukf_x_est_ = x_pred + K * (z_meas - z_pred);
-    ukf_P_est_ = P_pred - K * P_zz * K.transpose();
+    if (measurement_is_new) {
+        MatrixXd K = P_xz * P_zz.inverse();
+        Vector2d innovation = Vector2d(curr_ay_corrected, curr_r) - z_pred;
+        ukf_ay_innovation_raw_ = innovation(0);
+        if (ukf_ay_innovation_limit_ > 0.0) {
+            innovation(0) = std::max(-ukf_ay_innovation_limit_,
+                                std::min(ukf_ay_innovation_limit_, innovation(0)));
+        }
+        ukf_ay_innovation_used_ = innovation(0);
+        ukf_x_est_ = x_pred + K * innovation;
+        ukf_P_est_ = P_pred - K * P_zz * K.transpose();
+    } else {
+        // 车辆状态保持值被控制回调重复使用时，只传播一次模型，不把同一测量重复融合。
+        ukf_ay_innovation_raw_ = 0.0;
+        ukf_ay_innovation_used_ = 0.0;
+        ukf_x_est_ = x_pred;
+        ukf_P_est_ = P_pred;
+    }
+    ukf_x_est_(0) = std::max(-ukf_vy_abs_max_,
+                        std::min(ukf_vy_abs_max_, ukf_x_est_(0)));
     ukf_P_est_ = 0.5 * (ukf_P_est_ + ukf_P_est_.transpose());
 }
 
-void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt){
+void ESOTracker::esoCompute(double curr_r, double curr_delta, double dt,
+                            bool measurement_is_new){
     double b_eso = (nmpc_params_.Cf * nmpc_params_.lf) / nmpc_params_.Iz;
-    double error_eso = curr_r - eso_x1_;
+    // 对保持的旧测量只做模型预测，不重复注入同一个横摆观测误差。
+    double error_eso = measurement_is_new ? (curr_r - eso_x1_) : 0.0;
     eso_x1_ += (b_eso * curr_delta + 20.0 * error_eso + eso_x2_) * dt;
     eso_x2_ += (100.0 * error_eso) * dt;
 }
@@ -1209,27 +1781,63 @@ void ESOTracker::buildNMPSolver() {
     solver_.X = solver_.opti.variable(nx, N+1);
     solver_.U_sparse = solver_.opti.variable(nu, Nc);
     solver_.P_x0 = solver_.opti.parameter(nx);
-    solver_.P_waypoints = solver_.opti.parameter(4, N+1);
+    // [x_ref, y_ref, theta_ref, kappa_ref, delta_ff, vy_eq]
+    solver_.P_waypoints = solver_.opti.parameter(6, N+1);
     solver_.P_vx = solver_.opti.parameter(1);
     solver_.P_ay_slope_comp = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
     solver_.P_h_hat = solver_.opti.parameter(1);
     solver_.P_dyn_params = solver_.opti.parameter(6);
 
-    MX U_full = MX::zeros(nu, N);
-    int base_steps = N / Nc, remainder = N % Nc, current_idx = 0;
-    for (int i=0; i<Nc; i++) {
-        int steps = base_steps + (i == Nc-1 ? remainder : 0);
-        int end_idx = min(current_idx + steps, N);
-        U_full(Slice(), Slice(current_idx, end_idx)) = repmat(solver_.U_sparse(Slice(), i), 1, end_idx - current_idx);
-        current_idx = end_idx;
+    // V6 前密后疏 move blocking。前若干步逐拍优化，远端自动均分，避免 V5 每个控制块
+    // 固定保持约 0.55~0.65s。U_sparse 表示相对稳态前馈的反馈修正量。
+    solver_.control_block_start.clear();
+    solver_.control_block_length.clear();
+    const int dense_blocks = std::max(0, std::min(nmpc_params_.near_dense_control_steps,
+                                                   std::min(N, Nc - 1)));
+    int assigned_steps = 0;
+    for (int i = 0; i < dense_blocks; ++i) {
+        solver_.control_block_start.push_back(assigned_steps);
+        solver_.control_block_length.push_back(1);
+        ++assigned_steps;
+    }
+    const int remaining_blocks = Nc - dense_blocks;
+    const int remaining_steps = N - assigned_steps;
+    for (int i = 0; i < remaining_blocks; ++i) {
+        const int blocks_left = remaining_blocks - i;
+        const int steps_left = N - assigned_steps;
+        const int steps = std::max(1, steps_left / blocks_left);
+        solver_.control_block_start.push_back(assigned_steps);
+        solver_.control_block_length.push_back(steps);
+        assigned_steps += steps;
+    }
+    if (!solver_.control_block_length.empty() && assigned_steps < N) {
+        solver_.control_block_length.back() += N - assigned_steps;
+        assigned_steps = N;
+    }
+    if (assigned_steps != N || static_cast<int>(solver_.control_block_length.size()) != Nc) {
+        throw std::runtime_error("V6 control block layout invalid");
+    }
+
+    solver_.U_full_feedback = MX::zeros(nu, N);
+    for (int i = 0; i < Nc; ++i) {
+        const int begin = solver_.control_block_start[i];
+        const int length = solver_.control_block_length[i];
+        solver_.U_full_feedback(Slice(), Slice(begin, begin + length)) =
+            repmat(solver_.U_sparse(Slice(), i), 1, length);
+    }
+    solver_.U_full_command = MX::zeros(nu, N);
+    for (int k = 0; k < N; ++k) {
+        solver_.U_full_command(0, k) =
+            solver_.P_waypoints(4, k + 1) + solver_.U_full_feedback(0, k);
     }
 
     MX J = 0.0;
     solver_.opti.subject_to(solver_.X(Slice(), 0) == solver_.P_x0);
 
     for (int k=0; k<N; k++) {
-        MX st = solver_.X(Slice(), k), con = U_full(Slice(), k);
+        MX st = solver_.X(Slice(), k), con = solver_.U_full_command(Slice(), k);
+        MX feedback = solver_.U_full_feedback(Slice(), k);
         MX h = solver_.P_h_hat * pow(nmpc_params_.eso_disturbance_decay, k);
 
 
@@ -1254,6 +1862,7 @@ void ESOTracker::buildNMPSolver() {
 
         MX ref_x = solver_.P_waypoints(0, k+1), ref_y = solver_.P_waypoints(1, k+1);
         MX ref_theta = solver_.P_waypoints(2, k+1), ref_kappa = solver_.P_waypoints(3, k+1);
+        MX ref_delta = solver_.P_waypoints(4, k+1), ref_vy = solver_.P_waypoints(5, k+1);
         // 体坐标系下，X(2) 与 ref_theta 均为连续、锚定在 0 附近的相对航向，
         // 不会跨越 ±pi 折叠边界，因此直接作差即可，无需 atan2(sin,cos) 折叠。
         // 移除折叠后，代价函数对航向误差全程光滑可导，消除 ±pi/2 附近的梯度突变。
@@ -1263,15 +1872,23 @@ void ESOTracker::buildNMPSolver() {
         J += nmpc_params_.Q(1,1) * pow(solver_.X(1, k+1) - ref_y, 2);
         J += nmpc_params_.Q(2,2) * pow(e_theta, 2);
         J += nmpc_params_.Q(4,4) * pow(solver_.X(4, k+1) - solver_.P_vx * ref_kappa, 2);
-        J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1), 2);
-        J += nmpc_params_.Q(5,5) * pow(solver_.X(5, k+1), 2);
-        J += nmpc_params_.R * pow(con, 2);
+        J += nmpc_params_.Q(3,3) * pow(solver_.X(3, k+1) - ref_vy, 2);
+        J += nmpc_params_.Q(5,5) * pow(solver_.X(5, k+1) - ref_delta, 2);
+        // 只惩罚相对平衡态前馈的反馈量，避免优化器为了 R 项主动抵消正确前馈。
+        J += nmpc_params_.R * pow(feedback, 2);
+
+        const MX previous_command = (k == 0)
+            ? solver_.P_u_prev : solver_.U_full_command(0, k - 1);
+        const MX command_increment = solver_.U_full_command(0, k) - previous_command;
+        J += nmpc_params_.dR * pow(command_increment, 2);
+        solver_.opti.subject_to(solver_.opti.bounded(
+            -nmpc_params_.delta_rate_max * nmpc_params_.dt,
+            command_increment,
+             nmpc_params_.delta_rate_max * nmpc_params_.dt));
     }
 
-    J += nmpc_params_.dR * pow(solver_.U_sparse(0) - solver_.P_u_prev, 2);
-    for (int i=1; i<Nc; i++) J += nmpc_params_.dR * pow(solver_.U_sparse(i) - solver_.U_sparse(i-1), 2);
-
-    solver_.opti.subject_to(solver_.opti.bounded(nmpc_params_.delta_min, solver_.U_sparse, nmpc_params_.delta_max));
+    solver_.opti.subject_to(solver_.opti.bounded(
+        nmpc_params_.delta_min, solver_.U_full_command, nmpc_params_.delta_max));
 
     solver_.opti.minimize(J);
 
@@ -1320,7 +1937,28 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
         solver_.has_prev_sol = true;
 
-        control_output[0] = static_cast<double>(sol.value(solver_.U_sparse(0)));
+        if (enable_local_log_) {
+            const casadi::DM x_solution = sol.value(solver_.X);
+            const casadi::DM u_solution = sol.value(solver_.U_sparse);
+            const casadi::DM command_solution = sol.value(solver_.U_full_command);
+            const int k1 = std::min(1, nmpc_params_.N);
+            const int k5 = std::min(5, nmpc_params_.N);
+            const int kN = nmpc_params_.N;
+
+            for (int state_idx = 0; state_idx < 6; ++state_idx) {
+                diagnostic_pred_k1_[state_idx] = static_cast<double>(x_solution(state_idx, k1));
+                diagnostic_pred_k5_[state_idx] = static_cast<double>(x_solution(state_idx, k5));
+                diagnostic_pred_kN_[state_idx] = static_cast<double>(x_solution(state_idx, kN));
+            }
+            diagnostic_u_sparse_.fill(std::numeric_limits<double>::quiet_NaN());
+            for (int control_idx = 0; control_idx < std::min(3, nmpc_params_.Nc); ++control_idx) {
+                const int prediction_index = solver_.control_block_start[control_idx];
+                diagnostic_u_sparse_[control_idx] =
+                    static_cast<double>(command_solution(0, prediction_index));
+            }
+        }
+
+        control_output[0] = static_cast<double>(sol.value(solver_.U_full_command(0, 0)));
         return true;
     } catch (std::exception& e) {
 
@@ -1330,6 +1968,7 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
 
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
+        resetNmpcPredictionDiagnostics();
         return false;
     }
 }
