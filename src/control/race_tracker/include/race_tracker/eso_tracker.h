@@ -21,6 +21,7 @@
 #include <race_msgs/Path.h>
 #include <race_msgs/Flag.h>
 #include <race_msgs/ESOEstimation.h>
+#include <std_msgs/Int32.h>
 
 namespace race_tracker {
 
@@ -133,6 +134,11 @@ private:
     bool solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                    std::vector<double>& control_output);
 
+    // V8: 采集 IPOPT/CasADi 求解状态；统计读取失败不影响控制。
+    void captureNmpcSolverStats();
+    void enterFallback(int reason_code, const ros::Time& now);
+    void drivingModeCallback(const std_msgs::Int32::ConstPtr& msg);
+
     // 仅用于本地日志：缓存求解后的预测状态，不参与控制计算。
     void resetNmpcPredictionDiagnostics();
 
@@ -176,6 +182,7 @@ private:
 
 private:
     ros::Publisher est_pub_;//发布话题
+    ros::Subscriber driving_mode_sub_;
     double blend_alpha_;
     double nmpc_safe_cmd_;
     ros::Time start_time_;
@@ -190,10 +197,10 @@ private:
     double min_lookahead_distance_;
     double lookahead_speed_coeff_;
     int curvature_smoothing_steps_;          // 仅兼容旧配置/日志
-    double curvature_smoothing_distance_m_;  // V6固定空间曲率平滑长度，不再随车速变化
+    double curvature_smoothing_distance_m_;  // V6/V7固定空间曲率平滑长度，不再随车速变化
     double lookahead_curvature_coeff_;  // 根据预瞄路径最大绝对曲率缩短预瞄距离，单位 m^2
 
-    // V6名义稳态转角前馈
+    // V6/V7名义稳态转角前馈
     bool use_equilibrium_feedforward_;
     double equilibrium_feedforward_gain_;
     double equilibrium_feedforward_limit_;
@@ -203,6 +210,8 @@ private:
     double path_projection_heading_weight_m2_;
     double path_projection_heading_gate_rad_;
     double path_projection_rear_gate_m_;
+    bool use_geometric_path_heading_ = true;
+    double geometric_heading_window_m_ = 2.0;
 
     // --- 核心参数结构体 ---
     NMPCParams nmpc_params_;
@@ -210,6 +219,89 @@ private:
     NMPSolver solver_;
 
     double current_cmd_;
+
+    // V7/V8求解截止与输出安全层。IPOPT内部CPU上限用于主动终止，外层墙钟截止
+    // 用于拒绝过期解；V8由锁存式监督器管理fallback和无扰恢复。
+    double nmpc_solve_deadline_ms_ = 50.0;
+    double nmpc_ipopt_cpu_time_limit_ms_ = 45.0;
+    bool immediate_pp_on_nmpc_timeout_ = true;
+    bool enforce_final_output_rate_limit_ = true;
+    bool publish_steering_angle_velocity_ = true;
+    double steering_angle_velocity_cmd_radps_ = 0.35;
+    bool last_nmpc_deadline_missed_ = false;
+    bool last_final_output_rate_limited_ = false;
+    unsigned long long nmpc_timeout_count_ = 0;
+
+    // V8 求解器诊断。status_code: 0=未尝试, 1=成功, 2=截止时间失败/过期,
+    // 3=其他求解异常, 4=低速跳过, 5=高偏差恢复阶段跳过, 6=推断为人工驾驶。
+    bool last_nmpc_attempted_ = false;
+    bool last_nmpc_solver_returned_success_ = false;
+    bool last_nmpc_warm_start_used_ = false;
+    int last_nmpc_status_code_ = 0;
+    int last_nmpc_iter_count_ = -1;
+    double last_nmpc_inf_pr_ = 0.0;
+    double last_nmpc_inf_du_ = 0.0;
+    std::string last_nmpc_return_status_ = "not_attempted";
+
+    // V8 锁存式fallback：任何超时/失败均立即进入PP；满足保持时间、连续成功
+    // 和车辆已回稳条件后，再用短时无扰权重恢复NMPC。
+    bool fallback_latched_ = false;
+    bool fallback_reentry_active_ = false;
+    int fallback_reason_code_ = 0;  // 0=无,1=启动大偏差,2=超时,3=求解失败,4=AD重新接管
+    ros::Time fallback_enter_time_;
+    int nmpc_success_streak_ = 0;
+    double fallback_reentry_alpha_ = 0.0;
+    double fallback_min_hold_s_ = 0.5;
+    int fallback_required_successes_ = 8;
+    double fallback_reentry_blend_time_s_ = 0.5;
+    double fallback_reentry_max_lateral_error_m_ = 0.60;
+    double fallback_reentry_max_heading_error_rad_ = 0.15;
+    double fallback_reentry_max_yaw_rate_radps_ = 0.25;
+    double fallback_reentry_max_kappa_step_1pm_ = 0.003;
+    int fallback_reentry_max_nearest_index_jump_ = 5;
+    double nmpc_attempt_min_speed_mps_ = 3.0;
+    int reference_stable_streak_ = 0;
+    bool last_reference_kappa_valid_ = false;
+    double last_reference_kappa_ = 0.0;
+    double reference_kappa_step_ = 0.0;
+    bool reference_stable_this_cycle_ = false;
+    int reference_prev_nearest_idx_ = -1;
+
+    // V8 高初始偏差路径重入。它只改变大偏差恢复阶段的PP，不改变正常NMPC参数。
+    bool startup_recovery_checked_ = false;
+    bool startup_recovery_enabled_ = true;
+    bool startup_recovery_active_ = false;
+    int startup_recovery_alignment_streak_ = 0;
+    double startup_recovery_entry_lateral_error_m_ = 1.0;
+    double startup_recovery_entry_heading_error_rad_ = 0.25;
+    double startup_recovery_exit_lateral_error_m_ = 0.35;
+    double startup_recovery_exit_heading_error_rad_ = 0.10;
+    double startup_recovery_exit_yaw_rate_radps_ = 0.15;
+    int startup_recovery_exit_cycles_ = 10;
+    double startup_recovery_min_lookahead_m_ = 12.0;
+    double startup_recovery_lookahead_error_gain_ = 2.0;
+    double startup_recovery_max_steer_rad_ = 0.25;
+    double startup_recovery_stationary_hold_speed_mps_ = 0.50;
+    bool startup_recovery_steer_limited_ = false;
+    bool control_output_initialized_ = false;
+
+    // 现有DFCV桥在非AD模式会把tracking error精确置零。V8可据此推断控制权
+    // 重新建立；推荐后续由桥直接发布driving_mode替代该兼容检测。
+    bool infer_manual_mode_from_zero_tracking_error_ = true;
+    bool use_driving_mode_topic_ = true;
+    std::string driving_mode_topic_ = "/dfcv_bridge/driving_mode";
+    int autonomous_driving_mode_value_ = 2;
+    bool driving_mode_received_ = false;
+    int latest_driving_mode_ = 0;
+    ros::Time driving_mode_stamp_;
+    double driving_mode_timeout_s_ = 0.5;
+    double manual_mode_zero_error_epsilon_m_ = 1e-9;
+    int manual_mode_confirm_cycles_ = 3;
+    int autonomous_mode_confirm_cycles_ = 2;
+    int zero_tracking_error_streak_ = 0;
+    int nonzero_tracking_error_streak_ = 0;
+    bool inferred_manual_mode_ = false;
+    bool autonomy_reentry_detected_ = false;
 
     // ESO观测器相关
     double eso_x1_;
@@ -300,6 +392,8 @@ private:
     double diagnostic_prev_tracking_error_ = 0.0;
     double diagnostic_prev_geometric_error_ = 0.0;
     double diagnostic_prev_final_cmd_ = 0.0;
+    double diagnostic_prev_cmd_rate_ = 0.0;
+    bool diagnostic_prev_cmd_rate_valid_ = false;
     int diagnostic_prev_nearest_idx_ = -1;
 
     // 车辆状态可能以保持值重复发布；重复测量只做观测器预测，不重复做测量校正。

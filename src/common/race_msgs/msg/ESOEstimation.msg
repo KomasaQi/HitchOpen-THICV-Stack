@@ -30,3 +30,7 @@ bool mpc_failure_flag
 bool using_pure_pursuit_flag
 bool require_over_take_flag
 bool using_mixed_mode_flag
+
+float64 delta_ff
+float64 delta_nmpc_feedback
+float64 delta_nmpc_total

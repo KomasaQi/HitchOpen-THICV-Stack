@@ -6,7 +6,7 @@ eso_tracker:
   sparse_control_step: 10         # V6前密后疏控制节点；不再把1.75s预测域仅分成3个长保持块
   near_dense_control_steps: 5     # 前5个预测周期逐拍控制，其余节点自动均分远端预测域
   sampling_time: 0.05             # 采样时间 dt (s)
-  integration_grade: 1.0          # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4；当前使用Euler降低耗时
+  integration_grade: 4.0          # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4；当前使用Euler降低耗时
   eso_disturbance_decay: 0.95     # 旧逐拍系数；仅在下面时间常数<=0时直接生效
   eso_disturbance_time_constant: 0.974786  # s；exp(-0.05/tau)=0.95，预测末端仍保留约16.6%
   curvature_smoothing_steps: 5    # 兼容旧日志；V6实际使用下面的固定空间窗口
@@ -19,7 +19,7 @@ eso_tracker:
 
   # --- 2. 车辆物理参数 ---
   # ---------固定结构参数---------
-  m: 10000.0                      # 空载仿真对应的牵引车模型质量 (kg)，不等同于m_total调度输入
+  m: 25000.0                      # 空载仿真对应的牵引车模型质量 (kg)，不等同于m_total调度输入
   L: 4.135                        # 兼容旧配置；运行时由插值得到的 lf+lr 自动更新
   T_lag: 0.25                     # 恢复6月无高速蛇行基线的转向系统滞后 (s)
 
@@ -31,7 +31,7 @@ eso_tracker:
   # 10000kg节点恢复6月无高速蛇行模型；其余节点保留8月已有值，后续仍需用实车标定替换占位值。
   Iz_interp_points: [50000.0, 62200.0, 62200.0, 62200.0]            # kg·m²
   lf_interp_points: [2.00, 1.67, 1.67, 2.00]                        # m
-  lr_interp_points: [2.135, 2.33, 2.33, 2.00]                      # m
+  lr_interp_points: [2.135, 2.33, 2.33, 2.00]                       # m
   Cf_interp_points: [270000.0, 270000.0, 270000.0, 270000.0]        # N/rad
   Cr_interp_points: [1500000.0, 1500000.0, 1500000.0, 1500000.0]    # N/rad
 
@@ -40,24 +40,24 @@ eso_tracker:
   m_total: 10000.0                # 当前空载仿真回退值；仅作为插值自变量，不会覆盖固定模型质量m
 
   # --- 3. 转角幅值约束 ---
-  min_steer: -0.5                 # 最小转向角 (rad)
-  max_steer: 0.5                  # 最大转向角 (rad)
-  max_steer_rate: 0.35            # NMPC内部前轮转角指令硬速率约束 (rad/s)
+  min_steer: -1.0                 # 最小转向角 (rad)
+  max_steer: 1.0                  # 最大转向角 (rad)
+  max_steer_rate: 1            # NMPC内部前轮转角指令硬速率约束 (rad/s)
 
   # --- 4. 代价函数权重 (Q矩阵 & R矩阵) ---
   Q_x: 1.0                        # 位置X误差权重
   Q_y: 50.0                       # 单变量数据中跟踪改善最稳定，方向盘峰值低于 dR=24000 组
-  Q_theta: 1034.0                 # 航向角误差权重
+  Q_theta: 1034                # 航向角误差权重
   Q_vy: 0.0                       # 侧向速度权重
-  Q_r: 50.0                       # 仅对经5步空间平滑的横摆率参考施加小权重
+  Q_r: 50.0                       # 仅对经5步空间平滑的横摆率参考施加小权重s
   Q_delta: 0.0                    # 转向角权重
   R: 0.02                         # 控制量大小权重
-  dR: 32000.0                     # 稀疏控制点增量权重 (平滑性)
+  dR: 32000.0                      # 稀疏控制点增量权重 (平滑性)
 
   # --- V6稳态前馈与路径投影 ---
   use_equilibrium_feedforward: true   # 按当前全域vx、曲率及单轨参数求稳态delta_ff/vy_eq
   equilibrium_feedforward_gain: 1.0
-  equilibrium_feedforward_limit: 0.45 # rad；最终仍受min/max_steer约束
+  equilibrium_feedforward_limit: 1 # rad；最终仍受min/max_steer约束
   path_projection_heading_weight_m2: 4.0
   path_projection_heading_gate_rad: 1.2
   path_projection_rear_gate_m: 5.0
@@ -111,7 +111,7 @@ supervisor_config:
   # Ld=max(Ld_min, Ld_min+kv*vx-k_curvature*|kappa_preview|max)
   # 系数单位 m²；正值会在预瞄到大曲率时缩短前视距离，0=关闭曲率修正、保持原行为。
   lookahead_curvature_coeff: 0.0
-  control_delay_sec: 0.0               # 纯跟踪时延迟系数
+  control_delay_sec: 0.0               # 纯跟踪时延迟系数z
   control_time: 0.05                   # 控制频率20Hz
   output_lpf_tau: 0.00                 # 输出转角一阶低通时间常数(s)，0=关闭；0.08~0.15
 

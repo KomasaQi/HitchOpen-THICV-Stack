@@ -104,6 +104,20 @@ ESOTracker::ESOTracker() {
     ukf_ay_innovation_used_ = 0.0;
     observer_dynamic_min_speed_mps_ = 4.0;
 
+    // V7/V8求解截止/输出安全层默认值。
+    nmpc_solve_deadline_ms_ = 50.0;
+    nmpc_ipopt_cpu_time_limit_ms_ = 45.0;
+    immediate_pp_on_nmpc_timeout_ = true;
+    enforce_final_output_rate_limit_ = true;
+    publish_steering_angle_velocity_ = true;
+    steering_angle_velocity_cmd_radps_ = 0.35;
+    last_nmpc_deadline_missed_ = false;
+    last_final_output_rate_limited_ = false;
+    nmpc_timeout_count_ = 0;
+    last_nmpc_inf_pr_ = std::numeric_limits<double>::quiet_NaN();
+    last_nmpc_inf_du_ = std::numeric_limits<double>::quiet_NaN();
+    fallback_enter_time_ = ros::Time(0);
+
     use_ay_bias_compensation_ = false;
     const_ay_bias_ = 0.0;
     use_dynamic_ay_compensation_ = false;
@@ -140,6 +154,55 @@ void ESOTracker::resetNmpcPredictionDiagnostics() {
     diagnostic_pred_k5_.fill(nan);
     diagnostic_pred_kN_.fill(nan);
     diagnostic_u_sparse_.fill(nan);
+}
+
+void ESOTracker::captureNmpcSolverStats() {
+    last_nmpc_iter_count_ = -1;
+    last_nmpc_inf_pr_ = std::numeric_limits<double>::quiet_NaN();
+    last_nmpc_inf_du_ = std::numeric_limits<double>::quiet_NaN();
+
+    try {
+        const casadi::Dict stats = solver_.opti.stats();
+        last_nmpc_return_status_ = casadi::get_from_dict<std::string>(
+            stats, "return_status", std::string("unknown"));
+        last_nmpc_iter_count_ = casadi::get_from_dict<int>(stats, "iter_count", -1);
+
+        const auto iterations_it = stats.find("iterations");
+        if (iterations_it != stats.end() && iterations_it->second.is_dict()) {
+            const casadi::Dict iterations = iterations_it->second.to_dict();
+            const std::vector<double> inf_pr = casadi::get_from_dict<std::vector<double>>(
+                iterations, "inf_pr", std::vector<double>());
+            const std::vector<double> inf_du = casadi::get_from_dict<std::vector<double>>(
+                iterations, "inf_du", std::vector<double>());
+            if (!inf_pr.empty()) last_nmpc_inf_pr_ = inf_pr.back();
+            if (!inf_du.empty()) last_nmpc_inf_du_ = inf_du.back();
+        }
+    } catch (const std::exception& e) {
+        ROS_WARN_THROTTLE(1.0, "[%s] 读取NMPC solver stats失败: %s",
+                          getName().c_str(), e.what());
+        if (last_nmpc_return_status_.empty()) last_nmpc_return_status_ = "stats_unavailable";
+    }
+
+    // 保证主CSV仍是单行、定列格式。
+    for (char& ch : last_nmpc_return_status_) {
+        if (ch == ',' || ch == '\n' || ch == '\r') ch = ';';
+    }
+}
+
+void ESOTracker::enterFallback(int reason_code, const ros::Time& now) {
+    fallback_latched_ = true;
+    fallback_reentry_active_ = false;
+    fallback_reentry_alpha_ = 0.0;
+    fallback_reason_code_ = reason_code;
+    fallback_enter_time_ = now;
+    nmpc_success_streak_ = 0;
+}
+
+void ESOTracker::drivingModeCallback(const std_msgs::Int32::ConstPtr& msg) {
+    if (!msg) return;
+    latest_driving_mode_ = msg->data;
+    driving_mode_received_ = true;
+    driving_mode_stamp_ = ros::Time::now();
 }
 
 void ESOTracker::initializeLocalLog() {
@@ -231,7 +294,18 @@ void ESOTracker::initializeLocalLog() {
         << "ukf_q_vy,ukf_q_r,ukf_r_ay,ukf_r_r,ukf_vy_abs_max_mps,"
         << "curvature_smoothing_distance_m,use_equilibrium_feedforward,delta_ff_k0_rad,"
         << "near_dense_control_steps,max_steer_rate_radps,measurement_is_new,"
-        << "observer_low_speed_reset,observer_dynamic_min_speed_mps\n";
+        << "observer_low_speed_reset,observer_dynamic_min_speed_mps,"
+        << "nmpc_solve_deadline_ms,nmpc_deadline_missed,nmpc_timeout_count,"
+        << "final_output_rate_limited,steering_angle_velocity_cmd_radps,"
+        // V8 求解器/监督器诊断。return_status 由 CasADi stats 提取，不写异常全文以保持CSV安全。
+        << "nmpc_attempted,nmpc_solver_returned_success,nmpc_warm_start_used,nmpc_status_code,"
+        << "nmpc_return_status,nmpc_ipopt_iter_count,nmpc_inf_pr,nmpc_inf_du,nmpc_success_streak,"
+        << "fallback_latched,fallback_reason_code,fallback_age_s,fallback_reentry_active,fallback_reentry_alpha,"
+        << "startup_recovery_active,startup_recovery_alignment_streak,recovery_lookahead_m,"
+        << "startup_recovery_steer_limited,pp_delay_queue_size,"
+        << "reference_kappa_step_1pm,reference_stable_this_cycle,reference_stable_streak,"
+        << "inferred_manual_mode,autonomy_reentry_detected,driving_mode_received,driving_mode_value,driving_mode_age_s,manual_observation_source,use_geometric_path_heading,"
+        << "steer_cmd_reversal,steer_actuator_not_following\n";
     local_log_stream_.flush();
     local_log_stream_ << std::fixed << std::setprecision(8);
     local_log_pending_rows_ = 0;
@@ -313,6 +387,18 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("max_steer", nmpc_params_.delta_max, 0.5);
     nh_nmpc.param("max_steer_rate", nmpc_params_.delta_rate_max, 0.35);
     nmpc_params_.delta_rate_max = std::max(1e-3, nmpc_params_.delta_rate_max);
+    nh_nmpc.param("nmpc_solve_deadline_ms", nmpc_solve_deadline_ms_, 50.0);
+    nh_nmpc.param("nmpc_ipopt_cpu_time_limit_ms", nmpc_ipopt_cpu_time_limit_ms_, 45.0);
+    nh_nmpc.param<bool>("immediate_pp_on_nmpc_timeout", immediate_pp_on_nmpc_timeout_, true);
+    nh_nmpc.param<bool>("enforce_final_output_rate_limit", enforce_final_output_rate_limit_, true);
+    nh_nmpc.param<bool>("publish_steering_angle_velocity", publish_steering_angle_velocity_, true);
+    nh_nmpc.param("steering_angle_velocity_cmd_radps", steering_angle_velocity_cmd_radps_,
+                  nmpc_params_.delta_rate_max);
+    nmpc_solve_deadline_ms_ = std::max(1.0, nmpc_solve_deadline_ms_);
+    nmpc_ipopt_cpu_time_limit_ms_ = std::max(
+        1.0, std::min(nmpc_ipopt_cpu_time_limit_ms_, nmpc_solve_deadline_ms_));
+    steering_angle_velocity_cmd_radps_ = std::max(
+        0.0, std::min(steering_angle_velocity_cmd_radps_, nmpc_params_.delta_rate_max));
 
     // -------------------------------------------------------------------------
     // 4. 加载代价函数权重
@@ -342,9 +428,12 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param<double>("path_projection_heading_weight_m2", path_projection_heading_weight_m2_, 4.0);
     nh_nmpc.param<double>("path_projection_heading_gate_rad", path_projection_heading_gate_rad_, 1.2);
     nh_nmpc.param<double>("path_projection_rear_gate_m", path_projection_rear_gate_m_, 5.0);
+    nh_nmpc.param<bool>("use_geometric_path_heading", use_geometric_path_heading_, true);
+    nh_nmpc.param<double>("geometric_heading_window_m", geometric_heading_window_m_, 2.0);
     path_projection_heading_weight_m2_ = std::max(0.0, path_projection_heading_weight_m2_);
     path_projection_heading_gate_rad_ = std::max(0.1, path_projection_heading_gate_rad_);
     path_projection_rear_gate_m_ = std::max(0.0, path_projection_rear_gate_m_);
+    geometric_heading_window_m_ = std::max(0.2, geometric_heading_window_m_);
 
     // ay 零偏补偿：仅用于横坡补偿项的 ay_slope = (ay_raw - ay_bias) - vx*r
     nh_nmpc.param<bool>("use_ay_bias_compensation", use_ay_bias_compensation_, true);   // false=完全关闭 ay 零偏补偿
@@ -434,9 +523,66 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     nh_super.param("degrade_failure_times", degrade_failure_times_, 3); // NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
     nh_super.param("require_overtake_times", require_overtake_times_, 10); // 连续要求超车次数阈值，超过该值则提示要求人工接管
 
+    // V8 锁存式fallback与高偏差启动恢复。
+    nh_super.param("fallback_min_hold_s", fallback_min_hold_s_, 0.5);
+    nh_super.param("fallback_required_successes", fallback_required_successes_, 8);
+    nh_super.param("fallback_reentry_blend_time_s", fallback_reentry_blend_time_s_, 0.5);
+    nh_super.param("fallback_reentry_max_lateral_error_m", fallback_reentry_max_lateral_error_m_, 0.60);
+    nh_super.param("fallback_reentry_max_heading_error_rad", fallback_reentry_max_heading_error_rad_, 0.15);
+    nh_super.param("fallback_reentry_max_yaw_rate_radps", fallback_reentry_max_yaw_rate_radps_, 0.25);
+    nh_super.param("fallback_reentry_max_kappa_step_1pm", fallback_reentry_max_kappa_step_1pm_, 0.003);
+    nh_super.param("fallback_reentry_max_nearest_index_jump", fallback_reentry_max_nearest_index_jump_, 5);
+    nh_super.param("nmpc_attempt_min_speed_mps", nmpc_attempt_min_speed_mps_, 3.0);
+
+    nh_super.param<bool>("infer_manual_mode_from_zero_tracking_error",
+                         infer_manual_mode_from_zero_tracking_error_, true);
+    nh_super.param<bool>("use_driving_mode_topic", use_driving_mode_topic_, true);
+    nh_super.param<std::string>("driving_mode_topic", driving_mode_topic_,
+                                std::string("/dfcv_bridge/driving_mode"));
+    nh_super.param("autonomous_driving_mode_value", autonomous_driving_mode_value_, 2);
+    nh_super.param("driving_mode_timeout_s", driving_mode_timeout_s_, 0.5);
+    nh_super.param("manual_mode_zero_error_epsilon_m", manual_mode_zero_error_epsilon_m_, 1e-9);
+    nh_super.param("manual_mode_confirm_cycles", manual_mode_confirm_cycles_, 3);
+    nh_super.param("autonomous_mode_confirm_cycles", autonomous_mode_confirm_cycles_, 2);
+
+    nh_super.param<bool>("startup_recovery_enabled", startup_recovery_enabled_, true);
+    nh_super.param("startup_recovery_entry_lateral_error_m", startup_recovery_entry_lateral_error_m_, 1.0);
+    nh_super.param("startup_recovery_entry_heading_error_rad", startup_recovery_entry_heading_error_rad_, 0.25);
+    nh_super.param("startup_recovery_exit_lateral_error_m", startup_recovery_exit_lateral_error_m_, 0.35);
+    nh_super.param("startup_recovery_exit_heading_error_rad", startup_recovery_exit_heading_error_rad_, 0.10);
+    nh_super.param("startup_recovery_exit_yaw_rate_radps", startup_recovery_exit_yaw_rate_radps_, 0.15);
+    nh_super.param("startup_recovery_exit_cycles", startup_recovery_exit_cycles_, 10);
+    nh_super.param("startup_recovery_min_lookahead_m", startup_recovery_min_lookahead_m_, 12.0);
+    nh_super.param("startup_recovery_lookahead_error_gain", startup_recovery_lookahead_error_gain_, 2.0);
+    nh_super.param("startup_recovery_max_steer_rad", startup_recovery_max_steer_rad_, 0.25);
+    nh_super.param("startup_recovery_stationary_hold_speed_mps", startup_recovery_stationary_hold_speed_mps_, 0.50);
+
     min_lookahead_distance_ = std::max(0.1, min_lookahead_distance_);
     lookahead_speed_coeff_ = std::max(0.0, lookahead_speed_coeff_);
     lookahead_curvature_coeff_ = std::max(0.0, lookahead_curvature_coeff_);
+    fallback_min_hold_s_ = std::max(0.0, fallback_min_hold_s_);
+    fallback_required_successes_ = std::max(1, fallback_required_successes_);
+    fallback_reentry_blend_time_s_ = std::max(0.05, fallback_reentry_blend_time_s_);
+    fallback_reentry_max_lateral_error_m_ = std::max(0.0, fallback_reentry_max_lateral_error_m_);
+    fallback_reentry_max_heading_error_rad_ = std::max(0.0, fallback_reentry_max_heading_error_rad_);
+    fallback_reentry_max_yaw_rate_radps_ = std::max(0.0, fallback_reentry_max_yaw_rate_radps_);
+    fallback_reentry_max_kappa_step_1pm_ = std::max(0.0, fallback_reentry_max_kappa_step_1pm_);
+    fallback_reentry_max_nearest_index_jump_ = std::max(0, fallback_reentry_max_nearest_index_jump_);
+    nmpc_attempt_min_speed_mps_ = std::max(0.0, nmpc_attempt_min_speed_mps_);
+    manual_mode_zero_error_epsilon_m_ = std::max(0.0, manual_mode_zero_error_epsilon_m_);
+    manual_mode_confirm_cycles_ = std::max(1, manual_mode_confirm_cycles_);
+    autonomous_mode_confirm_cycles_ = std::max(1, autonomous_mode_confirm_cycles_);
+    driving_mode_timeout_s_ = std::max(0.05, driving_mode_timeout_s_);
+    startup_recovery_entry_lateral_error_m_ = std::max(0.0, startup_recovery_entry_lateral_error_m_);
+    startup_recovery_entry_heading_error_rad_ = std::max(0.0, startup_recovery_entry_heading_error_rad_);
+    startup_recovery_exit_lateral_error_m_ = std::max(0.0, startup_recovery_exit_lateral_error_m_);
+    startup_recovery_exit_heading_error_rad_ = std::max(0.0, startup_recovery_exit_heading_error_rad_);
+    startup_recovery_exit_yaw_rate_radps_ = std::max(0.0, startup_recovery_exit_yaw_rate_radps_);
+    startup_recovery_exit_cycles_ = std::max(1, startup_recovery_exit_cycles_);
+    startup_recovery_min_lookahead_m_ = std::max(min_lookahead_distance_, startup_recovery_min_lookahead_m_);
+    startup_recovery_lookahead_error_gain_ = std::max(0.0, startup_recovery_lookahead_error_gain_);
+    startup_recovery_max_steer_rad_ = std::max(0.0, std::min(startup_recovery_max_steer_rad_, nmpc_params_.delta_max));
+    startup_recovery_stationary_hold_speed_mps_ = std::max(0.0, startup_recovery_stationary_hold_speed_mps_);
 
     // -------------------------------------------------------------------------
     // 后处理与打印
@@ -456,13 +602,30 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     ROS_INFO("[%s] 共用轴距 L=%.3f m | PP预瞄: min=%.2f m, speed_coeff=%.3f s, curvature_coeff=%.3f m^2",
              getName().c_str(), nmpc_params_.L, min_lookahead_distance_,
              lookahead_speed_coeff_, lookahead_curvature_coeff_);
-    ROS_INFO("[%s] V6: ESO tau=%.4fs, effective_decay=%.6f | curvature_distance=%.2fm | feedforward=%d gain=%.2f | Nc=%d near_dense=%d | steer_rate<=%.3frad/s | slope_mode=%s, gate=%d, limit=%.3f | UKF slope_consistency=%d",
+    ROS_INFO("[%s] V7: ESO tau=%.4fs, effective_decay=%.6f | curvature_distance=%.2fm | feedforward=%d gain=%.2f | Nc=%d near_dense=%d | steer_rate<=%.3frad/s | slope_mode=%s, gate=%d, limit=%.3f | UKF slope_consistency=%d",
              getName().c_str(), nmpc_params_.eso_disturbance_tau_s,
              nmpc_params_.eso_disturbance_decay, curvature_smoothing_distance_m_,
              use_equilibrium_feedforward_, equilibrium_feedforward_gain_,
              nmpc_params_.Nc, nmpc_params_.near_dense_control_steps, nmpc_params_.delta_rate_max,
              slope_estimator_mode_.c_str(), slope_dynamic_gate_enabled_,
              slope_compensation_limit_, ukf_use_slope_disturbance_);
+    ROS_INFO("[%s] V7 deadline: wall=%.1fms, IPOPT CPU=%.1fms, immediate_PP=%d | final_rate_guard=%d | steering_velocity_cmd=%.3frad/s publish=%d",
+             getName().c_str(), nmpc_solve_deadline_ms_, nmpc_ipopt_cpu_time_limit_ms_,
+             immediate_pp_on_nmpc_timeout_, enforce_final_output_rate_limit_,
+             steering_angle_velocity_cmd_radps_, publish_steering_angle_velocity_);
+    ROS_INFO("[%s] V8 supervisor: fallback_hold=%.2fs, success=%d, reentry=%.2fs | recovery=%d entry=(%.2fm,%.2frad) exit=(%.2fm,%.2frad,%.2frad/s)x%d | recovery_Ld>=%.1fm gain=%.2f steer<=%.3frad",
+             getName().c_str(), fallback_min_hold_s_, fallback_required_successes_,
+             fallback_reentry_blend_time_s_, startup_recovery_enabled_,
+             startup_recovery_entry_lateral_error_m_, startup_recovery_entry_heading_error_rad_,
+             startup_recovery_exit_lateral_error_m_, startup_recovery_exit_heading_error_rad_,
+             startup_recovery_exit_yaw_rate_radps_, startup_recovery_exit_cycles_,
+             startup_recovery_min_lookahead_m_, startup_recovery_lookahead_error_gain_,
+             startup_recovery_max_steer_rad_);
+    ROS_INFO("[%s] V8 path/reentry: geometric_heading=%d window=%.2fm | kappa_step<=%.4f 1/m idx_jump<=%d | infer_manual=%d zero_cycles=%d AD_cycles=%d",
+             getName().c_str(), use_geometric_path_heading_, geometric_heading_window_m_,
+             fallback_reentry_max_kappa_step_1pm_, fallback_reentry_max_nearest_index_jump_,
+             infer_manual_mode_from_zero_tracking_error_, manual_mode_confirm_cycles_,
+             autonomous_mode_confirm_cycles_);
 
     start_time_ = ros::Time::now();
 
@@ -470,6 +633,10 @@ bool ESOTracker::initialize(ros::NodeHandle& nh) {
     buildNMPSolver();
     // 初始化发布器
     est_pub_ = nh.advertise<race_msgs::ESOEstimation>("/race/eso_estimation_states", 1);
+    if (use_driving_mode_topic_) {
+        driving_mode_sub_ = nh.subscribe<std_msgs::Int32>(
+            driving_mode_topic_, 1, &ESOTracker::drivingModeCallback, this);
+    }
     initializeLocalLog();
     ROS_INFO("[%s] 控制器初始化完成", getName().c_str());
     return true;
@@ -506,6 +673,7 @@ void ESOTracker::computeControl(
     const double curr_delta_raw = vehicle_status->lateral.steering_angle;
     double curr_delta = curr_delta_raw;
     double curr_lateral_tracking_error = vehicle_status->tracking.lateral_tracking_error;
+    const double curr_heading_tracking_error = vehicle_status->tracking.heading_angle_error;
 
     const bool measurement_is_new = isNewVehicleMeasurement(
         curr_x, curr_y, curr_theta, curr_vx_raw, curr_vy_status,
@@ -536,6 +704,17 @@ void ESOTracker::computeControl(
     static ros::Time last_control_time = ros::Time(0);
     ros::Time current_time = ros::Time::now();
 
+    // V8：第一帧必须以实测前轮角为输出锚点。旧版本构造时 current_cmd_=0，
+    // 若接管时方向盘不在零位，统一速率限制会从错误的零点开始爬升。
+    if (!control_output_initialized_) {
+        current_cmd_ = curr_delta;
+        final_cmd_filt_ = curr_delta;
+        final_cmd_filt_init_ = false;
+        start_time_ = current_time;
+        control_output_initialized_ = true;
+        fallback_enter_time_ = current_time;
+    }
+
     if (last_control_time.toSec() != 0.0 && (current_time - last_control_time).toSec() > 1) {     //5-28原本是0.02，现在改成1
         ROS_WARN("[%s] 检测到控制重连，清空观测器记忆！", getName().c_str());
         solver_.has_prev_sol = false;
@@ -561,12 +740,112 @@ void ESOTracker::computeControl(
         effective_ay_bias_ = use_ay_bias_compensation_ ? ay_bias_estimate_ : 0.0;
         diagnostic_prev_valid_ = false;
         diagnostic_prev_nearest_idx_ = -1;
+        diagnostic_prev_cmd_rate_valid_ = false;
+        reference_prev_nearest_idx_ = -1;
+        last_reference_kappa_valid_ = false;
+        reference_stable_streak_ = 0;
         measurement_fingerprint_valid_ = false;
+        fallback_latched_ = false;
+        fallback_reentry_active_ = false;
+        fallback_reason_code_ = 0;
+        fallback_enter_time_ = current_time;
+        nmpc_success_streak_ = 0;
+        fallback_reentry_alpha_ = 0.0;
+        startup_recovery_checked_ = false;
+        startup_recovery_active_ = false;
+        startup_recovery_alignment_streak_ = 0;
+        pp_cmd_queue_.clear();
         resetNmpcPredictionDiagnostics();
     }
     last_control_time = current_time;
 
     const double obs_dt = std::max(0.01, std::min(dt, 0.05));//0.01只设置了下限
+
+    // 优先使用桥显式发布的driving_mode；若现场尚未部署配套桥改动，则兼容利用
+    // “非AD时横向与航向误差同时精确置零”的现有行为推断控制权。
+    autonomy_reentry_detected_ = false;
+    bool manual_state_available = false;
+    bool manual_mode_observed = false;
+    int manual_observation_source = 0;  // 0=无,1=显式driving_mode,2=零误差兼容推断
+    const double driving_mode_age_s = driving_mode_received_
+        ? std::max(0.0, (current_time - driving_mode_stamp_).toSec())
+        : std::numeric_limits<double>::infinity();
+    if (use_driving_mode_topic_ && driving_mode_received_ &&
+        driving_mode_age_s <= driving_mode_timeout_s_) {
+        manual_state_available = true;
+        manual_mode_observed = latest_driving_mode_ != autonomous_driving_mode_value_;
+        manual_observation_source = 1;
+    } else if (infer_manual_mode_from_zero_tracking_error_) {
+        const bool tracking_error_is_zero = std::isfinite(curr_lateral_tracking_error) &&
+            std::isfinite(curr_heading_tracking_error) &&
+            std::abs(curr_lateral_tracking_error) <= manual_mode_zero_error_epsilon_m_ &&
+            std::abs(curr_heading_tracking_error) <= manual_mode_zero_error_epsilon_m_;
+        manual_state_available = true;
+        manual_mode_observed = tracking_error_is_zero;
+        manual_observation_source = 2;
+    }
+
+    if (manual_state_available) {
+        if (manual_mode_observed) {
+            ++zero_tracking_error_streak_;
+            nonzero_tracking_error_streak_ = 0;
+        } else {
+            ++nonzero_tracking_error_streak_;
+            zero_tracking_error_streak_ = 0;
+        }
+
+        if (!inferred_manual_mode_ && zero_tracking_error_streak_ >= manual_mode_confirm_cycles_) {
+            inferred_manual_mode_ = true;
+            solver_.has_prev_sol = false;
+            solver_.sol_prev = nullptr;
+            pp_cmd_queue_.clear();
+            reference_stable_streak_ = 0;
+            last_reference_kappa_valid_ = false;
+            ROS_WARN("[%s] 连续%d帧检测到人工驾驶(source=%d, mode=%d)，清除NMPC热启动",
+                     getName().c_str(), zero_tracking_error_streak_, manual_observation_source,
+                     latest_driving_mode_);
+        }
+
+        if (inferred_manual_mode_) {
+            // 人工驾驶期间持续跟随实测转角，避免重新进入AD时从旧指令或零角起步。
+            current_cmd_ = curr_delta;
+            final_cmd_filt_ = curr_delta;
+            final_cmd_filt_init_ = false;
+
+            if (nonzero_tracking_error_streak_ >= autonomous_mode_confirm_cycles_) {
+                inferred_manual_mode_ = false;
+                autonomy_reentry_detected_ = true;
+                solver_.has_prev_sol = false;
+                solver_.sol_prev = nullptr;
+                pp_cmd_queue_.clear();
+                current_cmd_ = curr_delta;
+                final_cmd_filt_ = curr_delta;
+                final_cmd_filt_init_ = false;
+                start_time_ = current_time;
+
+                ukf_x_est_ << 0.0, curr_r;
+                ukf_P_est_ = (Matrix2d() << 0.25, 0.0, 0.0, 0.02).finished();
+                eso_x1_ = curr_r;
+                eso_x2_ = 0.0;
+                model_r_comp_ = curr_r;
+                model_comp_initialized_ = true;
+                ay_slope_compensation_ = 0.0;
+                ay_slope_compensation_initialized_ = false;
+                slope_prev_valid_ = false;
+                lateral_error_history_.clear();
+
+                startup_recovery_checked_ = false;
+                startup_recovery_active_ = false;
+                startup_recovery_alignment_streak_ = 0;
+                reference_prev_nearest_idx_ = -1;
+                last_reference_kappa_valid_ = false;
+                reference_stable_streak_ = 0;
+                enterFallback(4, current_time);
+                ROS_WARN("[%s] 检测到AD重新接管：输出锚定实测转角%.4frad，清除轨迹/观测器/NMPC记忆并锁存PP",
+                         getName().c_str(), curr_delta);
+            }
+        }
+    }
 
     // 1) 先更新准静态横坡/外部侧向加速度。旧公式仅在 vy_dot 较小时成立，
     //    因此默认保留实车已验证的符号，但在转向/横摆快变时冻结估计。
@@ -680,20 +959,23 @@ void ESOTracker::computeControl(
     // ==========================================================
     // 模式平滑过渡权重计算
     // ==========================================================
+    double base_blend_alpha = 0.0;
     if (time_elapsed < supervisor_params_.startup_time) {
         // 启动前N秒：强制纯跟踪
-        blend_alpha_ = 0.0;
-        ROS_INFO("[STARTUP] 预热中: %.1f / %.1f s | 纯跟踪锁定", time_elapsed, supervisor_params_.startup_time);
+        base_blend_alpha = 0.0;
+        ROS_INFO_THROTTLE(0.5, "[STARTUP] 预热中: %.1f / %.1f s | 纯跟踪锁定", time_elapsed, supervisor_params_.startup_time);
     } else {
         // 恢复原有车速切换逻辑
         if (curr_vx_raw <= supervisor_params_.blend_speed_low) {
-            blend_alpha_ = 0.0;
+            base_blend_alpha = 0.0;
         } else if (curr_vx_raw >= supervisor_params_.blend_speed_high) {
-            blend_alpha_ = 1.0;
+            base_blend_alpha = 1.0;
         } else {
-            blend_alpha_ = (curr_vx_raw - supervisor_params_.blend_speed_low) / (supervisor_params_.blend_speed_high - supervisor_params_.blend_speed_low);
+            base_blend_alpha = (curr_vx_raw - supervisor_params_.blend_speed_low) /
+                (supervisor_params_.blend_speed_high - supervisor_params_.blend_speed_low);
         }
     }
+    blend_alpha_ = base_blend_alpha;
 
     // ==========================================================
     // NMPC都后台预计算，保持热启动
@@ -724,11 +1006,88 @@ void ESOTracker::computeControl(
     double r_ref = curr_vx * kappa;
     double vy_model = curr_vx * sin(theta) + vy_est * cos(theta);
 
+    // V8：监督器使用独立几何误差，不依赖可能在人工模式被置零的 tracking error。
+    const int nearest_idx = find_nearest_path_point(curr_x, curr_y, curr_theta, *path);
+    const auto& nearest_path_point = path->points[nearest_idx];
+    const double nearest_path_x = nearest_path_point.pose.position.x;
+    const double nearest_path_y = nearest_path_point.pose.position.y;
+    double nearest_path_yaw = quaternion_to_yaw(nearest_path_point.pose.orientation);
+    if (use_geometric_path_heading_ && path->points.size() >= 2) {
+        const int tangent_left = std::max(0, nearest_idx - 2);
+        const int tangent_right = std::min(
+            static_cast<int>(path->points.size()) - 1, nearest_idx + 2);
+        const double tangent_dx = path->points[tangent_right].pose.position.x -
+                                  path->points[tangent_left].pose.position.x;
+        const double tangent_dy = path->points[tangent_right].pose.position.y -
+                                  path->points[tangent_left].pose.position.y;
+        if (std::hypot(tangent_dx, tangent_dy) > 1e-4) {
+            nearest_path_yaw = std::atan2(tangent_dy, tangent_dx);
+        }
+    }
+    const double nearest_dx = curr_x - nearest_path_x;
+    const double nearest_dy = curr_y - nearest_path_y;
+    const double nearest_distance = std::hypot(nearest_dx, nearest_dy);
+    const double geometric_lateral_error =
+        -std::sin(nearest_path_yaw) * nearest_dx +
+         std::cos(nearest_path_yaw) * nearest_dy;
+    const double heading_error = normalizeAngle(curr_theta - nearest_path_yaw);
+
+    // 参考轨迹稳定性只作为fallback重入资格，不对正常弯道做滤波或限幅。
+    // 这样既能拦住掉头后逐帧跳变的kappa，也不会把正常NMPC路径人为改形。
+    const int reference_nearest_idx_jump = reference_prev_nearest_idx_ >= 0
+        ? nearest_idx - reference_prev_nearest_idx_ : 0;
+    reference_kappa_step_ = last_reference_kappa_valid_ && std::isfinite(kappa)
+        ? std::abs(kappa - last_reference_kappa_) : std::numeric_limits<double>::infinity();
+    reference_stable_this_cycle_ = std::isfinite(kappa) && last_reference_kappa_valid_ &&
+        reference_kappa_step_ <= fallback_reentry_max_kappa_step_1pm_ &&
+        std::abs(reference_nearest_idx_jump) <= fallback_reentry_max_nearest_index_jump_;
+    reference_stable_streak_ = reference_stable_this_cycle_
+        ? reference_stable_streak_ + 1 : 0;
+    last_reference_kappa_valid_ = std::isfinite(kappa);
+    if (last_reference_kappa_valid_) last_reference_kappa_ = kappa;
+    reference_prev_nearest_idx_ = nearest_idx;
+
+    if (!startup_recovery_checked_ && !inferred_manual_mode_) {
+        startup_recovery_checked_ = true;
+        startup_recovery_active_ = startup_recovery_enabled_ &&
+            (std::abs(geometric_lateral_error) >= startup_recovery_entry_lateral_error_m_ ||
+             std::abs(heading_error) >= startup_recovery_entry_heading_error_rad_);
+        if (startup_recovery_active_) {
+            enterFallback(1, current_time);
+            ROS_WARN("[%s] V8进入高偏差启动恢复: geometric_error=%.3fm, heading_error=%.3frad",
+                     getName().c_str(), geometric_lateral_error, heading_error);
+        }
+    }
+
+    if (startup_recovery_active_) {
+        const bool aligned =
+            std::abs(geometric_lateral_error) <= startup_recovery_exit_lateral_error_m_ &&
+            std::abs(heading_error) <= startup_recovery_exit_heading_error_rad_ &&
+            std::abs(curr_r) <= startup_recovery_exit_yaw_rate_radps_;
+        startup_recovery_alignment_streak_ = aligned
+            ? startup_recovery_alignment_streak_ + 1 : 0;
+
+        if (startup_recovery_alignment_streak_ >= startup_recovery_exit_cycles_) {
+            startup_recovery_active_ = false;
+            startup_recovery_alignment_streak_ = startup_recovery_exit_cycles_;
+            // PP重入结束后仍保持fallback，先重新建立NMPC连续成功资格。
+            fallback_latched_ = true;
+            fallback_reentry_active_ = false;
+            fallback_reentry_alpha_ = 0.0;
+            fallback_reason_code_ = 1;
+            fallback_enter_time_ = current_time;
+            nmpc_success_streak_ = 0;
+            solver_.has_prev_sol = false;
+            solver_.sol_prev = nullptr;
+            ROS_WARN("[%s] V8高偏差恢复已对齐，开始NMPC资格确认", getName().c_str());
+        }
+    }
+
     // NMPC 现在工作在“自车体坐标系”：原点为自车当前位置，x 轴沿自车当前航向。
     // 因此初始 x,y,theta 均为 0；vy/r/delta 仍为实际物理量。
     std::vector<double> nmpc_state = {0.0, 0.0, 0.0, vy_est, curr_r, curr_delta};
     std::vector<double> control_output(1);
-    ROS_WARN("横坡补偿: mode=%s, raw_ay=%.4f, ay_bias=%.4f, slope_raw=%.4f, slope_filt=%.4f, model_input=%.4f, gate=%d, yaw_acc=%.4f, steer_rate=%.4f",
+    ROS_WARN_THROTTLE(1.0, "横坡补偿: mode=%s, raw_ay=%.4f, ay_bias=%.4f, slope_raw=%.4f, slope_filt=%.4f, model_input=%.4f, gate=%d, yaw_acc=%.4f, steer_rate=%.4f",
              slope_estimator_mode_.c_str(), curr_ay, effective_ay_bias_,
              ay_slope_compensation_raw, ay_slope_compensation_,
              slope_model_input_control, slope_gate_active_,
@@ -742,11 +1101,37 @@ void ESOTracker::computeControl(
     solver_.opti.set_value(solver_.P_h_hat, d_pure_trailer);//d_pure_trailer
     solver_.opti.set_value(solver_.P_dyn_params, dyn_params);
 
-    // 无论什么模式，都调用NMPC求解，保持热启动状态
-    auto nmpc_start_time = std::chrono::high_resolution_clock::now();
-    bool nmpc_solve_success = solveNMPC(nmpc_state, waypoints_dm, control_output);
-    auto nmpc_end_time = std::chrono::high_resolution_clock::now();
-    iter_time_ = std::chrono::duration<double, std::milli>(nmpc_end_time - nmpc_start_time).count();
+    // V8：高偏差恢复期不再后台求解一个不会被采用且持续超时的NMPC；正常低速区也
+    // 可跳过求解，待接近PP->NMPC速度区后再建立warm start。
+    bool nmpc_solve_success = false;
+    last_nmpc_attempted_ = false;
+    last_nmpc_solver_returned_success_ = false;
+    last_nmpc_warm_start_used_ = false;
+    last_nmpc_deadline_missed_ = false;
+    last_nmpc_iter_count_ = -1;
+    last_nmpc_inf_pr_ = std::numeric_limits<double>::quiet_NaN();
+    last_nmpc_inf_du_ = std::numeric_limits<double>::quiet_NaN();
+    last_nmpc_status_code_ = 0;
+    last_nmpc_return_status_ = "not_attempted";
+    iter_time_ = 0.0;
+
+    if (inferred_manual_mode_) {
+        last_nmpc_status_code_ = 6;
+        last_nmpc_return_status_ = "skipped_inferred_manual_mode";
+    } else if (startup_recovery_active_) {
+        last_nmpc_status_code_ = 5;
+        last_nmpc_return_status_ = "skipped_startup_recovery";
+    } else if (std::abs(curr_vx_raw) < nmpc_attempt_min_speed_mps_) {
+        last_nmpc_status_code_ = 4;
+        last_nmpc_return_status_ = "skipped_low_speed";
+    } else {
+        last_nmpc_attempted_ = true;
+        auto nmpc_start_time = std::chrono::steady_clock::now();
+        nmpc_solve_success = solveNMPC(nmpc_state, waypoints_dm, control_output);
+        auto nmpc_end_time = std::chrono::steady_clock::now();
+        iter_time_ = std::chrono::duration<double, std::milli>(
+            nmpc_end_time - nmpc_start_time).count();
+    }
     double nmpc_raw_cmd = std::numeric_limits<double>::quiet_NaN();
 
     if (nmpc_solve_success) {
@@ -755,12 +1140,18 @@ void ESOTracker::computeControl(
         nmpc_safe_cmd_ += const_steer_bias_;
         mpc_failure_flag_ = false;
         mpc_failure_count_ = 0;
-    } else {
-        // 求解失败时，暂时给上一帧的有效输出，但是实际用的是纯跟踪输出
+    } else if (last_nmpc_attempted_) {
+        // 求解失败或过期时先保存连续性，监督器会在当周期锁存PP。
         nmpc_safe_cmd_ = current_cmd_;
         mpc_failure_flag_ = true;
         mpc_failure_count_++;
-        ROS_ERROR("[%s] NMPC求解失败，使用上一帧输出 | 迭代时间: %.2f ms | 失败次数: %d", getName().c_str(), iter_time_, mpc_failure_count_);
+        enterFallback(last_nmpc_deadline_missed_ ? 2 : 3, current_time);
+        ROS_ERROR_THROTTLE(0.5, "[%s] NMPC失败/过期，锁存PP | status=%s code=%d time=%.2fms iter=%d inf_pr=%.3e inf_du=%.3e",
+                  getName().c_str(), last_nmpc_return_status_.c_str(), last_nmpc_status_code_,
+                  iter_time_, last_nmpc_iter_count_, last_nmpc_inf_pr_, last_nmpc_inf_du_);
+    } else {
+        nmpc_safe_cmd_ = current_cmd_;
+        mpc_failure_flag_ = false;
     }
     // 所有 NMPC 后处理完成后统一限幅保护。
     nmpc_safe_cmd_ = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, nmpc_safe_cmd_));
@@ -772,56 +1163,64 @@ void ESOTracker::computeControl(
     // PP 与 NMPC 直接共用同一个固定轴距参数，避免 lf/lr 调度后出现口径歧义。
     const double L = nmpc_params_.L;
 
-    // 先按原速度公式确定预瞄范围，再直接从该范围内的 PP 路径计算最大绝对曲率。
-    // 这样曲率预瞄范围与 PP 自己的目标点范围一致，不受 NMPC 预测时域长度限制。
+    // V8 PP只依赖路径位置。掉头后上游姿态/曲率仍在锯齿时，PP仍可作为独立兜底。
     const double speed_lookahead =
-        min_lookahead_distance_ + lookahead_speed_coeff_ * curr_vx;
-    const int nearest_idx = find_nearest_path_point(curr_x, curr_y, curr_theta, *path);
+        min_lookahead_distance_ + lookahead_speed_coeff_ * std::abs(curr_vx_raw);
+    double recovery_lookahead_m = speed_lookahead;
+    if (startup_recovery_active_) {
+        recovery_lookahead_m = std::max(
+            startup_recovery_min_lookahead_m_,
+            speed_lookahead + startup_recovery_lookahead_error_gain_ *
+                std::abs(geometric_lateral_error));
+    }
+
     double preview_abs_curvature = 0.0;
     double preview_distance = 0.0;
     for (int i = nearest_idx + 1; i < static_cast<int>(path->points.size()); ++i) {
-        const auto& prev_point = path->points[i - 1];
-        const auto& curr_point = path->points[i];
-        const double dx_segment = curr_point.pose.position.x - prev_point.pose.position.x;
-        const double dy_segment = curr_point.pose.position.y - prev_point.pose.position.y;
-        const double ds = std::hypot(dx_segment, dy_segment);
+        const auto& p0 = path->points[i - 1].pose.position;
+        const auto& p1 = path->points[i].pose.position;
+        const double ds1 = std::hypot(p1.x - p0.x, p1.y - p0.y);
+        if (ds1 > 1e-4) preview_distance += ds1;
 
-        if (ds > 1e-4) {
-            const double yaw_prev = quaternion_to_yaw(prev_point.pose.orientation);
-            const double yaw_curr = quaternion_to_yaw(curr_point.pose.orientation);
-            const double kappa_segment = normalizeAngle(yaw_curr - yaw_prev) / ds;
-            if (std::isfinite(kappa_segment)) {
-                preview_abs_curvature =
-                    std::max(preview_abs_curvature, std::abs(kappa_segment));
+        if (i >= nearest_idx + 2 && ds1 > 1e-4) {
+            const auto& pm1 = path->points[i - 2].pose.position;
+            const double ds0 = std::hypot(p0.x - pm1.x, p0.y - pm1.y);
+            if (ds0 > 1e-4) {
+                const double yaw0 = std::atan2(p0.y - pm1.y, p0.x - pm1.x);
+                const double yaw1 = std::atan2(p1.y - p0.y, p1.x - p0.x);
+                const double kappa_segment = normalizeAngle(yaw1 - yaw0) /
+                    std::max(0.5 * (ds0 + ds1), 1e-4);
+                if (std::isfinite(kappa_segment)) {
+                    preview_abs_curvature =
+                        std::max(preview_abs_curvature, std::abs(kappa_segment));
+                }
             }
-            preview_distance += ds;
         }
-
-        if (preview_distance >= speed_lookahead) {
-            break;
-        }
+        if (preview_distance >= recovery_lookahead_m) break;
     }
 
-    // lookahead_curvature_coeff_=0 时严格退化为原始速度预瞄公式。
-    const double lookahead_dist = std::max(
+    double lookahead_dist = std::max(
         min_lookahead_distance_,
-        speed_lookahead - lookahead_curvature_coeff_ * preview_abs_curvature);
+        recovery_lookahead_m - lookahead_curvature_coeff_ * preview_abs_curvature);
+    if (startup_recovery_active_) {
+        lookahead_dist = std::max(startup_recovery_min_lookahead_m_, lookahead_dist);
+    }
 
-    // 找目标点
-    int target_idx = 0;
-    bool found = false;
-
-    for (int i = nearest_idx; i < static_cast<int>(path->points.size()); ++i) {
-        double dx = path->points[i].pose.position.x - curr_x;
-        double dy = path->points[i].pose.position.y - curr_y;
-        double dist = std::sqrt(dx*dx + dy*dy);
-        if (dist >= lookahead_dist) {
-            target_idx = i;
-            found = true;
+    // 目标点按路径累计弧长选择，而不是按自车欧氏距离。大横向偏差时后者会把
+    // 5m横向距离误当成已经获得5m前视，导致V7一启动就打满方向。
+    int target_idx = nearest_idx;
+    double target_arc_length = 0.0;
+    for (int i = nearest_idx + 1; i < static_cast<int>(path->points.size()); ++i) {
+        const double segment_dx = path->points[i].pose.position.x -
+                                  path->points[i - 1].pose.position.x;
+        const double segment_dy = path->points[i].pose.position.y -
+                                  path->points[i - 1].pose.position.y;
+        target_arc_length += std::hypot(segment_dx, segment_dy);
+        target_idx = i;
+        if (target_arc_length >= lookahead_dist) {
             break;
         }
     }
-    if (!found) target_idx = path->points.size() - 1;
 
     // 提取目标点并转换坐标
     double tx = path->points[target_idx].pose.position.x;
@@ -835,53 +1234,115 @@ void ESOTracker::computeControl(
     double ld = std::max(lookahead_dist, sqrt(local_x*local_x + local_y*local_y));
     double delta_pp_raw = atan2(2.0 * L * local_y, ld * ld);
     delta_pp_raw = std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp_raw));
-
-     // ---- 时延队列处理 ----
-    pp_cmd_queue_.push_back(delta_pp_raw);
-    // 计算队列的最大容量 (时延秒数 / 控制周期)
-    size_t max_queue_size = static_cast<size_t>(std::max(1.0, control_delay_sec_ / control_time_));
-
-    if (pp_cmd_queue_.size() > max_queue_size) {
-        // 取出队列最前端（即历史时刻）的控制量作为当前输出
-        pp_safe_cmd_ = pp_cmd_queue_.front();
-        pp_cmd_queue_.pop_front();
-    } else {
-        // 初始阶段队列未填满时，可以直接输出当前值，或者输出 0
-        pp_safe_cmd_ = delta_pp_raw;
+    double delta_pp_candidate = delta_pp_raw;
+    startup_recovery_steer_limited_ = false;
+    if (startup_recovery_active_) {
+        if (std::abs(curr_vx_raw) < startup_recovery_stationary_hold_speed_mps_) {
+            // 静止时不预装大转角；V7数据中车辆起步前已爬到0.5rad，这是首个超调源。
+            delta_pp_candidate = curr_delta;
+            startup_recovery_steer_limited_ = true;
+        } else {
+            const double limited = std::max(-startup_recovery_max_steer_rad_,
+                std::min(startup_recovery_max_steer_rad_, delta_pp_candidate));
+            startup_recovery_steer_limited_ =
+                std::abs(limited - delta_pp_candidate) > 1e-12;
+            delta_pp_candidate = limited;
+        }
     }
-    // 检测NMPC是否求解失败
-    if (mpc_failure_flag_) {
 
-        if (mpc_failure_count_ >= degrade_failure_times_) {
-            blend_alpha_ = 0.0; // 强制切换到纯跟踪模式
-            ROS_ERROR("[%s] NMPC连续失败 %d 次，强制切换到纯跟踪模式 | PP: %.3f rad", getName().c_str(), mpc_failure_count_, pp_safe_cmd_);
-        }else{
-            ROS_ERROR("[%s] NMPC连续失败 %d 次，仍尝试使用上一次输出 | NMPC: %.3f rad", getName().c_str(), mpc_failure_count_, nmpc_safe_cmd_);
+    // control_delay=0时严格直通。旧实现仍保留一帧队列，重入时可能输出旧轨迹指令。
+    if (control_delay_sec_ <= 1e-9) {
+        pp_cmd_queue_.clear();
+        pp_safe_cmd_ = delta_pp_candidate;
+    } else {
+        const size_t delay_steps = static_cast<size_t>(std::max(
+            1.0, std::ceil(control_delay_sec_ / std::max(control_time_, 1e-3))));
+        pp_cmd_queue_.push_back(delta_pp_candidate);
+        if (pp_cmd_queue_.size() > delay_steps) {
+            pp_safe_cmd_ = pp_cmd_queue_.front();
+            pp_cmd_queue_.pop_front();
+        } else {
+            pp_safe_cmd_ = curr_delta;
+        }
+    }
+
+    // V8锁存式fallback：一次失败就立即使用PP；绝不在下一帧因一次成功又跳回NMPC。
+    if (nmpc_solve_success) {
+        nmpc_success_streak_ = std::min(nmpc_success_streak_ + 1, 1000000);
+    } else if (last_nmpc_attempted_) {
+        nmpc_success_streak_ = 0;
+    }
+
+    double fallback_age_s = fallback_latched_
+        ? std::max(0.0, (current_time - fallback_enter_time_).toSec()) : 0.0;
+    if (fallback_latched_) {
+        const bool reentry_conditions_met =
+            !startup_recovery_active_ && !inferred_manual_mode_ &&
+            fallback_age_s >= fallback_min_hold_s_ &&
+            nmpc_success_streak_ >= fallback_required_successes_ &&
+            reference_stable_streak_ >= fallback_required_successes_ &&
+            std::abs(geometric_lateral_error) <= fallback_reentry_max_lateral_error_m_ &&
+            std::abs(heading_error) <= fallback_reentry_max_heading_error_rad_ &&
+            std::abs(curr_r) <= fallback_reentry_max_yaw_rate_radps_;
+
+        if (!fallback_reentry_active_ && reentry_conditions_met) {
+            fallback_reentry_active_ = true;
+            fallback_reentry_alpha_ = 0.0;
+            ROS_WARN("[%s] fallback资格满足，开始%.2fs无扰NMPC重入 | reason=%d success=%d ref_stable=%d",
+                     getName().c_str(), fallback_reentry_blend_time_s_, fallback_reason_code_,
+                     nmpc_success_streak_, reference_stable_streak_);
         }
 
-        if (mpc_failure_count_ >= require_overtake_times_) {
-            require_over_take_flag_ = true;
-            ROS_WARN("[%s] 连续要求超车 %d 次，提示人工接管", getName().c_str(), mpc_failure_count_);
+        const bool reentry_guard_valid = nmpc_solve_success && reference_stable_this_cycle_ &&
+            std::abs(geometric_lateral_error) <= fallback_reentry_max_lateral_error_m_ &&
+            std::abs(heading_error) <= fallback_reentry_max_heading_error_rad_ &&
+            std::abs(curr_r) <= fallback_reentry_max_yaw_rate_radps_;
+        if (fallback_reentry_active_ && !reentry_guard_valid) {
+            fallback_reentry_active_ = false;
+            fallback_reentry_alpha_ = 0.0;
+            ROS_WARN_THROTTLE(0.5, "[%s] NMPC重入资格在融合过程中丢失，重新锁存PP",
+                              getName().c_str());
         }
 
-    }else {
-            require_over_take_flag_ = false;
+        if (fallback_reentry_active_) {
+            if (nmpc_solve_success) {
+                fallback_reentry_alpha_ = std::min(
+                    1.0, fallback_reentry_alpha_ + obs_dt / fallback_reentry_blend_time_s_);
+            }
+            blend_alpha_ = base_blend_alpha * fallback_reentry_alpha_;
+            if (fallback_reentry_alpha_ >= 1.0 && nmpc_solve_success) {
+                fallback_latched_ = false;
+                fallback_reentry_active_ = false;
+                fallback_reason_code_ = 0;
+                blend_alpha_ = base_blend_alpha;
+                ROS_WARN("[%s] NMPC无扰重入完成", getName().c_str());
+            }
+        } else {
+            blend_alpha_ = 0.0;
+        }
+    }
+    if (inferred_manual_mode_) blend_alpha_ = 0.0;
+
+    require_over_take_flag_ = mpc_failure_count_ >= require_overtake_times_;
+    if (require_over_take_flag_) {
+        ROS_WARN_THROTTLE(1.0, "[%s] NMPC连续失败%d次，建议人工接管",
+                          getName().c_str(), mpc_failure_count_);
     }
 
     // 打印调试信息
     if (blend_alpha_ < 0.01) {
         using_pure_pursuit_flag_ = true;
         using_mixed_mode_flag_ = false;
-        ROS_INFO("[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead: %.2f m | Preview |kappa|max: %.5f 1/m | Delta: %.3f rad",
+        ROS_INFO_THROTTLE(0.5, "[PP] 纯跟踪模式 | Local: (%.2f, %.2f) | Lookahead: %.2f m | Preview |kappa|max: %.5f 1/m | Delta: %.3f rad",
                  local_x, local_y, lookahead_dist, preview_abs_curvature, pp_safe_cmd_);
     } else if (blend_alpha_ > 0.99) {
         using_pure_pursuit_flag_ = false;
         using_mixed_mode_flag_ = false;
-        ROS_INFO("[%s] 高速模式 (%.1f km/h)", getName().c_str(), curr_vx_raw * 3.6);
+        ROS_INFO_THROTTLE(0.5, "[%s] 高速模式 (%.1f km/h)", getName().c_str(), curr_vx_raw * 3.6);
     } else {
         using_pure_pursuit_flag_ = false;
         using_mixed_mode_flag_ = true;
-        ROS_INFO("[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f",
+        ROS_INFO_THROTTLE(0.5, "[BLEND] 过渡模式 | 车速: %.1f km/h | 权重: %.2f | PP: %.3f | NMPC: %.3f",
                             curr_vx_raw * 3.6, blend_alpha_, pp_safe_cmd_, nmpc_safe_cmd_);
     }
 
@@ -890,6 +1351,13 @@ void ESOTracker::computeControl(
     // ==========================================================
     // 加权融合两个算法的输出
     double final_cmd = blend_alpha_ * nmpc_safe_cmd_ + (1.0 - blend_alpha_) * pp_safe_cmd_;
+    if (inferred_manual_mode_) {
+        // 节点仍在后台运行但车辆不执行程序指令：控制器内部也应跟随司机实测角，
+        // 不能继续积累一个虚假的“上一周期已执行指令”。
+        final_cmd = curr_delta;
+        final_cmd_filt_ = curr_delta;
+        final_cmd_filt_init_ = false;
+    }
 
     // 输出端一阶低通滤波：滤掉驾驶员能感知的高频抖动，进一步提升方向盘转动质量。
     // tau<=0 时直接透传，不改变原行为。注意 LPF 引入的相位滞后由 tau 控制，
@@ -904,6 +1372,18 @@ void ESOTracker::computeControl(
         final_cmd = final_cmd_filt_;
     }
 
+    // V7统一输出速率安全层：不改变NMPC或PP本身，只保证模式切换/超时fallback
+    // 也不能产生执行器不可能完成的单周期跳变。
+    last_final_output_rate_limited_ = false;
+    if (enforce_final_output_rate_limit_ && obs_dt > 1e-6) {
+        const double max_output_step = nmpc_params_.delta_rate_max * obs_dt;
+        const double rate_limited_cmd = std::max(
+            current_cmd_ - max_output_step,
+            std::min(current_cmd_ + max_output_step, final_cmd));
+        last_final_output_rate_limited_ = std::abs(rate_limited_cmd - final_cmd) > 1e-12;
+        final_cmd = rate_limited_cmd;
+    }
+
     // 最后再做绝对转角限幅
     final_cmd = std::max(nmpc_params_.delta_min,
              std::min(nmpc_params_.delta_max, final_cmd));
@@ -913,6 +1393,10 @@ void ESOTracker::computeControl(
 
     // 填装消息输出
     control_msg->lateral.steering_angle = final_cmd;
+    // 该字段定义为“允许执行器追踪目标角时采用的前轮角速度上限”，保持正值。
+    // 实车适配层必须与角度采用同一转向比和deg/rad换算。
+    control_msg->lateral.steering_angle_velocity =
+        publish_steering_angle_velocity_ ? steering_angle_velocity_cmd_radps_ : 0.0;
     control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
 
@@ -938,6 +1422,14 @@ void ESOTracker::computeControl(
                 std::max(nmpc_params_.T_lag, 1e-6);
             steer_model_residual = curr_delta - steer_model_1step;
         }
+        const bool steer_cmd_reversal = prev_valid && diagnostic_prev_cmd_rate_valid_ &&
+            std::isfinite(steer_cmd_rate) &&
+            steer_cmd_rate * diagnostic_prev_cmd_rate_ < 0.0 &&
+            std::abs(steer_cmd_rate) > 0.05 && std::abs(diagnostic_prev_cmd_rate_) > 0.05;
+        const bool steer_actuator_not_following = prev_valid &&
+            std::isfinite(steer_meas_rate) &&
+            std::abs(diagnostic_prev_final_cmd_ - curr_delta) > 0.08 &&
+            std::abs(steer_meas_rate) < 0.02;
         const bool nmpc_clamped = nmpc_solve_success && std::isfinite(nmpc_raw_cmd) &&
             std::abs(nmpc_safe_cmd_ - (nmpc_raw_cmd + const_steer_bias_)) > 1e-9;
         const bool final_saturated =
@@ -990,7 +1482,19 @@ void ESOTracker::computeControl(
         const auto& nearest_path_point = path->points[nearest_idx];
         const double nearest_path_x = nearest_path_point.pose.position.x;
         const double nearest_path_y = nearest_path_point.pose.position.y;
-        const double nearest_path_yaw = quaternion_to_yaw(nearest_path_point.pose.orientation);
+        double nearest_path_yaw = quaternion_to_yaw(nearest_path_point.pose.orientation);
+        if (use_geometric_path_heading_ && path->points.size() >= 2) {
+            const int tangent_left = std::max(0, nearest_idx - 2);
+            const int tangent_right = std::min(
+                static_cast<int>(path->points.size()) - 1, nearest_idx + 2);
+            const double tangent_dx = path->points[tangent_right].pose.position.x -
+                                      path->points[tangent_left].pose.position.x;
+            const double tangent_dy = path->points[tangent_right].pose.position.y -
+                                      path->points[tangent_left].pose.position.y;
+            if (std::hypot(tangent_dx, tangent_dy) > 1e-4) {
+                nearest_path_yaw = std::atan2(tangent_dy, tangent_dx);
+            }
+        }
         const double nearest_dx = curr_x - nearest_path_x;
         const double nearest_dy = curr_y - nearest_path_y;
         const double nearest_distance = std::hypot(nearest_dx, nearest_dy);
@@ -1047,7 +1551,7 @@ void ESOTracker::computeControl(
         const double pred_kN_yaw_rate_error = diagnostic_pred_kN_[4] - curr_vx * ref_kappa_kN;
 
         local_log_stream_
-            << current_time.toSec() << ',' << 6 << ',' << dt << ',' << obs_dt << ','
+            << current_time.toSec() << ',' << 8 << ',' << dt << ',' << obs_dt << ','
             << curr_vx_raw << ',' << curr_vx_raw * 3.6 << ','
             << curr_vy_status << ',' << curr_ax << ','
             << curr_x << ',' << curr_y << ',' << curr_theta << ','
@@ -1126,7 +1630,27 @@ void ESOTracker::computeControl(
             << nmpc_params_.near_dense_control_steps << ',' << nmpc_params_.delta_rate_max << ','
             << (last_measurement_is_new_ ? 1 : 0) << ','
             << (last_observer_low_speed_reset_ ? 1 : 0) << ','
-            << observer_dynamic_min_speed_mps_ << '\n';
+            << observer_dynamic_min_speed_mps_ << ','
+            << nmpc_solve_deadline_ms_ << ',' << (last_nmpc_deadline_missed_ ? 1 : 0) << ','
+            << nmpc_timeout_count_ << ',' << (last_final_output_rate_limited_ ? 1 : 0) << ','
+            << (publish_steering_angle_velocity_ ? steering_angle_velocity_cmd_radps_ : 0.0) << ','
+            << (last_nmpc_attempted_ ? 1 : 0) << ','
+            << (last_nmpc_solver_returned_success_ ? 1 : 0) << ','
+            << (last_nmpc_warm_start_used_ ? 1 : 0) << ','
+            << last_nmpc_status_code_ << ',' << last_nmpc_return_status_ << ','
+            << last_nmpc_iter_count_ << ',' << last_nmpc_inf_pr_ << ',' << last_nmpc_inf_du_ << ','
+            << nmpc_success_streak_ << ',' << (fallback_latched_ ? 1 : 0) << ','
+            << fallback_reason_code_ << ',' << fallback_age_s << ','
+            << (fallback_reentry_active_ ? 1 : 0) << ',' << fallback_reentry_alpha_ << ','
+            << (startup_recovery_active_ ? 1 : 0) << ',' << startup_recovery_alignment_streak_ << ','
+            << recovery_lookahead_m << ',' << (startup_recovery_steer_limited_ ? 1 : 0) << ','
+            << pp_cmd_queue_.size() << ',' << reference_kappa_step_ << ','
+            << (reference_stable_this_cycle_ ? 1 : 0) << ',' << reference_stable_streak_ << ','
+            << (inferred_manual_mode_ ? 1 : 0) << ',' << (autonomy_reentry_detected_ ? 1 : 0) << ','
+            << (driving_mode_received_ ? 1 : 0) << ',' << latest_driving_mode_ << ','
+            << driving_mode_age_s << ',' << manual_observation_source << ','
+            << (use_geometric_path_heading_ ? 1 : 0) << ','
+            << (steer_cmd_reversal ? 1 : 0) << ',' << (steer_actuator_not_following ? 1 : 0) << '\n';
 
         diagnostic_prev_valid_ = true;
         diagnostic_prev_delta_ = curr_delta;
@@ -1137,6 +1661,12 @@ void ESOTracker::computeControl(
         diagnostic_prev_tracking_error_ = curr_lateral_tracking_error;
         diagnostic_prev_geometric_error_ = geometric_lateral_error;
         diagnostic_prev_final_cmd_ = final_cmd;
+        if (std::isfinite(steer_cmd_rate)) {
+            diagnostic_prev_cmd_rate_ = steer_cmd_rate;
+            diagnostic_prev_cmd_rate_valid_ = true;
+        } else {
+            diagnostic_prev_cmd_rate_valid_ = false;
+        }
         diagnostic_prev_nearest_idx_ = nearest_idx;
 
         ++local_log_pending_rows_;
@@ -1219,7 +1749,19 @@ int ESOTracker::find_nearest_path_point(const double x0, const double y0, const 
         if (longitudinal < -path_projection_rear_gate_m_) {
             continue;
         }
-        const double yaw_path = quaternion_to_yaw(path.points[i].pose.orientation);
+        double yaw_path = quaternion_to_yaw(path.points[i].pose.orientation);
+        if (use_geometric_path_heading_ && path.points.size() >= 2) {
+            const int left = std::max(0, static_cast<int>(i) - 2);
+            const int right = std::min(
+                static_cast<int>(path.points.size()) - 1, static_cast<int>(i) + 2);
+            const double tangent_dx = path.points[right].pose.position.x -
+                                      path.points[left].pose.position.x;
+            const double tangent_dy = path.points[right].pose.position.y -
+                                      path.points[left].pose.position.y;
+            if (std::hypot(tangent_dx, tangent_dy) > 1e-4) {
+                yaw_path = std::atan2(tangent_dy, tangent_dx);
+            }
+        }
         const double yaw_error = std::abs(angleDiff(yaw_path, yaw0));
         if (yaw_error > path_projection_heading_gate_rad_) {
             continue;
@@ -1318,6 +1860,36 @@ casadi::DM ESOTracker::interpolate_path_segment(const race_msgs::Path& path, con
     auto y_interp = linear_interpolate(s_orig, y_orig, s_target);
     auto theta_interp = linear_interpolate(s_orig, theta_orig, s_target);
     std::vector<double> kappa_interp(s_target.size(), 0.0);
+
+    // V8：位置、航向、曲率必须来自同一条几何曲线。旧实现直接采用上游姿态，
+    // 当掉头/轨迹源切换时，位置仍连续但姿态可能逐帧跳变，随后差分曲率、前馈和
+    // NMPC目标会一起形成锯齿。这里默认由插值后的x/y按固定空间窗重建航向。
+    if (use_geometric_path_heading_ && s_target.size() >= 2) {
+        const int n = static_cast<int>(s_target.size());
+        const double ds_grid = std::max(1e-3, s_target[1] - s_target[0]);
+        const int span = std::max(1, std::min(
+            static_cast<int>(std::lround(geometric_heading_window_m_ / ds_grid)), n - 1));
+        std::vector<double> theta_geometric(n, 0.0);
+        double theta_previous = 0.0;
+        for (int i = 0; i < n; ++i) {
+            int left = i - span / 2;
+            left = std::max(0, std::min(left, n - 1 - span));
+            const int right = left + span;
+            const double dx = x_interp[right] - x_interp[left];
+            const double dy = y_interp[right] - y_interp[left];
+            double theta_relative = theta_interp[i];
+            if (std::hypot(dx, dy) > 1e-4) {
+                theta_relative = angleDiff(std::atan2(dy, dx), veh_yaw);
+            }
+            if (i == 0) {
+                theta_previous = theta_relative;
+            } else {
+                theta_previous += angleDiff(theta_relative, theta_previous);
+            }
+            theta_geometric[i] = theta_previous;
+        }
+        theta_interp.swap(theta_geometric);
+    }
 
     // V6：曲率窗口使用固定空间长度，不再使用固定预测步数。
     // 因此同一绝对位置在不同车速下看到的曲率尺度一致。
@@ -1661,19 +2233,37 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta,
         X_sig.col(i+1+L) = ukf_x_est_ - sqrtP.col(i);
     }
 
-    MatrixXd X_sig_pred(L, n_sig);
-    for (int i=0; i<n_sig; i++) {
-        double vy_i = X_sig(0, i), r_i = X_sig(1, i);
-        double alpha_f = curr_delta - std::atan2(vy_i + nmpc_params_.lf * r_i, curr_vx);
-        double alpha_r = -std::atan2(vy_i - nmpc_params_.lr * r_i, curr_vx);
-        double Fyf = nmpc_params_.Cf * alpha_f;
-        double Fyr = nmpc_params_.Cr * alpha_r;
-        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m -
-                        curr_vx * r_i + lateral_disturbance;
-        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / nmpc_params_.Iz;
-        X_sig_pred(0, i) = vy_i + vy_dot * dt;
-        X_sig_pred(1, i) = r_i + r_dot * dt;
+MatrixXd X_sig_pred(L, n_sig);
+// 横将原来的 0.05s 单步欧拉改为四个 RK4 子步，
+constexpr int kUkfIntegrationSubsteps = 4;
+const double sub_dt = dt / static_cast<double>(kUkfIntegrationSubsteps);
+auto ukfDynamics = [&](const Vector2d& state) -> Vector2d {
+    const double vy_state = state(0);
+    const double r_state  = state(1);
+    const double alpha_f = curr_delta - std::atan2(vy_state + nmpc_params_.lf * r_state,curr_vx);
+    const double alpha_r = -std::atan2(vy_state - nmpc_params_.lr * r_state,curr_vx);
+    const double Fyf = nmpc_params_.Cf * alpha_f;
+    const double Fyr = nmpc_params_.Cr * alpha_r;
+    Vector2d derivative;
+    derivative(0) =
+        (Fyf * std::cos(curr_delta) + Fyr) / nmpc_params_.m - curr_vx * r_state + lateral_disturbance;
+    derivative(1) = (nmpc_params_.lf * Fyf * std::cos(curr_delta)- nmpc_params_.lr * Fyr) /nmpc_params_.Iz;
+    return derivative;
+};
+for (int i = 0; i < n_sig; ++i) {
+    Vector2d sigma_state;
+    sigma_state << X_sig(0, i), X_sig(1, i);
+    for (int substep = 0;
+         substep < kUkfIntegrationSubsteps;
+         ++substep) {
+        const Vector2d k1 = ukfDynamics(sigma_state);
+        const Vector2d k2 = ukfDynamics(sigma_state + 0.5 * sub_dt * k1);
+        const Vector2d k3 = ukfDynamics(sigma_state + 0.5 * sub_dt * k2);
+        const Vector2d k4 = ukfDynamics(sigma_state + sub_dt * k3);
+        sigma_state +=(sub_dt / 6.0) *(k1 + 2.0 * k2 + 2.0 * k3 + k4);
     }
+    X_sig_pred.col(i) = sigma_state;
+}
 
     Vector2d x_pred = Vector2d::Zero();
     for (int i=0; i<n_sig; i++) x_pred += Wm(i) * X_sig_pred.col(i);
@@ -1718,26 +2308,21 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta,
         P_xz += Wc(i) * x_diff * z_diff.transpose();
     }
 
-    if (measurement_is_new) {
-        MatrixXd K = P_xz * P_zz.inverse();
-        Vector2d innovation = Vector2d(curr_ay_corrected, curr_r) - z_pred;
-        ukf_ay_innovation_raw_ = innovation(0);
-        if (ukf_ay_innovation_limit_ > 0.0) {
-            innovation(0) = std::max(-ukf_ay_innovation_limit_,
-                                std::min(ukf_ay_innovation_limit_, innovation(0)));
-        }
-        ukf_ay_innovation_used_ = innovation(0);
-        ukf_x_est_ = x_pred + K * innovation;
-        ukf_P_est_ = P_pred - K * P_zz * K.transpose();
-    } else {
-        // 车辆状态保持值被控制回调重复使用时，只传播一次模型，不把同一测量重复融合。
-        ukf_ay_innovation_raw_ = 0.0;
-        ukf_ay_innovation_used_ = 0.0;
-        ukf_x_est_ = x_pred;
-        ukf_P_est_ = P_pred;
-    }
-    ukf_x_est_(0) = std::max(-ukf_vy_abs_max_,
-                        std::min(ukf_vy_abs_max_, ukf_x_est_(0)));
+if (measurement_is_new) {
+    MatrixXd K = P_xz * P_zz.inverse();
+    Vector2d innovation = Vector2d(curr_ay_corrected, curr_r) - z_pred;
+    ukf_ay_innovation_raw_ = innovation(0);
+    // 暂时取消 ay 的硬裁剪。RK4 已保证预测稳定，测量更新应允许把状态拉回测量附近。
+    ukf_ay_innovation_used_ = innovation(0);
+    ukf_x_est_ = x_pred + K * innovation;
+    ukf_P_est_ =P_pred - K * P_zz * K.transpose();
+} else {
+    ukf_ay_innovation_raw_ = 0.0;
+    ukf_ay_innovation_used_ = 0.0;
+    ukf_x_est_ = x_pred;
+    ukf_P_est_ = P_pred;
+}
+    ukf_x_est_(0) = std::max(-ukf_vy_abs_max_,std::min(ukf_vy_abs_max_, ukf_x_est_(0)));
     ukf_P_est_ = 0.5 * (ukf_P_est_ + ukf_P_est_.transpose());
 }
 
@@ -1899,6 +2484,9 @@ void ESOTracker::buildNMPSolver() {
         {"ipopt.tol", 1e-2},
         {"ipopt.acceptable_tol", 5e-2},
         {"ipopt.acceptable_iter", 5},
+        // IPOPT长期支持的CPU时间上限负责主动终止；外层墙钟截止仍会拒绝
+        // 因调度/阻塞导致超过50ms才返回的解。
+        {"ipopt.max_cpu_time", nmpc_ipopt_cpu_time_limit_ms_ / 1000.0},
         {"print_time", 0},
 
         {"ipopt.warm_start_init_point", "yes"},
@@ -1913,7 +2501,10 @@ void ESOTracker::buildNMPSolver() {
 bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casadi::DM& waypoints,
                                       std::vector<double>& control_output) {
 
-    auto start_time = std::chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::steady_clock::now();
+    last_nmpc_deadline_missed_ = false;
+    last_nmpc_solver_returned_success_ = false;
+    last_nmpc_warm_start_used_ = solver_.has_prev_sol && static_cast<bool>(solver_.sol_prev);
 
     try {
         solver_.opti.set_value(solver_.P_x0, current_state);
@@ -1927,15 +2518,30 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
         }
 
         casadi::OptiSol sol = solver_.opti.solve();
+        last_nmpc_solver_returned_success_ = true;
+        captureNmpcSolverStats();
 
-        auto end_time = std::chrono::high_resolution_clock::now();
+        auto end_time = std::chrono::steady_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+        if (elapsed.count() > nmpc_solve_deadline_ms_) {
+            last_nmpc_deadline_missed_ = true;
+            ++nmpc_timeout_count_;
+            solver_.has_prev_sol = false;
+            solver_.sol_prev = nullptr;
+            resetNmpcPredictionDiagnostics();
+            last_nmpc_status_code_ = 2;
+            last_nmpc_return_status_ += ";rejected_wall_deadline";
+            ROS_ERROR("[%s] NMPC返回成功但墙钟耗时%.2fms超过%.2fms，拒绝过期解并fallback",
+                      getName().c_str(), elapsed.count(), nmpc_solve_deadline_ms_);
+            return false;
+        }
       //  ROS_INFO("[%s] NMPC 求解成功! 耗时: %.2f ms", getName().c_str(), elapsed.count());
-        ROS_INFO("[%s] NMPC 求解成功! \033[1;32m耗时: %.2f ms\033[0m, \033[38;5;208mCf_interp: %.2f, Cr_interp: %.2f\033[0m",
+        ROS_INFO_THROTTLE(1.0, "[%s] NMPC 求解成功! \033[1;32m耗时: %.2f ms\033[0m, \033[38;5;208mCf_interp: %.2f, Cr_interp: %.2f\033[0m",
         getName().c_str(), elapsed.count(), nmpc_params_.Cf, nmpc_params_.Cr);
 
         solver_.sol_prev = std::make_unique<casadi::OptiSol>(sol);
         solver_.has_prev_sol = true;
+        last_nmpc_status_code_ = 1;
 
         if (enable_local_log_) {
             const casadi::DM x_solution = sol.value(solver_.X);
@@ -1962,9 +2568,24 @@ bool ESOTracker::solveNMPC(const std::vector<double>& current_state, const casad
         return true;
     } catch (std::exception& e) {
 
-       auto end_time = std::chrono::high_resolution_clock::now();
+       auto end_time = std::chrono::steady_clock::now();
        std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
-       ROS_WARN("[%s] NMPC 求解失败! 耗时: %.2f ms, 原因: %s", getName().c_str(), elapsed.count(), e.what());
+       const std::string reason(e.what());
+       const bool ipopt_time_limit =
+           reason.find("Maximum_CpuTime_Exceeded") != std::string::npos ||
+           reason.find("Maximum_WallTime_Exceeded") != std::string::npos ||
+           reason.find("max_cpu_time") != std::string::npos;
+       if (ipopt_time_limit || elapsed.count() >= nmpc_solve_deadline_ms_) {
+           last_nmpc_deadline_missed_ = true;
+           ++nmpc_timeout_count_;
+       }
+       captureNmpcSolverStats();
+       last_nmpc_status_code_ = last_nmpc_deadline_missed_ ? 2 : 3;
+       if (last_nmpc_return_status_.empty() || last_nmpc_return_status_ == "not_attempted") {
+           last_nmpc_return_status_ = ipopt_time_limit ? "ipopt_time_limit" : "solve_exception";
+       }
+       ROS_WARN_THROTTLE(0.5, "[%s] NMPC 求解失败! 耗时: %.2f ms, timeout=%d, 原因: %s",
+                getName().c_str(), elapsed.count(), last_nmpc_deadline_missed_ ? 1 : 0, e.what());
 
         solver_.has_prev_sol = false;
         solver_.sol_prev = nullptr;
