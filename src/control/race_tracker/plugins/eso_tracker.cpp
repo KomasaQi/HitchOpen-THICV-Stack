@@ -2233,37 +2233,19 @@ void ESOTracker::ukfEstimateVy(double curr_vx, double curr_delta,
         X_sig.col(i+1+L) = ukf_x_est_ - sqrtP.col(i);
     }
 
-MatrixXd X_sig_pred(L, n_sig);
-// 横将原来的 0.05s 单步欧拉改为四个 RK4 子步，
-constexpr int kUkfIntegrationSubsteps = 4;
-const double sub_dt = dt / static_cast<double>(kUkfIntegrationSubsteps);
-auto ukfDynamics = [&](const Vector2d& state) -> Vector2d {
-    const double vy_state = state(0);
-    const double r_state  = state(1);
-    const double alpha_f = curr_delta - std::atan2(vy_state + nmpc_params_.lf * r_state,curr_vx);
-    const double alpha_r = -std::atan2(vy_state - nmpc_params_.lr * r_state,curr_vx);
-    const double Fyf = nmpc_params_.Cf * alpha_f;
-    const double Fyr = nmpc_params_.Cr * alpha_r;
-    Vector2d derivative;
-    derivative(0) =
-        (Fyf * std::cos(curr_delta) + Fyr) / nmpc_params_.m - curr_vx * r_state + lateral_disturbance;
-    derivative(1) = (nmpc_params_.lf * Fyf * std::cos(curr_delta)- nmpc_params_.lr * Fyr) /nmpc_params_.Iz;
-    return derivative;
-};
-for (int i = 0; i < n_sig; ++i) {
-    Vector2d sigma_state;
-    sigma_state << X_sig(0, i), X_sig(1, i);
-    for (int substep = 0;
-         substep < kUkfIntegrationSubsteps;
-         ++substep) {
-        const Vector2d k1 = ukfDynamics(sigma_state);
-        const Vector2d k2 = ukfDynamics(sigma_state + 0.5 * sub_dt * k1);
-        const Vector2d k3 = ukfDynamics(sigma_state + 0.5 * sub_dt * k2);
-        const Vector2d k4 = ukfDynamics(sigma_state + sub_dt * k3);
-        sigma_state +=(sub_dt / 6.0) *(k1 + 2.0 * k2 + 2.0 * k3 + k4);
+    MatrixXd X_sig_pred(L, n_sig);
+    for (int i=0; i<n_sig; i++) {
+        double vy_i = X_sig(0, i), r_i = X_sig(1, i);
+        double alpha_f = curr_delta - std::atan2(vy_i + nmpc_params_.lf * r_i, curr_vx);
+        double alpha_r = -std::atan2(vy_i - nmpc_params_.lr * r_i, curr_vx);
+        double Fyf = nmpc_params_.Cf * alpha_f;
+        double Fyr = nmpc_params_.Cr * alpha_r;
+        double vy_dot = (Fyf * cos(curr_delta) + Fyr) / nmpc_params_.m -
+                        curr_vx * r_i + lateral_disturbance;
+        double r_dot = (nmpc_params_.lf * Fyf * cos(curr_delta) - nmpc_params_.lr * Fyr) / nmpc_params_.Iz;
+        X_sig_pred(0, i) = vy_i + vy_dot * dt;
+        X_sig_pred(1, i) = r_i + r_dot * dt;
     }
-    X_sig_pred.col(i) = sigma_state;
-}
 
     Vector2d x_pred = Vector2d::Zero();
     for (int i=0; i<n_sig; i++) x_pred += Wm(i) * X_sig_pred.col(i);
@@ -2308,21 +2290,26 @@ for (int i = 0; i < n_sig; ++i) {
         P_xz += Wc(i) * x_diff * z_diff.transpose();
     }
 
-if (measurement_is_new) {
-    MatrixXd K = P_xz * P_zz.inverse();
-    Vector2d innovation = Vector2d(curr_ay_corrected, curr_r) - z_pred;
-    ukf_ay_innovation_raw_ = innovation(0);
-    // 暂时取消 ay 的硬裁剪。RK4 已保证预测稳定，测量更新应允许把状态拉回测量附近。
-    ukf_ay_innovation_used_ = innovation(0);
-    ukf_x_est_ = x_pred + K * innovation;
-    ukf_P_est_ =P_pred - K * P_zz * K.transpose();
-} else {
-    ukf_ay_innovation_raw_ = 0.0;
-    ukf_ay_innovation_used_ = 0.0;
-    ukf_x_est_ = x_pred;
-    ukf_P_est_ = P_pred;
-}
-    ukf_x_est_(0) = std::max(-ukf_vy_abs_max_,std::min(ukf_vy_abs_max_, ukf_x_est_(0)));
+    if (measurement_is_new) {
+        MatrixXd K = P_xz * P_zz.inverse();
+        Vector2d innovation = Vector2d(curr_ay_corrected, curr_r) - z_pred;
+        ukf_ay_innovation_raw_ = innovation(0);
+        if (ukf_ay_innovation_limit_ > 0.0) {
+            innovation(0) = std::max(-ukf_ay_innovation_limit_,
+                                std::min(ukf_ay_innovation_limit_, innovation(0)));
+        }
+        ukf_ay_innovation_used_ = innovation(0);
+        ukf_x_est_ = x_pred + K * innovation;
+        ukf_P_est_ = P_pred - K * P_zz * K.transpose();
+    } else {
+        // 车辆状态保持值被控制回调重复使用时，只传播一次模型，不把同一测量重复融合。
+        ukf_ay_innovation_raw_ = 0.0;
+        ukf_ay_innovation_used_ = 0.0;
+        ukf_x_est_ = x_pred;
+        ukf_P_est_ = P_pred;
+    }
+    ukf_x_est_(0) = std::max(-ukf_vy_abs_max_,
+                        std::min(ukf_vy_abs_max_, ukf_x_est_(0)));
     ukf_P_est_ = 0.5 * (ukf_P_est_ + ukf_P_est_.transpose());
 }
 
