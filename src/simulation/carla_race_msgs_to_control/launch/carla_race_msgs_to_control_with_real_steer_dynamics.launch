@@ -1,0 +1,39 @@
+<launch>
+  <arg name="role_name" default="ego_vehicle"/>
+
+  <!-- Parameters identified from the two semi-trailer road-test bags. -->
+  <arg name="steering_ratio" default="16.0"/>
+  <arg name="steer_delay" default="0.06"/>
+  <arg name="steer_tau" default="0.10"/>
+  <arg name="steer_wheel_rate_limit" default="2.0"/>
+  <arg name="steer_wheel_cmd_rate_cap" default="3.490659"/>
+
+  <!-- CARLA vehicle_info normally reports wheel max_steer_angle in degrees. -->
+  <arg name="max_steer_angle_unit" default="auto"/>
+  <arg name="normalize_steer_by_vehicle_max_angle" default="true"/>
+
+  <node pkg="carla_race_msgs_to_control"
+        type="carla_race_msgs_to_control_real_steer_dynamics.py"
+        name="carla_race_msgs_to_control_$(arg role_name)_real_steer_dynamics"
+        output="screen">
+    <param name="role_name" value="$(arg role_name)"/>
+
+    <param name="steering_ratio" value="$(arg steering_ratio)"/>
+    <param name="steer_delay" value="$(arg steer_delay)"/>
+    <param name="steer_tau" value="$(arg steer_tau)"/>
+    <param name="steer_wheel_rate_limit" value="$(arg steer_wheel_rate_limit)"/>
+    <param name="steer_wheel_cmd_rate_cap" value="$(arg steer_wheel_cmd_rate_cap)"/>
+    <param name="honor_input_steer_velocity" value="true"/>
+
+    <param name="max_steer_angle_unit" value="$(arg max_steer_angle_unit)"/>
+    <param name="normalize_steer_by_vehicle_max_angle" value="$(arg normalize_steer_by_vehicle_max_angle)"/>
+
+    <!-- Keep the previous longitudinal lag settings so steering is the main A/B variable. -->
+    <param name="acc_Lag" value="0.05"/>
+    <param name="brake_Lag" value="0.05"/>
+    <param name="acc_tau" value="0.05"/>
+    <param name="brake_tau" value="0.05"/>
+    <param name="nominal_dt" value="0.05"/>
+    <param name="max_dt" value="0.20"/>
+  </node>
+</launch>

@@ -6,7 +6,6 @@ eso_tracker:
   sparse_control_step: 10         # V6前密后疏控制节点；不再把1.75s预测域仅分成3个长保持块
   near_dense_control_steps: 5     # 前5个预测周期逐拍控制，其余节点自动均分远端预测域
   sampling_time: 0.05             # 采样时间 dt (s)
-  integration_grade: 1.0          # 积分器: 1.0=Euler, 2.0=RK2, 4.0=RK4；当前使用Euler降低耗时
   eso_disturbance_decay: 0.95     # 旧逐拍系数；仅在下面时间常数<=0时直接生效
   eso_disturbance_time_constant: 0.974786  # s；exp(-0.05/tau)=0.95，预测末端仍保留约16.6%
   curvature_smoothing_steps: 5    # 兼容旧日志；V6实际使用下面的固定空间窗口
@@ -17,11 +16,35 @@ eso_tracker:
   local_log_directory: /tmp/eso_tracker_logs
   local_log_flush_interval: 100   # 每100行刷新一次，20Hz下约5s，降低控制线程I/O抖动
 
+  # --- V7实时截止与输出安全层 ---
+  nmpc_solve_deadline_ms: 50.0          # worker等待上限；迟到解丢弃；保护先用短时有效NMPC序列
+  nmpc_ipopt_cpu_time_limit_ms: 45.0    # IPOPT内部主动终止，给返回/解析留约5ms余量
+  enforce_final_output_rate_limit: true # NMPC/混合/PP/fallback统一受max_steer_rate限制
+  publish_steering_angle_velocity: true # race_msgs::Control下发非零前轮角速度上限
+  steering_angle_velocity_cmd_radps: 0.35 # 前轮侧rad/s；实车适配层需按转向比和单位换算
+
+  # V11: NMPC单步Euler；仅刚性过强时对vy/r做一次2x2线性隐式修正。
+  # 正常速度修正权重为0，严格保留V8的Euler动力学；NMPC不支持RK4选项。
+  enable_low_speed_stabilization: true
+  nmpc_euler_stability_margin: 1.8
+  nmpc_timing_print_period_s: 0.0 # 0=每周期打印solve/worker/wait；如终端I/O慢可设0.5
+
+  ukf_integration_substeps: 4        # matches 8-30 real-vehicle RK4 propagation
+  nmpc_constraint_tolerance: 0.02    # max unscaled constraint residual for accepted solution
+
   # --- 2. 车辆物理参数 ---
   # ---------固定结构参数---------
   m: 10000.0                      # 空载仿真对应的牵引车模型质量 (kg)，不等同于m_total调度输入
   L: 4.135                        # 兼容旧配置；运行时由插值得到的 lf+lr 自动更新
-  T_lag: 0.25                     # 恢复6月无高速蛇行基线的转向系统滞后 (s)
+  # --- V16实车转向执行器：全工况仅一组物理参数，不做速度/误差分段 ---
+  # 两份实车bag表明：小信号快且稳态增益约1，大动作主要受方向盘约2rad/s速率限制。
+  # tracker全程使用前轮角，因此2/16=0.125rad/s；一拍延迟代表约50ms控制传输。
+  T_lag: 0.10                         # 速率未饱和时的实际前轮一阶时间常数 (s)
+  actuator_rate_limit: 0.125          # 实际前轮转角速率上限 (rad/s)，不是指令速率约束
+  actuator_one_step_delay_enabled: true # 固定一拍(50ms)传输延迟；不增加状态或决策变量
+
+  # 旧在线时间常数辨识仅保留代码兼容，默认关闭；其高级门限不再暴露到主YAML。
+  actuator_lag_adaptation_enabled: false
 
   # ---------质量调度参数表---------
   # 说明：received_mass_ 位于相邻质量节点之间时做分段线性插值；
@@ -29,38 +52,124 @@ eso_tracker:
   mass_interp_points: [10000.0, 16000.0, 33000.0, 49000.0] # [仿真空载, 实车空载, 半载, 满载]
 
   # 10000kg节点恢复6月无高速蛇行模型；其余节点保留8月已有值，后续仍需用实车标定替换占位值。
-  Iz_interp_points: [62200.0, 62200.0, 62200.0, 62200.0]            # kg·m²
-  lf_interp_points: [1.67, 1.67, 1.67, 1.67]                        # m
-  lr_interp_points: [2.335, 2.335, 2.335, 2.335]                      # m
-  Cf_interp_points: [300000.0, 300000.0, 300000.0, 300000.0]        # N/rad
-  Cr_interp_points: [1500000.0, 1500000.0, 2000000.0, 2500000.0]    # N/rad
+  Iz_interp_points: [50000.0, 62200.0, 62200.0, 62200.0]            # kg·m²
+  lf_interp_points: [2.00, 1.67, 1.67, 2.00]                        # m
+  lr_interp_points: [2.135, 2.33, 2.33, 2.00]                      # m
+  Cf_interp_points: [270000.0, 270000.0, 270000.0, 270000.0]        # N/rad
+  Cr_interp_points: [1500000.0, 1500000.0, 1500000.0, 1500000.0]    # N/rad
 
   # ---------质量调度输入-----------
   auto_update_total_weight: true  # true: 使用 vehicle_status->mass 作为质量插值输入
   m_total: 10000.0                # 当前空载仿真回退值；仅作为插值自变量，不会覆盖固定模型质量m
 
   # --- 3. 转角幅值约束 ---
-  min_steer: -1.0                 # 最小转向角 (rad)
-  max_steer: 1.0                  # 最大转向角 (rad)
+  min_steer: -0.5                 # 最小转向角 (rad)
+  max_steer: 0.5                  # 最大转向角 (rad)
   max_steer_rate: 0.35            # NMPC内部前轮转角指令硬速率约束 (rad/s)
 
   # --- 4. 代价函数权重 (Q矩阵 & R矩阵) ---
   Q_x: 1.0                        # 位置X误差权重
   Q_y: 50.0                       # 单变量数据中跟踪改善最稳定，方向盘峰值低于 dR=24000 组
-  Q_theta: 1034                   # 航向角误差权重
+  Q_theta: 1034.0                 # 航向角误差权重
   Q_vy: 0.0                       # 侧向速度权重
-  Q_r: 50.0                       # 仅对经5步空间平滑的横摆率参考施加小权重s
+  Q_r: 50.0                       # 仅对经5步空间平滑的横摆率参考施加小权重
   Q_delta: 0.0                    # 转向角权重
   R: 0.02                         # 控制量大小权重
-  dR: 32000.0                      # 稀疏控制点增量权重 (平滑性)
+  dR: 32000.0                     # V11仅惩罚反馈修正量增量；不再压慢道路前馈变化
 
   # --- V6稳态前馈与路径投影 ---
   use_equilibrium_feedforward: true   # 按当前全域vx、曲率及单轨参数求稳态delta_ff/vy_eq
-  equilibrium_feedforward_gain: 1.0
+  equilibrium_feedforward_gain: 1.05    # 单变量空间匹配小幅改善；未证明能消除大曲率偏差
   equilibrium_feedforward_limit: 0.45 # rad；最终仍受min/max_steer约束
+  # 按在线等效转向时间常数读取未来已平滑曲率，补偿高速入弯相位迟滞；不放大增益。
+  feedforward_preview_enabled: true
+  feedforward_preview_gain: 1.0
+  feedforward_extra_preview_s: 0.0
+  feedforward_preview_max_s: 0.40
+  # V13保留V12整段未来前馈的反向速率可达化；同时用“上一名义前馈”而非
+  # “上一总指令”作为新基线锚点，避免把上一拍反馈重复吸收到前馈坐标。
+  # 这使大曲率出弯/复合弯的减舵动作能提前进入名义序列，不改变max_steer_rate。
+  feedforward_rate_anticipation_enabled: true
+
+  # V12只允许补齐很短的滚动路径尾端。V11在100km/h需要约53.5m预测长度，
+  # 实际日志中路径余量在50.2~55.5m间波动，严格“缺1mm即无效”导致NMPC/保持反复切换。
+  # 超过5m或覆盖率低于85%仍判无效，不对真正缺失的道路盲目外推。
+  reference_tail_extrapolation_enabled: true
+  reference_tail_extrapolation_max_m: 5.0
+  reference_tail_min_coverage_ratio: 0.85
+
+  # V15保留同一NMPC内的连续瞬态阻尼；横向误差门限沿用V14，横摆门限恢复到
+  # V12已验证的大曲率弯设置，避免V14在-0.11~-0.15rad/s时过度提高Qr。
+  # 仅在大横向误差或实测横摆率明显偏离道路需求时平滑增加Qr。
+  transient_yaw_damping_enabled: true
+  transient_yaw_rate_extra_weight: 5000.0
+  transient_lateral_error_start_m: 1.00
+  transient_lateral_error_full_m: 2.00
+  transient_yaw_error_start_radps: 0.06
+  transient_yaw_error_full_radps: 0.20
+  # course误差达到0.06~0.12rad时，连续恢复V14较强的初始回正/蛇形阻尼门限；
+  # 因此这里只放松姿态已经对齐的大曲率弯，不牺牲初始大偏差和高速稳定性。
+  transient_yaw_recovery_start_radps: 0.05
+  transient_yaw_recovery_full_radps: 0.16
+  transient_course_tighten_start_rad: 0.06
+  transient_course_tighten_full_rad: 0.12
+
+  # 剧烈纠偏时ESO的3~5rad/s^2残差主要是瞬态模型误差，不应当作准静态挂车扰动回灌。
+  # 随上述瞬态因子连续淡出，绝非PP/恢复期切换。
+  eso_transient_gate_enabled: true
+  eso_transient_gate_factor: 0.25
+  eso_transient_gate_recovery_factor: 0.20
+
+  # --- V15首步反馈增量定向释放 ---
+  # 全局及预测域内dR仍为32000，硬转角速率仍为0.35rad/s。这里只降低当前周期
+  # 第一拍相对上一拍反馈的软惩罚，使大偏差穿线后可以及时撤舵/反向反馈。
+  # 80km/h开始退出、95km/h完全退出，因此100km/h保持V12验证过的高dR稳定性；
+  # 该区间使84~85km/h的负向累计弯仍能获得有限释放；
+  # 载荷保护因子为1时也完全退出，避免削弱满载蛇行抑制。
+  feedback_first_step_release_enabled: true
+  feedback_first_step_min_scale: 0.25
+  feedback_release_speed_start_kmh: 80.0
+  feedback_release_speed_full_kmh: 95.0
+  feedback_release_lateral_start_m: 0.15
+  feedback_release_lateral_full_m: 0.75
+  feedback_release_yaw_start_radps: 0.04
+  feedback_release_yaw_full_radps: 0.14
+
+  # --- V15姿态对齐后的横向误差权重 ---
+  # 横向误差从0.08~0.22m连续介入，将Qy由50提高到最多250。course仍是主要门控；
+  # yaw-rate不一致只衰减而不再把Qy强制压回50，以覆盖最大右弯中“横摆瞬态存在，
+  # 但0.3~0.5m真实横向误差仍在增加”的V14盲区。85~100km/h连续退出，
+  # 100km/h直道严格恢复基础Qy=50与首步dR=32000。
+  aligned_lateral_weight_enabled: true
+  aligned_lateral_extra_Q_y: 200.0
+  aligned_lateral_error_start_m: 0.08
+  aligned_lateral_error_full_m: 0.22
+  aligned_course_error_start_rad: 0.04
+  aligned_course_error_full_rad: 0.12
+  aligned_yaw_error_start_radps: 0.04
+  aligned_yaw_error_full_radps: 0.18
+  aligned_yaw_gate_floor: 0.45
+  aligned_lateral_speed_start_kmh: 85.0
+  aligned_lateral_speed_full_kmh: 100.0
+
+  # --- V13满载低置信度保护 ---
+  # 当前单轨模型质量m固定为10000kg，而实车gross mass可达49000kg；Iz/Cf/Cr表又尚未
+  # 完成满载辨识。这里不武断地把49t刚体参数塞进牵引车模型，而是在质量比过大时：
+  # 1) 连续增加道路横摆率误差权重，抑制满载40km/h持续蛇行；
+  # 2) 降低ESO模型残差回灌置信度，避免把载荷模型误差当成外扰反复补偿。
+  # 10000kg仿真空载与16000kg实车空载均不触发，保持V12已验证表现。
+  load_aware_stability_enabled: true
+  load_stability_ratio_start: 1.8
+  load_stability_ratio_full: 4.0
+  load_yaw_rate_extra_weight: 1000.0
+  load_eso_confidence_min: 0.35
   path_projection_heading_weight_m2: 4.0
   path_projection_heading_gate_rad: 1.2
   path_projection_rear_gate_m: 5.0
+  # V8从轨迹x/y重建航向，再由同一航向计算曲率，避免掉头后上游orientation跳变
+  # 同时驱动kappa、前馈和NMPC形成持续锯齿。可设false做单变量回退。
+  use_geometric_path_heading: true
+  geometric_heading_window_m: 2.0
 
   const_steer_bias: -0.0                    # 固定转向偏置 (rad)，可用于修正系统性转向误差
 
@@ -71,7 +180,7 @@ eso_tracker:
   slope_dynamic_gate_enabled: true          # 转向/横摆快变时冻结横坡低频状态，不清零已有补偿
   slope_gate_max_yaw_accel: 0.15            # rad/s²
   slope_gate_max_steer_rate: 0.08           # rad/s
-  slope_compensation_limit: 0.8             # m/s²，仅限制估计器输入，不改变小横坡增益
+  slope_compensation_limit: 1.1             # 6deg斜面理论重力分量约1.025m/s²，避免0.8裁剪
 
   # UKF 使用与 NMPC 一致的横坡扰动和 ay 零偏，避免把同一低频残差重复吸收为 vy。
   ukf_use_slope_disturbance: true
@@ -79,9 +188,9 @@ eso_tracker:
   ukf_q_r: 0.001
   ukf_r_ay: 0.5
   ukf_r_r: 0.1
-  ukf_ay_innovation_limit: 0.8              # m/s²；只限 ay 创新，横摆率创新不限
+  ukf_ay_innovation_limit: 0.0              # 0=取消裁剪，继承8-30；正值可恢复ay创新限幅
   ukf_vy_abs_max: 3.0                       # m/s；数值安全限幅
-  observer_dynamic_min_speed_mps: 4.0       # 低于此速度锚定vy/r，避免动态模型低速漂移后冷启动
+  observer_dynamic_min_speed_mps: 6.0       # 继承V8动态观测器门限；UKF单独使用RK4
 
   # --- 侧向加速度 ay 零偏补偿：只作用于横坡补偿计算 ay_slope=(ay_raw-ay_bias)-vx*r ---
   use_ay_bias_compensation: true        # ay 零偏补偿总开关；false=完全关闭静态/动态 ay 零偏补偿
@@ -100,10 +209,7 @@ eso_tracker:
 #                        逻辑切换与纯跟踪配置
 # ==============================================================================
 supervisor_config:
-  # --- 模式切换逻辑 ---
-  startup_time: 0.1                     # 启动强制纯跟踪时间 (s)
-  blend_speed_low: 4.1667   #4.1667     # 纯跟踪 -> 融合 切换车速 (15 km/h)
-  blend_speed_high: 5  #5.0             # 融合 -> NMPC 切换车速 (18 km/h)
+  # 行驶中始终优先NMPC；默认不使用表现未经验证的PP兜底。
 
   # --- 纯跟踪 (Pure Pursuit) 参数 ---
   min_lookahead_distance: 5.0         # 前视距离 (m)
@@ -116,8 +222,26 @@ supervisor_config:
   output_lpf_tau: 0.00                 # 输出转角一阶低通时间常数(s)，0=关闭；0.08~0.15
 
   # --- 算法降级 ---
-  degrade_failure_times: 3           # NMPC连续失败次数阈值，超过该值则降级为纯跟踪模式
-  require_overtake_times: 10          # 连续要求超车次数阈值，超过该值则提示要求人工接管
+  require_overtake_times: 10          # 连续求解失败达到此次数时提示接管（沿用旧参数名）
+
+  # --- V11：成功即采用，不设恢复期/误差资格/低速PP混合 ---
+  nmpc_attempt_min_speed_mps: 0.5 # >=此速度每周期尝试；低于此速度保持实测角，不预装PP
+  fallback_plan_max_age_s: 0.15 # 短失败先执行最近成功NMPC序列；过期后默认锚定实测转角
+  enable_pp_emergency_fallback: false # false: 旧NMPC序列过期后锚定实测转角，下一周期仍继续争取NMPC
+
+  # 实车桥在driving_mode!=2时把横向和航向误差同时精确置零；节点仍在后台运行。
+  # V8据此推断司机接管，持续用实测方向盘角覆盖内部上一指令；再次非零即视为AD重入。
+  # 仿真若会长期同时输出严格零误差，可将此开关设false。
+  use_driving_mode_topic: true
+  driving_mode_topic: /dfcv_bridge/driving_mode
+  autonomous_driving_mode_value: 2
+  driving_mode_timeout_s: 0.5
+  infer_manual_mode_from_zero_tracking_error: true
+  manual_mode_zero_error_epsilon_m: 1.0e-9
+  manual_mode_confirm_cycles: 3
+  autonomous_mode_confirm_cycles: 2
+
+  # 大偏差也由NMPC直接纠偏；手动/AD切换仍按实测转角复位。
 
 #纵向
 pid_controller:

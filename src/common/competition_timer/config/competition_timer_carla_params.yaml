@@ -14,7 +14,7 @@ start_point: [-115.0, -40.0, 0.0]
 end_point: [-115.0, -40.0, 0.0]
 
 # 总圈数
-total_laps: 3
+total_laps: 100
 
 # 是否为闭环赛道 (true/false)
 is_closed_loop: true

@@ -8,6 +8,7 @@
 #include <algorithm>  // for std::clamp
 #include <array>
 #include <cmath>
+#include <utility>
 #include <Eigen/Cholesky>
 #include <Eigen/Eigenvalues>
 
@@ -402,18 +403,20 @@ bool ESOTracker2::initialize(ros::NodeHandle& nh) {
 // 核心控制循环（完全保留原接口，内部替换为挂车逻辑）
 void ESOTracker2::computeControl(
     const race_msgs::VehicleStatusConstPtr& vehicle_status,
-    const race_msgs::PathConstPtr& path,
+    const race_msgs::PathConstPtr& path_input,
     race_msgs::Control* control_msg,
     const double dt,
     const race_msgs::Flag::ConstPtr& flag) {
 
     const auto control_start_time = std::chrono::steady_clock::now();
     (void)flag;
-    if (!vehicle_status || !path || !control_msg) {
+    if (!vehicle_status || !control_msg) {
         ROS_ERROR("[%s] 收到空指针消息", getName().c_str());
         return;
     }
-    if (path->points.empty()) {
+
+    // 与 ESOTracker 一致：任何无效状态/路径都锚定实测转角，绝不沿用任意旧命令。
+    auto holdMeasuredSteering = [&]() {
         const double measured_delta = vehicle_status->lateral.steering_angle;
         const double safe_hold = std::isfinite(measured_delta)
             ? std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, measured_delta))
@@ -428,8 +431,41 @@ void ESOTracker2::computeControl(
             publish_steering_angle_velocity_ ? steering_angle_velocity_cmd_radps_ : 0.0;
         control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
         control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
+        solver_.has_prev_sol = false;
+        solver_.sol_prev.reset();
+        enterFallback(5, ros::Time::now());
+    };
+
+    if (!path_input || path_input->points.size() < 2) {
+        holdMeasuredSteering();
+        ROS_WARN_THROTTLE(1.0, "[%s] 路径缺失或点数不足，保持实测转角",
+                          getName().c_str());
         return;
     }
+
+    race_msgs::Path cleaned_path = *path_input;
+    cleaned_path.points.clear();
+    for (const auto& point : path_input->points) {
+        const auto& position = point.pose.position;
+        if (!std::isfinite(position.x) || !std::isfinite(position.y)) {
+            holdMeasuredSteering();
+            ROS_ERROR_THROTTLE(0.5, "[%s] 路径含NaN/Inf，保持实测转角",
+                               getName().c_str());
+            return;
+        }
+        if (cleaned_path.points.empty() ||
+            std::hypot(position.x - cleaned_path.points.back().pose.position.x,
+                       position.y - cleaned_path.points.back().pose.position.y) > 1e-4) {
+            cleaned_path.points.push_back(point);
+        }
+    }
+    if (cleaned_path.points.size() < 2) {
+        holdMeasuredSteering();
+        ROS_WARN_THROTTLE(1.0, "[%s] 去重后路径点数不足，保持实测转角",
+                          getName().c_str());
+        return;
+    }
+    const race_msgs::PathConstPtr path(new race_msgs::Path(std::move(cleaned_path)));
 
     // 提取当前状态
     const double curr_x = vehicle_status->pose.position.x;
@@ -447,14 +483,11 @@ void ESOTracker2::computeControl(
     double curr_delta = vehicle_status->lateral.steering_angle;
     if (!std::isfinite(curr_x) || !std::isfinite(curr_y) || !std::isfinite(curr_theta) ||
         !std::isfinite(curr_vx_raw) || !std::isfinite(curr_vy_status) ||
-        !std::isfinite(curr_ay) || !std::isfinite(curr_r) || !std::isfinite(curr_delta)) {
-        ROS_ERROR_THROTTLE(0.5, "[%s] 车辆状态含NaN/Inf，保持上一有效转角 %.4f rad",
-                           getName().c_str(), current_cmd_);
-        control_msg->lateral.steering_angle = current_cmd_;
-        control_msg->lateral.steering_angle_velocity =
-            publish_steering_angle_velocity_ ? steering_angle_velocity_cmd_radps_ : 0.0;
-        control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
-        control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
+        !std::isfinite(curr_ay) || !std::isfinite(curr_r) || !std::isfinite(curr_delta) ||
+        !std::isfinite(dt)) {
+        holdMeasuredSteering();
+        ROS_ERROR_THROTTLE(0.5, "[%s] 车辆状态或dt含NaN/Inf，保持实测转角",
+                           getName().c_str());
         return;
     }
     const bool measurement_is_new = isNewVehicleMeasurement(
@@ -664,13 +697,13 @@ void ESOTracker2::computeControl(
     const double kappa = static_cast<double>(waypoints_dm(3, std::min(1, nmpc_params_.N)));
     last_delta_ff_ = static_cast<double>(waypoints_dm(4, std::min(1, nmpc_params_.N)));
 
-    const int nearest_jump = reference_prev_nearest_idx_ >= 0
-        ? nearest_idx - reference_prev_nearest_idx_ : 0;
     reference_kappa_step_ = last_reference_kappa_valid_ && std::isfinite(kappa)
         ? std::abs(kappa - last_reference_kappa_) : std::numeric_limits<double>::infinity();
     reference_stable_this_cycle_ = last_reference_kappa_valid_ && std::isfinite(kappa) &&
-        reference_kappa_step_ <= fallback_reentry_max_kappa_step_1pm_ &&
-        std::abs(nearest_jump) <= fallback_reentry_max_nearest_index_jump_;
+        reference_valid_ &&
+        reference_kappa_step_ <= fallback_reentry_max_kappa_step_1pm_ +
+            std::abs(reference_dkappa_ds_) * v_abs * obs_dt;
+    // 滚动局部路径的下标不是稳定身份，不能用下标跳变判定参考是否突变。
     reference_stable_streak_ = reference_stable_this_cycle_ ? reference_stable_streak_ + 1 : 0;
     last_reference_kappa_valid_ = std::isfinite(kappa);
     if (last_reference_kappa_valid_) last_reference_kappa_ = kappa;
@@ -728,6 +761,13 @@ void ESOTracker2::computeControl(
     if (inferred_manual_mode_) {
         last_nmpc_status_code_ = 6;
         last_nmpc_return_status_ = "skipped_manual_mode";
+    } else if (!reference_valid_) {
+        last_nmpc_status_code_ = 7;
+        last_nmpc_return_status_ = "invalid_or_short_reference";
+        solver_.has_prev_sol = false;
+        solver_.sol_prev.reset();
+        pp_cmd_queue_.clear();
+        enterFallback(5, current_time);
     } else if (startup_recovery_active_) {
         last_nmpc_status_code_ = 5;
         last_nmpc_return_status_ = "skipped_startup_recovery";
@@ -870,7 +910,7 @@ void ESOTracker2::computeControl(
         }
     }
     if (inferred_manual_mode_) blend_alpha_ = 0.0;
-    require_over_take_flag_ = mpc_failure_count_ >= require_overtake_times_;
+    require_over_take_flag_ = mpc_failure_count_ >= require_overtake_times_ || !reference_valid_;
 
     if (blend_alpha_ < 0.01) {
         using_pure_pursuit_flag_ = true;
@@ -970,10 +1010,6 @@ inline double angleDiff(double a, double b) {
     return d;
 }
 
-// 体坐标系变换的原点（自车当前位置）。由 process_race_path 在每帧调用前设置，
-// 供 interpolate_path_segment 把全局位置参考转换为体坐标系。控制器单实例串行调用，安全。
-double g_ref_x0 = 0.0;
-double g_ref_y0 = 0.0;
 } // anonymous namespace
 
 double ESOTracker2::quaternion_to_yaw(const geometry_msgs::Quaternion& q) {
@@ -1153,11 +1189,10 @@ casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, co
     int n_waypoints = s_target.size();
     casadi::DM waypoints = casadi::DM::zeros(8, n_waypoints);
     const double vx_reference = s_target.size() >= 2
-        ? std::max(1.0, (s_target[1] - s_target[0]) / nmpc_params_.dt) : 1.0;
-    double previous_delta_ff = current_cmd_;
+        ? std::max(0.5, (s_target[1] - s_target[0]) / nmpc_params_.dt) : 1.0;
     for (int i = 0; i < n_waypoints; ++i) {
-        double dx = x_interp[i] - g_ref_x0;
-        double dy = y_interp[i] - g_ref_y0;
+        double dx = x_interp[i] - reference_origin_x_;
+        double dy = y_interp[i] - reference_origin_y_;
         double bx =  cos_y * dx + sin_y * dy;   // 体坐标系纵向
         double by = -sin_y * dx + cos_y * dy;   // 体坐标系横向
         waypoints(0, i) = bx;
@@ -1165,16 +1200,9 @@ casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, co
         waypoints(2, i) = theta_interp[i];   // 相对自车当前航向、连续解缠绕后的参考航向
         waypoints(3, i) = kappa_interp[i];
         const auto reference = computeSteadyStateReference(vx_reference, kappa_interp[i]);
-        double delta_ff = previous_delta_ff;
-        if (i > 0) {
-            const double lower = previous_delta_ff + nmpc_params_.delta_rate_min * nmpc_params_.dt;
-            const double upper = previous_delta_ff + nmpc_params_.delta_rate_max * nmpc_params_.dt;
-            delta_ff = std::max(lower, std::min(upper, reference[0]));
-            delta_ff = std::max(nmpc_params_.delta_min,
-                                std::min(nmpc_params_.delta_max, delta_ff));
-        }
-        previous_delta_ff = delta_ff;
-        waypoints(4, i) = delta_ff;
+        // 路径只发布由几何/车速/三自由度模型决定的纯稳态前馈；与上一帧命令有关的
+        // 速率可行化在 solveNMPC 中单独生成 P_nominal，避免污染参考本身。
+        waypoints(4, i) = reference[0];
         waypoints(5, i) = reference[1];
         waypoints(6, i) = reference[2];
         waypoints(7, i) = reference[3];
@@ -1183,16 +1211,17 @@ casadi::DM ESOTracker2::interpolate_path_segment(const race_msgs::Path& path, co
 }
 
 casadi::DM ESOTracker2::process_race_path(const race_msgs::Path& input_path, const std::vector<double>& current_state) {
+    reference_valid_ = false;
     int nearest_idx = find_nearest_path_point(
         current_state[0], current_state[1], current_state[2], input_path);
     if (nearest_idx == -1) return casadi::DM::zeros(8, nmpc_params_.N + 1);
 
     // 设置体坐标系变换原点为自车当前位置，供 interpolate_path_segment 使用
-    g_ref_x0 = current_state[0];
-    g_ref_y0 = current_state[1];
+    reference_origin_x_ = current_state[0];
+    reference_origin_y_ = current_state[1];
 
     // 极低速保护
-    double calc_vx = std::max(current_state[3], 0.1); 
+    double calc_vx = std::max(current_state[3], 0.5);
     
     // 1. 生成基于实时车速的动态距离向量 s_target
     std::vector<double> s_target(nmpc_params_.N + 1);
@@ -1212,7 +1241,21 @@ casadi::DM ESOTracker2::process_race_path(const race_msgs::Path& input_path, con
     }
     end_idx = std::min(end_idx, static_cast<int>(input_path.points.size()) - 1);
 
-    return interpolate_path_segment(input_path, cum_dist, nearest_idx, end_idx, s_target, current_state[2]);
+    reference_remaining_m_ = cum_dist.empty() ? 0.0 : cum_dist.back();
+    reference_extension_m_ = std::max(0.0, s_target.back() - reference_remaining_m_);
+    casadi::DM result = interpolate_path_segment(
+        input_path, cum_dist, nearest_idx, end_idx, s_target, current_state[2]);
+
+    // 不把未提供的路线静默外推给 NMPC；短路径仍可供 PP 安全支路使用。
+    reference_valid_ = reference_extension_m_ < 1e-6 && reference_remaining_m_ >= 0.5;
+    for (double value : result.nonzeros()) {
+        reference_valid_ = reference_valid_ && std::isfinite(value);
+    }
+    reference_dkappa_ds_ = nmpc_params_.N >= 1
+        ? static_cast<double>(result(3, 1) - result(3, 0)) /
+              std::max(1e-4, calc_vx * nmpc_params_.dt)
+        : 0.0;
+    return result;
 }
 
 std::array<double, 4> ESOTracker2::computeSteadyStateReference(
@@ -1220,20 +1263,130 @@ std::array<double, 4> ESOTracker2::computeSteadyStateReference(
     if (!use_equilibrium_feedforward_ || !std::isfinite(vx) || !std::isfinite(kappa)) {
         return {0.0, 0.0, 0.0, 0.0};
     }
-    const double r_ref = std::abs(vx) * kappa;
+    const double vx_safe = std::max(std::abs(vx), 2.0);
+    const double r_ref = vx_safe * kappa;
+    if (std::abs(kappa) < 1e-9) {
+        return {0.0, 0.0, 0.0, 0.0};
+    }
+
     const double wheelbase = std::max(0.1, nmpc_params_.lf + nmpc_params_.lr);
-    double delta_ff = equilibrium_feedforward_gain_ * std::atan(wheelbase * kappa);
+    const double gamma_argument = std::max(
+        -0.95, std::min(0.95, -(nmpc_params_.L2 + nmpc_params_.lh) * kappa));
+    Eigen::Vector3d equilibrium(
+        std::atan(wheelbase * kappa), 0.0, std::asin(gamma_argument));
+
+    // 未知量为 [delta_ff, vy_eq, gamma_eq]，稳态约束为
+    // vy_dot=r_dot=r_t_dot=0 且 r_t=r=vx*kappa。残差与 NMPC 的三自由度
+    // 牵引车-挂车方程逐项一致，避免退化为只看轴距的 Ackermann 前馈。
+    const auto residual = [&](const Eigen::Vector3d& z) {
+        const double delta = z(0);
+        const double vy = z(1);
+        const double gamma = z(2);
+        const double m1 = std::max(1.0, nmpc_params_.m);
+        const double m2 = std::max(1.0, nmpc_params_.m_t_total);
+        const double Iz1 = std::max(1.0, nmpc_params_.Iz);
+        const double Iz2 = std::max(1.0, nmpc_params_.Iz_t +
+            nmpc_params_.Kiz * (m2 - nmpc_params_.m_t));
+        const double lf = nmpc_params_.lf;
+        const double lr = nmpc_params_.lr;
+        const double lt = nmpc_params_.lt;
+        const double L2 = std::max(0.1, nmpc_params_.L2);
+        const double Cf = std::max(1.0, rls_Cf_est_);
+        const double Cr = std::max(1.0, rls_Cr_est_);
+        const double Ct = std::max(1.0, rls_Ct_est_);
+        const double cg = std::cos(gamma);
+        const double sg = std::sin(gamma);
+
+        const double alpha_f = delta - std::atan2(vy + lf * r_ref, vx_safe);
+        const double alpha_r = -std::atan2(vy - lr * r_ref, vx_safe);
+        const double Fyf = Cf * alpha_f;
+        const double Fyr = Cr * alpha_r;
+        const double vx_h2 = vx_safe * cg + (vy - lr * r_ref) * sg;
+        const double vy_h2 = -vx_safe * sg + (vy - lr * r_ref) * cg;
+        const double alpha_t = -std::atan2(vy_h2 - L2 * r_ref,
+                                            std::max(vx_h2, 0.5));
+        const double Fyt = Ct * alpha_t;
+        const double Fyt_y1 = Fyt * cg;
+
+        const double F1 = Fyf * std::cos(delta) + Fyr + Fyt_y1 -
+            (m1 + m2) * vx_safe * r_ref - m2 * lt * r_ref * r_ref * sg;
+        const double F2 = lf * Fyf * std::cos(delta) - lr * Fyr - lr * Fyt_y1 +
+            m2 * lr * vx_safe * r_ref + m2 * lr * lt * r_ref * r_ref * sg;
+        const double F3 = -L2 * Fyt + m2 * lt * r_ref *
+            (vx_safe * cg + (vy - lr * r_ref) * sg);
+        const double mass = m1 + m2;
+        const double S11 = Iz1 + m2 * lr * lr - m2 * m2 * lr * lr / mass;
+        const double S12 = m2 * lr * lt * cg -
+            m2 * m2 * lr * lt * cg / mass;
+        const double S22 = Iz2 + m2 * lt * lt -
+            m2 * m2 * lt * lt * cg * cg / mass;
+        const double b1 = F2 + m2 * lr * F1 / mass;
+        const double b2 = F3 + m2 * lt * cg * F1 / mass;
+        double det = S11 * S22 - S12 * S12;
+        if (std::abs(det) < 1e-9) det = det >= 0.0 ? 1e-9 : -1e-9;
+        const double r_dot = (b1 * S22 - b2 * S12) / det;
+        const double rt_dot = (S11 * b2 - S12 * b1) / det;
+        const double vy_dot = (F1 + m2 * lr * r_dot + m2 * lt * cg * rt_dot) / mass;
+        return Eigen::Vector3d(vy_dot, r_dot, rt_dot);
+    };
+
+    const double delta_lo = nmpc_params_.delta_min;
+    const double delta_hi = nmpc_params_.delta_max;
+    const double vy_limit = std::max(3.0, 0.7 * vx_safe);
+    bool converged = false;
+    for (int iteration = 0; iteration < 12; ++iteration) {
+        const Eigen::Vector3d f = residual(equilibrium);
+        if (!f.allFinite()) break;
+        if (f.norm() < 1e-5) {
+            converged = true;
+            break;
+        }
+        Eigen::Matrix3d jacobian;
+        const Eigen::Vector3d epsilon(1e-5, 1e-4, 1e-5);
+        for (int column = 0; column < 3; ++column) {
+            Eigen::Vector3d plus = equilibrium;
+            Eigen::Vector3d minus = equilibrium;
+            plus(column) += epsilon(column);
+            minus(column) -= epsilon(column);
+            jacobian.col(column) =
+                (residual(plus) - residual(minus)) / (2.0 * epsilon(column));
+        }
+        Eigen::FullPivLU<Eigen::Matrix3d> solver(jacobian);
+        if (!solver.isInvertible()) break;
+        const Eigen::Vector3d step = solver.solve(-f);
+        if (!step.allFinite()) break;
+
+        bool accepted = false;
+        double scale = 1.0;
+        for (int line_search = 0; line_search < 8; ++line_search) {
+            Eigen::Vector3d candidate = equilibrium + scale * step;
+            candidate(0) = std::max(delta_lo, std::min(delta_hi, candidate(0)));
+            candidate(1) = std::max(-vy_limit, std::min(vy_limit, candidate(1)));
+            candidate(2) = std::max(-1.3, std::min(1.3, candidate(2)));
+            const Eigen::Vector3d candidate_residual = residual(candidate);
+            if (candidate_residual.allFinite() && candidate_residual.norm() < f.norm()) {
+                equilibrium = candidate;
+                accepted = true;
+                break;
+            }
+            scale *= 0.5;
+        }
+        if (!accepted) break;
+    }
+
+    const Eigen::Vector3d final_residual = residual(equilibrium);
+    converged = converged || (final_residual.allFinite() && final_residual.norm() < 0.25);
+    if (!converged || !equilibrium.allFinite()) {
+        equilibrium << std::atan(wheelbase * kappa), 0.0, std::asin(gamma_argument);
+    }
+
+    double delta_ff = equilibrium_feedforward_gain_ * equilibrium(0);
     if (equilibrium_feedforward_limit_ > 0.0) {
         delta_ff = std::max(-equilibrium_feedforward_limit_,
                             std::min(equilibrium_feedforward_limit_, delta_ff));
     }
-
-    // 采用与本控制器挂车运动学伪测量相同的符号：稳态 r_t=r，
-    // sin(gamma)=-(L2*kappa + lh*kappa*cos(gamma))；lh=0 时为精确闭式近似。
-    const double gamma_argument = std::max(
-        -0.95, std::min(0.95, -(nmpc_params_.L2 + nmpc_params_.lh) * kappa));
-    const double gamma_ref = std::asin(gamma_argument);
-    return {delta_ff, 0.0, r_ref, gamma_ref};
+    delta_ff = std::max(delta_lo, std::min(delta_hi, delta_ff));
+    return {delta_ff, equilibrium(1), r_ref, equilibrium(2)};
 }
 
 //  --- 核心算法：CKF 状态估计 (替换原 EKF) ---
@@ -1698,6 +1851,7 @@ void ESOTracker2::buildNMPSolver() {
     solver_.U_sparse = solver_.opti.variable(nu, Nc);
     solver_.P_x0 = solver_.opti.parameter(nx);
     solver_.P_waypoints = solver_.opti.parameter(8, N+1);
+    solver_.P_nominal = solver_.opti.parameter(1, N);
     solver_.P_vx = solver_.opti.parameter(1);
     solver_.P_u_prev = solver_.opti.parameter(1);
     solver_.P_h_hat = solver_.opti.parameter(1);
@@ -1741,7 +1895,7 @@ void ESOTracker2::buildNMPSolver() {
     solver_.U_full_command = MX::zeros(nu, N);
     for (int k = 0; k < N; ++k) {
         solver_.U_full_command(0, k) =
-            solver_.P_waypoints(4, k + 1) + solver_.U_full_feedback(0, k);
+            solver_.P_nominal(0, k) + solver_.U_full_feedback(0, k);
     }
 
 
@@ -1848,12 +2002,60 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
         solver_.opti.set_value(solver_.P_waypoints, waypoints);
         solver_.opti.set_value(solver_.P_u_prev, current_cmd_);
 
-         if (solver_.has_prev_sol && solver_.sol_prev) {
-            solver_.opti.set_initial(solver_.X, solver_.sol_prev->value(solver_.X));
-            solver_.opti.set_initial(solver_.U_sparse, solver_.sol_prev->value(solver_.U_sparse));
-
-            solver_.opti.set_initial(solver_.opti.lam_g(), solver_.sol_prev->value(solver_.opti.lam_g()));
+        // 参考中的 delta_ff 保持为纯三自由度稳态前馈；这里再从实测/上一实际命令出发，
+        // 生成满足幅值和速率硬约束的命令基线。这样零反馈始终是可行解。
+        const int N = nmpc_params_.N;
+        const int Nc = nmpc_params_.Nc;
+        const double min_step = nmpc_params_.delta_rate_min * nmpc_params_.dt;
+        const double max_step = nmpc_params_.delta_rate_max * nmpc_params_.dt;
+        casadi::DM nominal = casadi::DM::zeros(1, N);
+        double previous_command = current_cmd_;
+        for (int k = 0; k < N; ++k) {
+            const double desired = static_cast<double>(waypoints(4, k + 1));
+            previous_command = std::max(previous_command + min_step,
+                std::min(previous_command + max_step, desired));
+            previous_command = std::max(nmpc_params_.delta_min,
+                std::min(nmpc_params_.delta_max, previous_command));
+            nominal(0, k) = previous_command;
         }
+        solver_.opti.set_value(solver_.P_nominal, nominal);
+
+        casadi::DM feedback_seed = casadi::DM::zeros(1, Nc);
+        if (solver_.has_prev_sol && solver_.sol_prev) {
+            solver_.opti.set_initial(solver_.X, solver_.sol_prev->value(solver_.X));
+            const casadi::DM old_command = solver_.sol_prev->value(solver_.U_full_command);
+            for (int j = 0; j < Nc; ++j) {
+                const int first = solver_.control_block_start[j];
+                feedback_seed(0, j) =
+                    old_command(0, std::min(first + 1, N - 1)) - nominal(0, first);
+            }
+
+            // 把移位热启动投影到新基线对应的可行区间；若区间异常则安全退回零修正。
+            previous_command = current_cmd_;
+            for (int j = 0; j < Nc; ++j) {
+                const int first = solver_.control_block_start[j];
+                const int last = first + solver_.control_block_length[j] - 1;
+                double lo = previous_command + min_step - static_cast<double>(nominal(0, first));
+                double hi = previous_command + max_step - static_cast<double>(nominal(0, first));
+                for (int k = first; k <= last; ++k) {
+                    const double base = static_cast<double>(nominal(0, k));
+                    lo = std::max(lo, nmpc_params_.delta_min - base);
+                    hi = std::min(hi, nmpc_params_.delta_max - base);
+                }
+                const double seed = static_cast<double>(feedback_seed(0, j));
+                if (lo > hi || !std::isfinite(seed)) {
+                    feedback_seed = casadi::DM::zeros(1, Nc);
+                    last_nmpc_warm_start_used_ = false;
+                    break;
+                }
+                feedback_seed(0, j) = std::max(lo, std::min(hi, seed));
+                previous_command = static_cast<double>(nominal(0, last)) +
+                    static_cast<double>(feedback_seed(0, j));
+            }
+        }
+        solver_.opti.set_initial(solver_.U_sparse, feedback_seed);
+        // 新一帧采用新的车体坐标系和前馈基线，旧约束乘子不再有效。
+        solver_.opti.set_initial(solver_.opti.lam_g(), 0.0);
 
         casadi::OptiSol sol = solver_.opti.solve();
         last_nmpc_solver_returned_success_ = true;
@@ -1912,7 +2114,7 @@ bool ESOTracker2::solveNMPC(const std::vector<double>& current_state, const casa
 
 // ---------------------- [新增] 纯跟踪兜底保护实现 ----------------------
 double ESOTracker2::computePurePursuitSteering(const race_msgs::Path& path,double curr_x, double curr_y,double curr_theta, double lookahead_dist) {
-    if (path.points.empty()) return 0.0;
+    if (path.points.empty()) return current_cmd_;
     int nearest_idx = find_nearest_path_point(curr_x, curr_y, curr_theta, path);
     int target_idx = nearest_idx;
     // 目标点按路径累计弧长选择；横向大偏差不会被误算成前视距离。
@@ -1924,15 +2126,27 @@ double ESOTracker2::computePurePursuitSteering(const race_msgs::Path& path,doubl
         target_idx = i;
         if (arc_length >= lookahead_dist) break;
     }
-    const auto& target_pt = path.points[target_idx].pose.position;
-    double dx = target_pt.x - curr_x;
-    double dy = target_pt.y - curr_y;
+    double tx = path.points[target_idx].pose.position.x;
+    double ty = path.points[target_idx].pose.position.y;
+    if (target_idx > nearest_idx && arc_length > lookahead_dist) {
+        const auto& before = path.points[target_idx - 1].pose.position;
+        const double segment = std::hypot(tx - before.x, ty - before.y);
+        const double fraction = std::max(0.0, std::min(1.0,
+            1.0 - (arc_length - lookahead_dist) / std::max(segment, 1e-4)));
+        tx = before.x + fraction * (tx - before.x);
+        ty = before.y + fraction * (ty - before.y);
+    }
+    double dx = tx - curr_x;
+    double dy = ty - curr_y;
     // 旋转矩阵：将世界坐标误差转换为车体坐标
     double local_x = std::cos(curr_theta) * dx + std::sin(curr_theta) * dy;
     double local_y = -std::sin(curr_theta) * dx + std::cos(curr_theta) * dy;
     double L = nmpc_params_.lf + nmpc_params_.lr; // 牵引车轴距
-    double ld = std::max(lookahead_dist, std::sqrt(local_x*local_x + local_y*local_y));
+    double ld = std::max(0.5, std::hypot(local_x, local_y));
     double delta_pp = std::atan2(2.0 * L * local_y, ld * ld);
+    if (local_x <= 0.1 || reference_remaining_m_ < 0.5) {
+        return current_cmd_;
+    }
     return std::max(nmpc_params_.delta_min, std::min(nmpc_params_.delta_max, delta_pp));
 }
 

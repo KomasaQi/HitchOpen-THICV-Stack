@@ -16,7 +16,7 @@ eso_tracker2:
   Iz: 50000.0                     # 牵引车横摆惯量 kg*m^2
   lf: 2.0
   lr: 2.135
-  m_t_empty: 7570.0               # 空挂车质量 kg
+  m_t_empty: 20000.0               # 空挂车质量 kg
   Iz_t_empty: 150000.0            # 空挂车横摆惯量 kg*m^2
   m_t_total: 29500.0              # 挂车+载荷质量；不含牵引车
   lt: 3.4                         # 挂车质心到铰接点
@@ -26,10 +26,10 @@ eso_tracker2:
   Kiz: 10.0                       # 挂车载荷惯量增量系数 kg*m^2/kg
 
   # --- 3. 转角及实时性安全层 ---
-  min_steer: -1.0 
-  max_steer: 1.0
-  delta_rate_max: 0.5            # 正向前轮转角速率 rad/s
-  delta_rate_min: -0.5           # 负向前轮转角速率 rad/s
+  min_steer: -0.5
+  max_steer: 0.5
+  delta_rate_max: 0.35            # 正向前轮转角速率 rad/s
+  delta_rate_min: -0.35           # 负向前轮转角速率 rad/s
   nmpc_solve_deadline_ms: 50.0
   nmpc_ipopt_cpu_time_limit_ms: 45.0
   enforce_final_output_rate_limit: true
@@ -57,6 +57,7 @@ eso_tracker2:
   path_projection_heading_gate_rad: 1.2
   path_projection_rear_gate_m: 5.0
   use_equilibrium_feedforward: true
+  # 由牵引车-挂车3DOF稳态平衡求解 delta/vy/r_t/gamma；命令速率可行化在NMPC内单独完成
   equilibrium_feedforward_gain: 1.0
   equilibrium_feedforward_limit: 0.45
 

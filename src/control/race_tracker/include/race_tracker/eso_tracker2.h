@@ -82,6 +82,8 @@ struct NMPSolver {
     casadi::MX P_x0;
     // [x_ref,y_ref,theta_ref,kappa_ref,delta_ff,vy_ref,r_t_ref,gamma_ref]
     casadi::MX P_waypoints;
+    // 由原始稳态前馈按实测上一转角投影得到的、满足转角速率约束的命令基线。
+    casadi::MX P_nominal;
     casadi::MX P_vx;
     casadi::MX P_u_prev;
     casadi::MX P_h_hat;
@@ -252,6 +254,12 @@ private:
     double equilibrium_feedforward_gain_ = 1.0;
     double equilibrium_feedforward_limit_ = 0.45;
     double last_delta_ff_ = 0.0;
+    bool reference_valid_ = false;
+    double reference_origin_x_ = 0.0;
+    double reference_origin_y_ = 0.0;
+    double reference_remaining_m_ = 0.0;
+    double reference_extension_m_ = 0.0;
+    double reference_dkappa_ds_ = 0.0;
 
     // PP 延迟、输出低通和最终速率保护
     std::deque<double> pp_cmd_queue_;

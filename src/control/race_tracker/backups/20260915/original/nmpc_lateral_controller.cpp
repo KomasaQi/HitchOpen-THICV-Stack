@@ -14,21 +14,25 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
     ros::NodeHandle nh_nmpc(nh, "nmpc_lateral_controller");  // 子命名空间：父ns + "/nmpc_lateral_controller"
     ROS_INFO("[NMPCLateralController] 插件专属NodeHandle命名空间: %s", nh_nmpc.getNamespace().c_str());
 
-    // 加载核心参数（单前轴：状态 [x,y,theta,vx,delta1]，控制 [delta1_des]）
-    nh_nmpc.param("nx", nx_, 5);
-    nh_nmpc.param("nu", nu_, 1);
+    // 加载核心参数
+    nh_nmpc.param("nx", nx_, 6);
+    nh_nmpc.param("nu", nu_, 2);
     nh_nmpc.param("prediction_step", N_, 15);
     nh_nmpc.param("sparse_control_step", Nc_, 4);
     nh_nmpc.param("front_steer_time_constant", T_d1_, 0.2);
-    nh_nmpc.param("sampling_time", dt_, 0.05);
+    nh_nmpc.param("rear_steer_time_constant", T_d2_, 0.2);
+    nh_nmpc.param("sampling_time", dt_, 0.1);
     nh_nmpc.param("wheelbase", L_, 2.8);
     nh_nmpc.param("gravity", g_, 9.806);
     nh_nmpc.param("max_acceleration", a_max_, 3.0);
-    nh_nmpc.param("num_waypoints", n_waypoints_, 15);
+    nh_nmpc.param("num_waypoints", n_waypoints_, 30);
 
     // 加载控制量边界
     nh_nmpc.param("min_front_steer", delta1_min_, -0.4);
     nh_nmpc.param("max_front_steer", delta1_max_, 0.4);
+    nh_nmpc.param("min_rear_steer", delta2_min_, -0.4);
+    nh_nmpc.param("max_rear_steer", delta2_max_, 0.4);
+
 
     // 加载代价函数权重
     nh_nmpc.param("weight_position", w_pos_, 5.0);
@@ -37,6 +41,8 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
     nh_nmpc.param("weight_acceleration", w_ax_, 5.0);
     nh_nmpc.param("weight_front_steer", w_delta1_, 500.0);
     nh_nmpc.param("weight_front_steer_control", w_delta_cmd1_, 1.0);
+    nh_nmpc.param("weight_rear_steer", w_delta2_, 500.0);
+    nh_nmpc.param("weight_rear_steer_control", w_delta_cmd2_, 1.0);
     nh_nmpc.param("weight_terminal_position", w_term_pos_, 10.0);
     nh_nmpc.param("weight_terminal_heading", w_term_theta_, 5.0);
     nh_nmpc.param("weight_terminal_velocity", w_term_v_, 5.0);
@@ -45,25 +51,30 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
 
     // 打印加载的参数
     printf("==========加载核心参数==========\n");
-    logParamLoad("nx", nx_, 5);
-    logParamLoad("nu", nu_, 1);
+    logParamLoad("nx", nx_, 6);
+    logParamLoad("nu", nu_, 2);
     logParamLoad("prediction_step", N_, 15);
     logParamLoad("sparse_control_step", Nc_, 4);
     logParamLoad("front_steer_time_constant", T_d1_, 0.2);
-    logParamLoad("sampling_time", dt_, 0.05);
+    logParamLoad("rear_steer_time_constant", T_d2_, 0.2);
+    logParamLoad("sampling_time", dt_, 0.1);
     logParamLoad("wheelbase", L_, 2.8);
     logParamLoad("gravity", g_, 9.806);
     logParamLoad("max_acceleration", a_max_, 3.0);
-    logParamLoad("num_waypoints", n_waypoints_, 15);
+    logParamLoad("num_waypoints", n_waypoints_, 30);
     printf("==========加载控制量边界参数==========\n");
     logParamLoad("min_front_steer", delta1_min_, -0.4);
     logParamLoad("max_front_steer", delta1_max_, 0.4);
+    logParamLoad("min_rear_steer", delta2_min_, -0.4);
+    logParamLoad("max_rear_steer", delta2_max_, 0.4);
     printf("==========加载权重参数==========\n");
     logParamLoad("weight_position", w_pos_, 5.0);
     logParamLoad("weight_heading", w_theta_, 3.0);
     logParamLoad("weight_acceleration", w_ax_, 5.0);
     logParamLoad("weight_front_steer", w_delta1_, 500.0);
     logParamLoad("weight_front_steer_control", w_delta_cmd1_, 1.0);
+    logParamLoad("weight_rear_steer", w_delta2_, 500.0);
+    logParamLoad("weight_rear_steer_control", w_delta_cmd2_, 1.0);
     logParamLoad("weight_terminal_position", w_term_pos_, 10.0);
     logParamLoad("weight_terminal_heading", w_term_theta_, 5.0);
 
@@ -90,19 +101,21 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
     }
 
     // 定义符号变量与动力学模型
-    casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,vx,delta1]
-    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta1_des]
+    casadi::MX X_sym = casadi::MX::sym("X", nx_);  // 状态变量 [x,y,theta,vx,delta1,delta2]
+    casadi::MX U_sym = casadi::MX::sym("U", nu_);  // 控制变量 [delta1_des, delta2_des]
     
-    // 侧向速度：后轴转角为 0，vy = vx * tan(delta1) / 2
-    casadi::MX vy = X_sym(3) * casadi::MX::tan(X_sym(4)) / 2;
+    // 计算侧向速度vy（双轴转向车辆简化模型）
+    casadi::MX vy = X_sym(3) * (casadi::MX::tan(X_sym(4)) + casadi::MX::tan(X_sym(5))) / 2;
 
     // 动力学方程（连续时间）
     casadi::MX f_expr = casadi::MX::vertcat({
         X_sym(3) * casadi::MX::cos(X_sym(2)) - vy * casadi::MX::sin(X_sym(2)),  // x_dot
         X_sym(3) * casadi::MX::sin(X_sym(2)) + vy * casadi::MX::cos(X_sym(2)),  // y_dot
-        X_sym(3) * casadi::MX::tan(X_sym(4)) / L_,  // theta_dot
-        0,                                         // vx_dot
-        (U_sym(0) - X_sym(4)) / T_d1_              // delta1_dot
+        X_sym(3) * (casadi::MX::tan(X_sym(4)) - casadi::MX::tan(X_sym(5))) / L_,  // theta_dot
+        // 纵向加速度模型（驱动/制动效率差异）
+        0,
+        (U_sym(0) - X_sym(4)) / T_d1_,  // delta1_dot
+        (U_sym(1) - X_sym(5)) / T_d2_   // delta2_dot
     });
     f_func_ = casadi::Function("f_dynamics", {X_sym, U_sym}, {f_expr});
 
@@ -150,8 +163,9 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
     // 初始状态约束
     opti_.subject_to(X_(casadi::Slice(), 0) == x0_);
 
-    // 控制量边界约束（仅前轴）
+    // 控制量边界约束
     opti_.subject_to(opti_.bounded(delta1_min_, U_sparse_(0, casadi::Slice()), delta1_max_));
+    opti_.subject_to(opti_.bounded(delta2_min_, U_sparse_(1, casadi::Slice()), delta2_max_));
 
     // 代价函数（状态跟踪+控制平滑）
     casadi::MX cost = 0;
@@ -178,7 +192,9 @@ bool NMPCLateralController::initialize(ros::NodeHandle& nh) {
 
         // 前轴转向角指令代价
         cost += w_delta_cmd1_ * casadi::MX::sumsqr(U_full(0, k));
+        cost += w_delta_cmd2_ * casadi::MX::sumsqr(U_full(1, k));
         cost += w_delta1_ * casadi::MX::sumsqr(X_(4, k));
+        cost += w_delta2_ * casadi::MX::sumsqr(X_(5, k));
     }
 
     // 终端代价
@@ -246,10 +262,9 @@ void NMPCLateralController::computeControl(
     casadi::DM waypoints_dm = process_race_path(*path, current_state);
 
     // 求解NMPC
-    std::vector<double> control_output(1); // [delta1_des]
+    std::vector<double> control_output(2); // [delta1_des, delta2_des]
     if (!solveNMPC(current_state, waypoints_dm, control_output)) {
-        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: control_output = [%f]", getName().c_str(),
-                 last_control_output_.empty() ? 0.0 : last_control_output_[0]);
+        ROS_WARN("[%s] NMPC求解失败，使用上一次控制量: control_output = [%f, %f]", getName().c_str(), last_control_output_[0], last_control_output_[1]);
 
         // 如果求解失败，使用上一次的控制量
         if (!last_control_output_.empty()) {
@@ -257,7 +272,7 @@ void NMPCLateralController::computeControl(
         }
         else {
             // 如果没有上一次的控制量，使用默认值
-            control_output = {0.0};
+            control_output = {0.0, 0.0};
         }
 
     } else {
@@ -267,10 +282,10 @@ void NMPCLateralController::computeControl(
 
     // 将求解结果转换为控制消息
     control_msg->lateral.steering_angle = control_output[0];
-    control_msg->lateral.rear_wheel_angle = 0.0;
-
-    // 设置前轮转向模式
-    control_msg->steering_mode = race_msgs::Control::FRONT_STEERING_MODE;
+    control_msg->lateral.rear_wheel_angle = control_output[1];
+    
+    // 设置双轴转向模式
+    control_msg->steering_mode = race_msgs::Control::DUAL_STEERING_MODE;
     
     // 控制模式设置为加速度模式
     control_msg->control_mode = race_msgs::Control::DES_ACCEL_ONLY;
@@ -488,8 +503,8 @@ bool NMPCLateralController::solveNMPC(const std::vector<double>& current_state, 
 
         // 提取第一个控制量
         casadi::DM u0 = sol_curr.value(U_sparse_(casadi::Slice(), 0));
-        control_output.resize(1);
         control_output[0] = static_cast<double>(u0(0));  // 前轴转向角
+        control_output[1] = static_cast<double>(u0(1));  // 后轴转向角
 
         return true;
     } catch (std::exception& e) {
@@ -499,7 +514,7 @@ bool NMPCLateralController::solveNMPC(const std::vector<double>& current_state, 
 }
 
 std::vector<double> NMPCLateralController::vehicleStatusToStateVector(const race_msgs::VehicleStatus& status) {
-    // 状态向量: [x, y, theta, vx, delta1]
+    // 状态向量: [x, y, theta, vx, delta1, delta2]
     std::vector<double> state(nx_, 0.0);
     
     state[0] = status.pose.position.x;               // x
@@ -507,6 +522,7 @@ std::vector<double> NMPCLateralController::vehicleStatusToStateVector(const race
     state[2] = status.euler.yaw;                     // theta (偏航角)
     state[3] = status.vel.linear.x;                  // vx (纵向速度)
     state[4] = status.lateral.steering_angle;        // delta1 (前轴转向角)
+    state[5] = status.lateral.rear_wheel_angle;      // delta2 (后轴转向角)
     
     return state;
 }
